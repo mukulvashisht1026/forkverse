@@ -8,10 +8,27 @@
  *   - get_entity_tree: whole tree for an entity (graph/tree.ts), for overview questions.
  *   - list_pruned: pruned branches with rejection reasons.
  */
-import { findEntityTool } from './findEntity.js';
-import { getMetricsTool } from './getMetrics.js';
-import { getSourceTool } from './getSource.js';
-import { getTimelineTool } from './getTimeline.js';
-import { searchNodesTool } from './searchNodes.js';
+import type { StructuredToolInterface } from '@langchain/core/tools';
 
-export const tools = [findEntityTool, searchNodesTool, getTimelineTool, getSourceTool, getMetricsTool];
+import { getContextTools } from './contextMcp.js';
+
+const localTools = [];
+
+let allTools: StructuredToolInterface[] | null = null;
+
+/** Call once at startup, before the graph is built. */
+export async function initTools() {
+  let mcpTools: StructuredToolInterface[] = [];
+  try {
+    mcpTools = await getContextTools();
+  } catch (err) {
+    console.error('Failed to load MCP tools, continuing with local tools only:', err);
+  }
+  allTools = [ ...mcpTools];
+  console.log('Loaded tools:', allTools.map((t) => t.name));
+}
+
+export function getTools(): StructuredToolInterface[] {
+  if (!allTools) throw new Error('initTools() must be awaited before using tools');
+  return allTools;
+}

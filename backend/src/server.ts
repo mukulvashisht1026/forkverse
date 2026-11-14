@@ -7,7 +7,8 @@ import { logger } from './utils/logger.js';
 import { healthRouter } from './routes/health.js';
 import { helloRouter } from './routes/hello.js';
 import { chatRouter } from './routes/chat.js';
-
+import { initTools } from './agent/tools/index.js';
+import { closeContextMcp } from './agent/tools/contextMcp.js';
 export function buildServer() {
   const app = express();
   app.disable('x-powered-by');
@@ -31,6 +32,15 @@ export function buildServer() {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+  main().catch((err) => {
+    logger.error(err, 'startup failed');
+    process.exit(1);
+  });
+}
+
+async function main() {
+  await initTools(); // connect to the MCP server and load tools BEFORE accepting requests
+
   const server = buildServer().listen(config.PORT, '0.0.0.0', () => {
     logger.info({ port: config.PORT }, 'server listening');
   });
@@ -38,4 +48,12 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
     logger.error(err, 'server failed');
     process.exit(1);
   });
+
+  const shutdown = async () => {
+    server.close();
+    await closeContextMcp();
+    process.exit(0);
+  };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
 }

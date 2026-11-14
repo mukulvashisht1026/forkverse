@@ -25,8 +25,7 @@ import { checkpointer } from './checkpointer.js';
 import { createChatModel } from './model.js';
 import { buildSystemPrompt } from './prompts/system.js';
 import { AgentState, type AgentStateType } from './state.js';
-import { tools } from './tools/index.js';
-
+import { getTools } from './tools/index.js';
 export interface AgentGraphDeps {
   model: BaseChatModel;
   checkpointer: BaseCheckpointSaver;
@@ -34,6 +33,7 @@ export interface AgentGraphDeps {
 
 /** Deps are injectable so tests can use a fake model and an in-memory checkpointer. */
 export function createAgentGraph(deps: AgentGraphDeps) {
+  const tools = getTools(); // must be called here, not at module top level
   const model = deps.model.bindTools!(tools);
 
   async function agentNode(state: AgentStateType) {
