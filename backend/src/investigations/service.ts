@@ -131,6 +131,14 @@ export class InvestigationService {
     return r;
   }
 
+  async rename(id: string, value: string): Promise<InvestigationDto> {
+    const title = value.trim();
+    if (!title || title.length > MAX_TITLE) throw new InvestigationError(400, 'invalid_title', `Title must be between 1 and ${MAX_TITLE} characters.`);
+    await this.get(id);
+    await this.deps.store.rename(id, title);
+    return toInvestigationDto((await this.get(id)));
+  }
+
   async create(input: CreateInvestigationRequestDto): Promise<CreateInvestigationResponseDto> {
     const { topic: raw, context } = cleanRequest(input);
     // Planner: "LEST DO A NALAYS OF NARDNER MODI" -> "Narendra Modi", mode, queries, key terms.

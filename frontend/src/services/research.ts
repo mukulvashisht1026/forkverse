@@ -25,6 +25,18 @@ export async function getConversation(investigationId: string, cursor?: string, 
   return response.json() as Promise<ChatPageDto>;
 }
 
+export async function transcribeAudio(audio: Blob, signal?: AbortSignal): Promise<string> {
+  const response = await fetch(endpoint('/api/transcriptions'), {
+    method: 'POST', signal,
+    headers: { 'Content-Type': audio.type || 'audio/webm', Accept: 'application/json' },
+    body: audio,
+  });
+  await checked(response);
+  const payload = await response.json() as { transcript?: string };
+  if (!payload.transcript?.trim()) throw new ResearchApiError('Gemini did not return a transcript.', 'empty_transcription');
+  return payload.transcript.trim();
+}
+
 function readWithAbort(reader: ReadableStreamDefaultReader<Uint8Array>, signal: AbortSignal): Promise<ReadableStreamReadResult<Uint8Array>> {
   if (signal.aborted) return Promise.reject(new DOMException('The operation was aborted.', 'AbortError'));
   return new Promise((resolve, reject) => {

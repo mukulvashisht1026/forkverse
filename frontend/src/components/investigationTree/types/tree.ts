@@ -25,6 +25,7 @@ export interface SpineNode {
   id: string;
   name: string;
   info: string;
+  isNew?: boolean;
   branches: BranchItem[];
   /** Claim view: unverified claim, drawn on the separate dashed lane below the timeline. */
   pending?: boolean;

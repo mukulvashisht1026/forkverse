@@ -26,6 +26,8 @@ const EnvSchema = z.object({
   LLM_BASE_URL: z.string().default(''),
   LLM_API_KEY: z.string().default(''),
   LLM_MODEL: z.string().default(''),
+  GEMINI_API_KEY: z.string().default(''),
+  GEMINI_TRANSCRIPTION_MODEL: z.string().default('gemini-3.5-transcribe'),
 
   EMBEDDING_PROVIDER: z.enum(['router', 'python_service']).default('router'),
   EMBEDDING_MODEL: z.string().default(''),

@@ -16,7 +16,7 @@ export function SpineNav({
   return (
     <nav
       aria-label="Main nodes along spine"
-      className="pointer-events-auto absolute bottom-[112px] left-5 z-10 sm:bottom-[11vh] sm:left-8"
+      className="pointer-events-auto absolute bottom-2 left-5 z-10 sm:bottom-2 sm:left-8"
     >
       <ul className="m-0 list-none p-0">
         {spine.map((node, index) => {

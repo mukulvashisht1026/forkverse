@@ -30,6 +30,7 @@ export interface ListPage {
 export interface InvestigationStore {
   create(record: InvestigationRecord): Promise<void>;
   get(id: string): Promise<InvestigationRecord | null>;
+  rename(id: string, title: string): Promise<void>;
   listPublic(opts: { limit: number; cursor?: string }): Promise<ListPage>;
   addEvent(id: string, event: InvestigationEventDto): Promise<number>;
   addEvidence(id: string, eventId: string, evidence: InvestigationEvidenceDto): Promise<number>;
@@ -132,6 +133,11 @@ export class MongoInvestigationStore implements InvestigationStore {
   async get(id: string) {
     const doc = await this.investigations.findOne({ _id: id });
     return doc ? fromDoc(doc) : null;
+  }
+
+  async rename(id: string, title: string) {
+    const result = await this.investigations.updateOne({ _id: id }, { $set: { title, updatedAt: nowIso() } });
+    if (!result.matchedCount) throw new Error(`Investigation "${id}" not found.`);
   }
 
   async listPublic({ limit, cursor }: { limit: number; cursor?: string }): Promise<ListPage> {
@@ -260,6 +266,13 @@ export class MemoryInvestigationStore implements InvestigationStore {
   async get(id: string) {
     const r = this.records.get(id);
     return r ? structuredClone(r) : null;
+  }
+
+  async rename(id: string, title: string) {
+    const r = this.records.get(id);
+    if (!r) throw new Error(`Investigation "${id}" not found.`);
+    r.title = title;
+    r.updatedAt = nowIso();
   }
 
   async listPublic({ limit, cursor }: { limit: number; cursor?: string }): Promise<ListPage> {

@@ -52,12 +52,13 @@ export interface InvestigationGraph {
 
 export type CreateInvestigationInput = CreateInvestigationRequestDto;
 export type InvestigationRepository = Pick<InvestigationApi,
-  'listPublicInvestigations' | 'getInvestigation' | 'getInvestigationGraph' | 'createInvestigation' | 'extendInvestigation'>;
+  'listPublicInvestigations' | 'getInvestigation' | 'renameInvestigation' | 'getInvestigationGraph' | 'createInvestigation' | 'extendInvestigation'>;
 
 /** Decoupled frontend data boundary consumed by the UI. */
 export interface InvestigationApi {
   listPublicInvestigations(): Promise<Investigation[]>;
   getInvestigation(id: string): Promise<Investigation>;
+  renameInvestigation(id: string, title: string): Promise<Investigation>;
   getInvestigationGraph(id: string): Promise<InvestigationGraph>;
   /** Persists the investigation and starts research; returns before research finishes. */
   createInvestigation(input: CreateInvestigationInput): Promise<Investigation>;
@@ -158,6 +159,9 @@ export const investigationRepository: InvestigationApi = {
   },
   async getInvestigation(id: string): Promise<Investigation> {
     return mapInvestigationDto(await request<InvestigationDto>(path(id)));
+  },
+  async renameInvestigation(id: string, title: string): Promise<Investigation> {
+    return mapInvestigationDto(await request<InvestigationDto>(path(id), { method: 'PATCH', body: JSON.stringify({ title }) }));
   },
   async getInvestigationGraph(id: string): Promise<InvestigationGraph> {
     return mapInvestigationGraphDto(await request<InvestigationGraphDto>(path(id, '/graph')));

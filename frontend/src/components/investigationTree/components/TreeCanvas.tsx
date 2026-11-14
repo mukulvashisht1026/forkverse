@@ -22,6 +22,7 @@ import {
   computeSpineLayout,
   tickLabel,
 } from '../utils/treeMath';
+import { zoomViewAtWheel } from '../utils/wheelZoom';
 
 /** Claim view: y of the dashed lane holding pending (unverified) claims. */
 const UNVERIFIED_LANE_Y = 290;
@@ -83,12 +84,13 @@ interface TreeCanvasProps {
   selectedIndex: number;
   focusTarget: FocusTarget | null;
   isPaused: boolean;
+  researching: boolean;
   className?: string;
   fitRequest: { id: number; instant: boolean };
   onSelectNode: (index: number) => void;
   onSelectBranch: (spineIndex: number, branchIndex: number) => void;
   onSetFocus: (target: FocusTarget | null) => void;
-  onBranchGrowthComplete: (spineIndex: number, branchId: string) => void;
+  onGrowthComplete: (eventId: string, evidenceId?: string) => void;
   onContinue: () => void;
   isContinuing: boolean;
   /** Claim view: neutral links between claims, drawn as labelled arcs above the timeline. */
@@ -111,6 +113,8 @@ interface TreeCanvasProps {
 interface BranchViewProps {
   branch: BranchItem;
   geometry: BranchGeometry;
+  eventId: string;
+  growthDelay: number;
   spineIndex: number;
   branchIndex: number;
   accent: string;
@@ -122,12 +126,14 @@ interface BranchViewProps {
   dragMovedRef: React.RefObject<boolean>;
   onSelectBranch: (spineIndex: number, branchIndex: number) => void;
   onSetFocus: (target: FocusTarget | null) => void;
-  onGrowthComplete: (spineIndex: number, branchId: string) => void;
+  onGrowthComplete: (eventId: string, evidenceId?: string) => void;
 }
 
 function BranchView({
   branch,
   geometry,
+  eventId,
+  growthDelay,
   spineIndex,
   branchIndex,
   accent,
@@ -145,6 +151,7 @@ function BranchView({
   const penRef = useRef<SVGCircleElement>(null);
   const tipGroupRef = useRef<SVGGElement>(null);
   const mistGroupRef = useRef<SVGGElement>(null);
+  const growthProgressRef = useRef(0);
   const [burstKey, setBurstKey] = useState<number>(0);
 
   useEffect(() => {
@@ -178,38 +185,48 @@ function BranchView({
         penEl.classList.remove('on');
       }
 
-      tipEl.classList.toggle('on', state.tipVisible);
+      tipEl.classList.toggle('ready', state.tipVisible);
+      tipEl.style.opacity = state.tipVisible ? '1' : '0';
       mistEl.style.opacity = state.tipVisible ? '1' : String(state.eased * 0.65);
     };
 
     if (!shouldAnimate) {
+      growthProgressRef.current = 1;
       applyProgress(1);
       if (branch.isNew && isPaused) {
-        onGrowthComplete(spineIndex, branch.id);
+        onGrowthComplete(eventId, branch.id);
       }
       return;
     }
 
-    const duration = Math.max(3.2, geometry.approxLength / 58);
-    let progress = 0;
+    const duration = Math.min(1.6, Math.max(0.9, geometry.approxLength / 320));
+    let progress = growthProgressRef.current;
+    let waitElapsed = 0;
     let lastTime = performance.now();
     let rafId = 0;
     let cancelled = false;
 
-    applyProgress(0);
+    applyProgress(progress);
 
     const step = (now: number) => {
       if (cancelled) return;
       const dt = Math.min((now - lastTime) / 1000, 0.05);
       lastTime = now;
+      if (waitElapsed < growthDelay) {
+        waitElapsed += dt;
+        rafId = requestAnimationFrame(step);
+        return;
+      }
       progress = Math.min(1, progress + dt / duration);
+      growthProgressRef.current = progress;
       applyProgress(progress);
 
       if (progress < 1) {
         rafId = requestAnimationFrame(step);
       } else {
+        growthProgressRef.current = 1;
         setBurstKey((k) => k + 1);
-        onGrowthComplete(spineIndex, branch.id);
+        onGrowthComplete(eventId, branch.id);
       }
     };
 
@@ -221,6 +238,8 @@ function BranchView({
   }, [
     branch.id,
     branch.isNew,
+    eventId,
+    growthDelay,
     geometry.approxLength,
     isPaused,
     onGrowthComplete,
@@ -232,7 +251,7 @@ function BranchView({
   return (
     <g className={`branch ${isCited ? 'cited' : ''} ${branch.live ? `live-${branch.live}` : ''} ${branch.vet ? `vet-${branch.vet}` : ''} ${role ? `role-${role}` : ''} ${branch.stance ? `stance-${branch.stance}` : ''} ${branch.outcomeReport ? 'outcome-report' : ''} ${branch.sourceReport ? 'source-report' : ''}`} transform={`translate(${geometry.points[0].x} ${geometry.points[0].y}) scale(${geometry.depthScale}) translate(${-geometry.points[0].x} ${-geometry.points[0].y})`}>
       {/* Living-Tree mist stipple + neural-scan tangent filaments & micro-dendrites */}
-      <g ref={mistGroupRef} style={{ transition: 'opacity 0.35s ease' }}>
+      <g ref={mistGroupRef} className="branch-filaments" style={{ transition: 'opacity 0.35s ease' }}>
         {geometry.filaments.map((strand, idx) => (
           <g key={`fil-${idx}`}>
             <path
@@ -285,9 +304,9 @@ function BranchView({
         ref={pathRef}
         d={geometry.pathD}
         fill="none"
-        stroke={isGroupFocused ? accent : '#8e99ad'}
-        opacity={isGroupFocused ? 0.28 : 0.14}
-        strokeWidth={isGroupFocused ? 3 : 2.6}
+        stroke={isGroupFocused ? accent : '#68746e'}
+        opacity={isGroupFocused ? 0.8 : 0.52}
+        strokeWidth={isGroupFocused ? 1.7 : 1.35}
         strokeLinecap="round"
         strokeLinejoin="round"
         style={{ transition: 'stroke 0.2s ease, stroke-width 0.2s ease' }}
@@ -301,29 +320,18 @@ function BranchView({
       {/* Glowing pen dot during live branch growth */}
       <circle ref={penRef} className="pen-dot" r={5.5} />
 
-      {/* Concentric completion burst rings */}
+      {/* One restrained completion highlight */}
       {burstKey > 0 && (
         <g key={burstKey}>
-          {[0, 0.28].map((delay, idx) => (
-            <circle
-              key={idx}
-              className="burst-ring"
-              cx={geometry.tip.x}
-              cy={geometry.tip.y}
-              r={8}
-              fill="none"
-              stroke={accent}
-              strokeWidth={2}
-              style={{ animationDelay: `${delay}s` }}
-            />
-          ))}
+          <circle className="burst-ring" cx={geometry.tip.x} cy={geometry.tip.y} r={8} fill="none" stroke={accent} strokeWidth={1.4} />
         </g>
       )}
 
       {/* Interactive branch tip node */}
       <g
         ref={tipGroupRef}
-        className={`tip-group ${!branch.isNew ? 'on' : ''} ${isTipHot ? 'hot' : ''}`}
+        data-card-anchor={`evidence:${eventId}:${branch.id}`}
+        className={`tip-group ${isTipHot ? 'hot' : ''}`}
         tabIndex={0}
         role="button"
         aria-label={branch.name}
@@ -352,6 +360,7 @@ function BranchView({
           stroke={isTipHot ? '#f5f2e8' : accent}
           strokeWidth={2.6}
         />
+        <circle className="keyboard-focus-ring" r={14} fill="none" />
         <circle className="fill-transparent" r={22} />
         {branch.flag && <RedFlag x={6} y={-9} />}
         {branch.flag && isTipHot && <FlagTooltip lines={branch.flag.lines} x={14} y={-18} scale={1 / geometry.depthScale} />}
@@ -386,11 +395,12 @@ export function TreeCanvas({
   selectedIndex,
   focusTarget,
   isPaused,
+  researching,
   fitRequest,
   onSelectNode,
   onSelectBranch,
   onSetFocus,
-  onBranchGrowthComplete,
+  onGrowthComplete,
   onContinue,
   isContinuing,
   onViewChange,
@@ -407,6 +417,8 @@ export function TreeCanvas({
 
   const viewRef = useRef<ViewTransform>({ k: 1, x: 0, y: 0 });
   const goalRef = useRef<ViewTransform | null>(null);
+  const cameraRafRef = useRef<number | null>(null);
+  const scheduleCameraRef = useRef<() => void>(() => {});
   const dragRef = useRef<{
     x: number;
     y: number;
@@ -557,6 +569,7 @@ export function TreeCanvas({
       applyViewToDom();
     } else {
       goalRef.current = nextGoal;
+      scheduleCameraRef.current();
     }
   };
 
@@ -582,35 +595,64 @@ export function TreeCanvas({
 
   // Smooth camera lerp loop for Fit view transitions
   useEffect(() => {
-    let rafId = 0;
+    let disposed = false;
     const tick = () => {
+      cameraRafRef.current = null;
+      if (disposed || document.hidden) return;
       const goal = goalRef.current;
-      if (goal) {
-        if (isPaused) {
-          viewRef.current = { ...goal };
-          goalRef.current = null;
-          applyViewToDom();
-        } else {
-          const v = viewRef.current;
-          v.k += (goal.k - v.k) * 0.1;
-          v.x += (goal.x - v.x) * 0.1;
-          v.y += (goal.y - v.y) * 0.1;
-          applyViewToDom();
-          if (
-            Math.abs(goal.k - v.k) < 0.001 &&
-            Math.abs(goal.x - v.x) < 0.5 &&
-            Math.abs(goal.y - v.y) < 0.5
-          ) {
-            viewRef.current = { ...goal };
-            goalRef.current = null;
-            applyViewToDom();
-          }
-        }
+      if (!goal) return;
+      if (isPaused) {
+        viewRef.current = { ...goal };
+        goalRef.current = null;
+        applyViewToDom();
+        return;
       }
-      rafId = requestAnimationFrame(tick);
+      const v = viewRef.current;
+      v.k += (goal.k - v.k) * 0.1;
+      v.x += (goal.x - v.x) * 0.1;
+      v.y += (goal.y - v.y) * 0.1;
+      applyViewToDom();
+      if (
+        Math.abs(goal.k - v.k) < 0.001 &&
+        Math.abs(goal.x - v.x) < 0.5 &&
+        Math.abs(goal.y - v.y) < 0.5
+      ) {
+        viewRef.current = { ...goal };
+        goalRef.current = null;
+        applyViewToDom();
+      } else {
+        cameraRafRef.current = requestAnimationFrame(tick);
+      }
     };
-    rafId = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafId);
+    const schedule = () => {
+      if (cameraRafRef.current === null && !document.hidden && goalRef.current && !isPaused) {
+        cameraRafRef.current = requestAnimationFrame(tick);
+      }
+    };
+    scheduleCameraRef.current = schedule;
+    const onVisibilityChange = () => {
+      if (document.hidden && cameraRafRef.current !== null) {
+        cancelAnimationFrame(cameraRafRef.current);
+        cameraRafRef.current = null;
+      } else {
+        schedule();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    if (isPaused && goalRef.current) {
+      viewRef.current = { ...goalRef.current };
+      goalRef.current = null;
+      applyViewToDom();
+    } else {
+      schedule();
+    }
+    return () => {
+      disposed = true;
+      scheduleCameraRef.current = () => {};
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      if (cameraRafRef.current !== null) cancelAnimationFrame(cameraRafRef.current);
+      cameraRafRef.current = null;
+    };
   }, [isPaused]);
 
   // Panning via pointer events on window
@@ -653,25 +695,20 @@ export function TreeCanvas({
   useEffect(() => {
     const svg = svgRef.current;
     if (!svg) return;
-    const handleWheel = (e: WheelEvent) => {
+    // Listen on the canvas surface, not just the SVG: branch hit targets are overlay
+    // elements, and wheel events over them do not reach the SVG.
+    const surface = svg.parentElement ?? svg;
+    const handleWheel: EventListener = (event) => {
+      const e = event as WheelEvent;
       e.preventDefault();
       const rect = svg.getBoundingClientRect();
-      const px = e.clientX - rect.left;
-      const py = e.clientY - rect.top;
       const v = viewRef.current;
-      const nextK = Math.max(
-        0.14,
-        Math.min(3, v.k * Math.exp(-e.deltaY * 0.0015))
-      );
-      const scale = nextK / v.k;
-      v.x = px - (px - v.x) * scale;
-      v.y = py - (py - v.y) * scale;
-      v.k = nextK;
+      Object.assign(v, zoomViewAtWheel(v, e.deltaY, { x: e.clientX, y: e.clientY }, rect));
       goalRef.current = null;
       applyViewToDom();
     };
-    svg.addEventListener('wheel', handleWheel, { passive: false });
-    return () => svg.removeEventListener('wheel', handleWheel);
+    surface.addEventListener('wheel', handleWheel, { passive: false });
+    return () => surface.removeEventListener('wheel', handleWheel);
   }, []);
 
   // Edge scroll: while an edge button is hovered/pressed the camera glides that way, easing in
@@ -744,6 +781,11 @@ export function TreeCanvas({
   const isFocusing = focusTarget !== null;
   const isCiting = Boolean(highlight && (highlight.evidenceIds.size > 0 || highlight.eventIds.size > 0));
 
+  useEffect(() => {
+    if (!isPaused) return;
+    for (const node of spine) if (node.isNew) onGrowthComplete(node.id);
+  }, [isPaused, onGrowthComplete, spine]);
+
   return (
     <>
     <svg
@@ -751,7 +793,7 @@ export function TreeCanvas({
       data-testid="tree-canvas"
       role="img"
       aria-label="Tree map: a main timeline spine with curved branches growing forward from each node"
-      className={`itl-canvas absolute inset-0 h-full w-full select-none touch-none ${className} ${
+      className={`itl-canvas absolute inset-0 h-full w-full select-none touch-none ${className} ${claimView ? 'claim-view' : ''} ${
         isDragging ? 'cursor-grabbing' : 'cursor-grab'
       }`}
       onPointerDown={(e) => {
@@ -770,18 +812,18 @@ export function TreeCanvas({
     >
       <defs>
         <radialGradient id="node-halo-active" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor="#5fc2b4" stopOpacity="0.34" />
-          <stop offset="48%" stopColor="#d1bd91" stopOpacity="0.14" />
-          <stop offset="100%" stopColor="#050b1b" stopOpacity="0" />
+          <stop offset="0%" stopColor="#247c78" stopOpacity="0.14" />
+          <stop offset="48%" stopColor="#d1a900" stopOpacity="0.11" />
+          <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
         </radialGradient>
         <radialGradient id="node-halo-idle" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor="#d1bd91" stopOpacity="0.16" />
-          <stop offset="100%" stopColor="#050b1b" stopOpacity="0" />
+          <stop offset="0%" stopColor="#aeb8b1" stopOpacity="0.13" />
+          <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
         </radialGradient>
       </defs>
 
       {/* Living Tree ambient deep-sky starlight */}
-      <g aria-hidden="true" className="pointer-events-none">
+      <g aria-hidden="true" className="pointer-events-none ambient-stars">
         {ambientStars.map((star, idx) => (
           <circle
             key={idx}
@@ -803,6 +845,7 @@ export function TreeCanvas({
       >
         {/* Living Tree horizon particle scatter + neural waveform envelope & harmonic arcs */}
         <g aria-hidden="true" className="spine-layer">
+          <g className="spine-decorations">
           {spineSynapses.arcs.map((arc, idx) => (
             <path
               key={`arc-${idx}`}
@@ -846,6 +889,7 @@ export function TreeCanvas({
               }
             />
           ))}
+          </g>
 
           {/* Retro-tech ruled baseline & marching calibration ties */}
           <line
@@ -853,7 +897,7 @@ export function TreeCanvas({
             y1={5}
             x2={totalSpineWidth + 124}
             y2={5}
-            stroke="rgba(209, 189, 145, 0.2)"
+            stroke="#a9b1ac"
             strokeWidth={1}
           />
           <line
@@ -861,9 +905,9 @@ export function TreeCanvas({
             y1={0}
             x2={totalSpineWidth + 132}
             y2={0}
-            stroke="#d1bd91"
-            opacity={0.42}
-            strokeWidth={2.5}
+            stroke="#68746e"
+            opacity={0.72}
+            strokeWidth={1.8}
             strokeLinecap="round"
           />
           <line
@@ -872,16 +916,21 @@ export function TreeCanvas({
             y1={0}
             x2={totalSpineWidth + 114}
             y2={0}
-            stroke="#d1bd91"
+            stroke="#8b9690"
             strokeWidth={11}
             strokeDasharray="2 14"
-            opacity={0.28}
+            opacity={0.35}
           />
           <path
             d={`M${totalSpineWidth + 128},-8.5 L${totalSpineWidth + 152},0 L${totalSpineWidth + 128},8.5 Z`}
-            fill="#d1bd91"
+            fill="#68746e"
           />
         </g>
+        {researching && spine.length > 0 && <g className={`research-frontier${isPaused ? ' is-static' : ''}`} transform={`translate(${totalSpineWidth + 42} 0)`} role="status" aria-label="Researching sources">
+          <line x1={-32} y1={0} x2={-10} y2={0} />
+          <circle r={4} />
+          <text x={10} y={4}>Researching sources…</text>
+        </g>}
         <g
           className="continuation-control"
           style={{ cursor: isContinuing ? 'wait' : 'pointer' }}
@@ -898,8 +947,8 @@ export function TreeCanvas({
             }
           }}
         >
-          <circle r={21} fill="rgba(5,11,27,.82)" stroke="#d1bd91" strokeOpacity={0.7} />
-          {isContinuing ? <path d="M-5,-7 L5,0 L-5,7" fill="none" stroke="#fff" strokeWidth={2.5} /> : <path d="M-7,0 H7 M2,-5 L7,0 L2,5" fill="none" stroke="#fff" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />}
+          <circle r={21} fill="#ffffff" stroke="#8b9690" strokeWidth={1.4} />
+          {isContinuing ? <path d="M-5,-7 L5,0 L-5,7" fill="none" stroke="#343d38" strokeWidth={2.5} /> : <path d="M-7,0 H7 M2,-5 L7,0 L2,5" fill="none" stroke="#343d38" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />}
         </g>
 
         {/* Unverified lane: pending claims, visually separated from established ones */}
@@ -950,6 +999,9 @@ export function TreeCanvas({
             const isNodeCited =
               isCiting &&
               (highlight!.eventIds.has(node.id) || node.branches.some((b) => highlight!.evidenceIds.has(b.id)));
+            const eventRevealDelay = node.isNew
+              ? Math.max(0, ...branches.filter(({ branch }) => branch.isNew).map(({ geometry }, index) => Math.min(index * 0.1, 0.3) + Math.min(1.6, Math.max(0.9, geometry.approxLength / 320))))
+              : 0;
 
             return (
               <g
@@ -980,7 +1032,7 @@ export function TreeCanvas({
                     {node.flags.count > 1 && <text className="node-flag-count" x={cx + 38} y={-26}>{node.flags.count}</text>}
                   </g>
                 )}
-                {(node.pending || node.unverified) && <text className="pending-badge" x={cx} y={42} textAnchor="middle">UNVERIFIED</text>}
+                {(node.unverified || (node.pending && !claimView)) && <text className="pending-badge" x={cx} y={42} textAnchor="middle">UNVERIFIED</text>}
                 {node.outcome && (
                   <text className={`outcome-badge outcome-${node.outcome}`} x={cx} y={node.pending || node.unverified ? 55 : 42} textAnchor="middle">
                     {node.outcome === 'no_update' ? 'NO UPDATE YET' : node.outcome.replace('_', ' ').toUpperCase()}
@@ -1005,6 +1057,8 @@ export function TreeCanvas({
                     key={branch.id}
                     branch={branch}
                     geometry={geometry}
+                    eventId={node.id}
+                    growthDelay={branch.isNew ? Math.min(branchIdx * 0.1, 0.3) : 0}
                     spineIndex={spineIdx}
                     branchIndex={branchIdx}
                     accent={accent}
@@ -1018,13 +1072,18 @@ export function TreeCanvas({
                     dragMovedRef={dragMovedRef}
                     onSelectBranch={onSelectBranch}
                     onSetFocus={onSetFocus}
-                    onGrowthComplete={onBranchGrowthComplete}
+                    onGrowthComplete={onGrowthComplete}
                   />
                 ))}
 
                 {/* Main spine node: hybrid of Tree Map numbered instrument coin & Living Tree particle lens */}
                 <g
-                  className={`node-group ${isNodeHot ? 'hot' : ''}`}
+                  data-card-anchor={`event:${node.id}`}
+                  className={`node-group ${isNodeHot ? 'hot' : ''} ${node.isNew && !isPaused ? 'new-event' : ''}`}
+                  style={node.isNew && !isPaused ? { animationDelay: `${eventRevealDelay}s` } : undefined}
+                  onAnimationEnd={(event) => {
+                    if (event.target === event.currentTarget && node.isNew) onGrowthComplete(node.id);
+                  }}
                   tabIndex={0}
                   role="button"
                   aria-label={node.name}
@@ -1053,25 +1112,13 @@ export function TreeCanvas({
                     r={isSelected || isNodeHot ? 54 : 38}
                     fill={
                       isSelected || isNodeHot
-                        ? 'url(#node-halo-active)'
+                       ? 'url(#node-halo-active)'
                         : 'url(#node-halo-idle)'
                     }
                     aria-hidden="true"
                   />
 
-                  {/* Selection sonar pulse rings */}
-                  <g aria-hidden="true">
-                    {[0, 0.6, 1.2].map((delay, ringIdx) => (
-                      <circle
-                        key={ringIdx}
-                        className="sonar-ring"
-                        cx={0}
-                        cy={0}
-                        r={25 + ringIdx * 5}
-                        style={{ animationDelay: `${delay}s` }}
-                      />
-                    ))}
-                  </g>
+                  <circle className="selection-ring" cx={0} cy={0} r={34} fill="none" aria-hidden="true" />
 
                   {/* Outer vintage instrument calibration reticle */}
                   <circle
@@ -1079,7 +1126,7 @@ export function TreeCanvas({
                     cy={0}
                     r={28}
                     fill="none"
-                    stroke={isNodeHot ? '#5fc2b4' : 'rgba(209, 189, 145, 0.34)'}
+                    stroke={isNodeHot ? '#8b6900' : 'rgba(104, 116, 110, 0.42)'}
                     strokeWidth={1}
                     strokeDasharray="1.5 5"
                     aria-hidden="true"
@@ -1090,7 +1137,7 @@ export function TreeCanvas({
                     cx={2}
                     cy={3}
                     r={22}
-                    fill="rgba(2, 4, 10, 0.65)"
+                    fill="rgba(31, 43, 36, 0.12)"
                     aria-hidden="true"
                   />
 
@@ -1101,22 +1148,22 @@ export function TreeCanvas({
                         cx={0}
                         cy={0}
                         r={22}
-                        fill="#060d1f"
-                        stroke="#d1bd91"
-                        strokeWidth={1.6}
+                        fill="#ffffff"
+                        stroke="#7c8981"
+                        strokeWidth={1.4}
                       />
                       {/* Inner accent ring */}
                       <circle
                         cx={0}
                         cy={0}
                         r={17.5}
-                        fill="#09132b"
-                        stroke={isNodeHot ? '#ff9a4d' : accent}
-                        strokeWidth={2.2}
+                        fill="#f3f5f2"
+                        stroke={isNodeHot ? '#8b6900' : accent}
+                        strokeWidth={1.6}
                       />
 
                       {/* Living Tree particle stipple inside the dark optical lens */}
-                      <g aria-hidden="true">
+                      <g aria-hidden="true" className="node-lens-texture">
                         {lensParticles.map((dot, dotIdx) => (
                           <circle
                             key={dotIdx}
@@ -1134,11 +1181,11 @@ export function TreeCanvas({
                         y={4.5}
                         textAnchor="middle"
                         className="font-mono-tabular pointer-events-none text-[12px] font-semibold"
-                        fill="#ffffff"
+                        fill="#29332e"
                         style={{
                           paintOrder: 'stroke',
-                          stroke: '#060d1f',
-                          strokeWidth: '3.5px',
+                          stroke: '#ffffff',
+                          strokeWidth: '2px',
                           strokeLinejoin: 'round',
                         }}
                       >
@@ -1167,6 +1214,7 @@ export function TreeCanvas({
 
                   {/* Hit target */}
                   <circle className="fill-transparent" r={35} />
+                  <circle className="keyboard-focus-ring" r={29} fill="none" />
 
                   {/* Main node title */}
                   <text
