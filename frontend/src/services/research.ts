@@ -9,8 +9,13 @@ export class ResearchApiError extends Error {
 function endpoint(path: string) { return `${API_BASE.replace(/\/$/, '')}${path}`; }
 async function checked(response: Response) {
   if (response.ok) return;
-  const payload = await response.json().catch(() => ({})) as { error?: string; message?: string; code?: string };
-  throw new ResearchApiError(payload.message ?? payload.error ?? `Backend request failed (${response.status})`, payload.code);
+  const contentType = response.headers.get('content-type') ?? '';
+  const payload = contentType.includes('application/json')
+    ? await response.json().catch((error) => { console.error('Invalid JSON error response', error); return {}; }) as { error?: string; message?: string; code?: string }
+    : {};
+  if (!contentType.includes('application/json')) console.error('Expected JSON API error but received', { status: response.status, contentType });
+  const isHtmlFallback = contentType.includes('text/html');
+  throw new ResearchApiError(payload.message ?? payload.error ?? (isHtmlFallback ? 'Research service is temporarily unavailable.' : `Research request failed (${response.status}).`), payload.code);
 }
 
 export async function getConversation(investigationId: string, cursor?: string, signal?: AbortSignal): Promise<ChatPageDto> {

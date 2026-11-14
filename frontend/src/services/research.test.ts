@@ -15,6 +15,13 @@ test('SSE parser handles chunk splits inside frame boundaries and JSON payload',
   assert.deepEqual(events, [{ type: 'token', text: 'hello' }, { type: 'token', text: ' world' }]);
 });
 
+test('non-JSON HTML API response becomes concise service error', async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = async () => new Response('<!doctype html><html>fallback</html>', { status: 404, headers: { 'content-type': 'text/html' } });
+  try { await assert.rejects(getConversation('inv-1'), /Research service is temporarily unavailable/); }
+  finally { globalThis.fetch = original; }
+});
+
 test('SSE server error surfaces failure without fake completion', async () => {
   const original = globalThis.fetch; globalThis.fetch = async () => sseResponse(streamFrom(['data: {"type":"error","error":{"code":"unsupported","message":"Not available"}}\n\n']));
   const events: string[] = [];
@@ -29,13 +36,13 @@ test('history request scopes encoded ID and pagination cursor; preserves HTTP er
   try { assert.equal((await getConversation('a/b', 'c d')).investigationId, 'a/b'); }
   finally { globalThis.fetch = original; }
   assert.match(requested, /a%2Fb\/messages\?cursor=c%20d$/);
-  globalThis.fetch = async () => new Response(JSON.stringify({ code: 'missing', message: 'not found' }), { status: 404 });
+  globalThis.fetch = async () => new Response(JSON.stringify({ code: 'missing', message: 'not found' }), { status: 404, headers: { 'content-type': 'application/json' } });
   try { await assert.rejects(getConversation('missing'), /not found/); } finally { globalThis.fetch = original; }
 });
 
 test('aborting active stream cancels reader and rejects', async () => {
   const controller = new AbortController(); let canceled = false; const original = globalThis.fetch;
-  globalThis.fetch = async () => new Response(new ReadableStream<Uint8Array>({ start() {}, cancel() { canceled = true; } }), { status: 200 });
+  globalThis.fetch = async () => new Response(new ReadableStream<Uint8Array>({ start() {}, cancel() { canceled = true; } }), { status: 200, headers: { 'content-type': 'text/event-stream' } });
   const pending = runResearchAction({ investigationId: 'i', action: 'answer_question', message: 'q' }, controller.signal, () => undefined);
   await new Promise((resolve) => setTimeout(resolve, 0)); controller.abort();
   try { await assert.rejects(pending); } finally { globalThis.fetch = original; }

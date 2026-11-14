@@ -2,11 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ChatMessageDto, ResearchActionDto, ResearchStreamEventDto, SourceCitationDto } from '../../../contracts/investigations';
 import { getConversation, renderSafeMarkdown, runResearchAction, safeSourceUrl } from '../services/research';
 
-interface Props { investigationId: string; disabled?: boolean; onGraphUpdated: (graph: ResearchStreamEventDto & { type: 'graph_updated' }) => void; }
+interface Props { investigationId: string; disabled?: boolean; historyAvailable?: boolean; onGraphUpdated: (graph: ResearchStreamEventDto & { type: 'graph_updated' }) => void; }
 type Message = ChatMessageDto & { pending?: boolean; interrupted?: boolean };
 const localId = () => `local-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-export function ResearchChat({ investigationId, disabled, onGraphUpdated }: Props) {
+export function ResearchChat({ investigationId, disabled, historyAvailable = true, onGraphUpdated }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState('');
   const [action, setAction] = useState<ResearchActionDto>('answer_question');
@@ -24,6 +24,11 @@ export function ResearchChat({ investigationId, disabled, onGraphUpdated }: Prop
 
   const loadHistory = useCallback(async (cursor?: string) => {
     const id = investigationId;
+    if (!historyAvailable) {
+      setHistoryError('Conversation history is currently unavailable.');
+      setLoadingHistory(false);
+      return;
+    }
     const epoch = generation.current;
     historyRef.current?.abort();
     const controller = new AbortController(); historyRef.current = controller;
@@ -39,11 +44,15 @@ export function ResearchChat({ investigationId, disabled, onGraphUpdated }: Prop
       });
       setNextCursor(page.nextCursor);
     } catch (error) {
-      if (!controller.signal.aborted && currentId.current === id && generation.current === epoch) setHistoryError(error instanceof Error ? error.message : 'Conversation history unavailable.');
+      if (!controller.signal.aborted && currentId.current === id && generation.current === epoch) {
+        const detail = error instanceof Error ? error.message : 'unknown error';
+        if (import.meta.env.DEV) console.error('Conversation history request failed', detail);
+        setHistoryError('Conversation history is currently unavailable.');
+      }
     } finally {
       if (currentId.current === id && generation.current === epoch) { setLoadingHistory(false); setLoadingMore(false); }
     }
-  }, [investigationId]);
+  }, [historyAvailable, investigationId]);
 
   useEffect(() => {
     generation.current += 1;
@@ -56,6 +65,7 @@ export function ResearchChat({ investigationId, disabled, onGraphUpdated }: Prop
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault(); const prompt = draft.trim();
+    if (!historyAvailable) { setSendError('Research chat is not available for this temporary timeline context.'); return; }
     if (!prompt || sending || loadingHistory || disabled) return;
     const id = investigationId; const epoch = generation.current; const controller = new AbortController();
     requestRef.current = controller; setSending(true); setSendError(''); setDraft('');
@@ -93,7 +103,7 @@ export function ResearchChat({ investigationId, disabled, onGraphUpdated }: Prop
     <div className="gh-chat-heading"><h2>Research</h2><p>Investigation-scoped conversation</p></div>
     <div className="gh-chat-messages" aria-live="polite" aria-busy={loadingHistory || sending}>
       {loadingHistory && <p className="gh-muted">Loading conversation…</p>}
-      {historyError && <div role="alert" className="gh-library-unavailable"><p>Conversation history unavailable: {historyError}</p><button type="button" onClick={() => void loadHistory()}>Retry history</button></div>}
+      {historyError && <div role="alert" className="gh-library-unavailable"><p>{historyError}</p><button type="button" onClick={() => void loadHistory()}>Retry history</button></div>}
       {!loadingHistory && !historyError && messages.length === 0 && <p className="gh-chat-intro">No saved conversation yet. Research history appears here when backend supports it.</p>}
       {nextCursor && <button type="button" disabled={loadingMore} onClick={() => void loadHistory(nextCursor)}>{loadingMore ? 'Loading…' : 'Load older messages'}</button>}
       {messages.map((message) => <article className={`gh-chat-message ${message.role}`} key={message.id}>

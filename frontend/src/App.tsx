@@ -21,7 +21,7 @@ function asDate(value?: string) {
 export default function App() {
   const [fitSignal, setFitSignal] = useState(0);
   const fitGraph = useCallback(() => setFitSignal((count) => count + 1), []);
-  const { scrapeMainNode, sendPrompt, nodes: timelineNodes } = useLiveTimeline(fitGraph);
+  const { scrapeMainNode, sendPrompt } = useLiveTimeline(fitGraph);
   const [view, setView] = useState<'home' | 'workspace'>('home');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [hoverFocus, setHoverFocus] = useState<FocusTarget | null>(null);
@@ -220,8 +220,8 @@ export default function App() {
           </form>
         </section>
         <section className="gh-existing">
-          <div className="gh-section-heading"><h2>Explore timeline</h2></div>
-          <p className="gh-library-lede">Browse current global timeline nodes; these are not persisted investigations yet.</p>
+          <div className="gh-section-heading"><h2>Explore investigations</h2></div>
+          <p className="gh-library-lede">Browse existing public research.</p>
           {libraryLoading ? <p className="gh-muted">Loading public investigations…</p> : libraryError ? <div className="gh-library-unavailable"><p>Public investigations are temporarily unavailable.</p><button type="button" onClick={() => void loadPublicInvestigations()}>Retry</button></div> : investigations.length ? investigations.map((item) => (
             <button className="gh-investigation" key={item.id} onClick={() => void openWorkspace(item)}>
               <span className="gh-investigation-copy"><strong>{item.title}</strong>{item.description && <span>{item.description}</span>}</span>
@@ -238,8 +238,10 @@ export default function App() {
         <span className="gh-workspace-title" title={selectedInvestigation?.title}>{selectedInvestigation?.title ?? 'Investigation'}</span>
       </header>
       <div className="gh-workspace-body">
-        {temporaryTimelineContext && <p className="gh-hint" role="status">This view uses a global timeline node as temporary context, not a persisted investigation. Investigation-scoped chat may be unavailable until backend supports durable investigation IDs.</p>}
-        {selectedInvestigation && <ResearchChat key={selectedInvestigation.id} investigationId={selectedInvestigation.id} disabled={workspaceLoading || Boolean(workspaceError)} onGraphUpdated={applyResearchGraph} />}
+        <div className="gh-chat-column">
+          {temporaryTimelineContext && <p className="gh-context-notice" role="status">Temporary timeline context; not a saved investigation.</p>}
+          {selectedInvestigation && <ResearchChat key={selectedInvestigation.id} investigationId={selectedInvestigation.id} historyAvailable={!temporaryTimelineContext} disabled={workspaceLoading || Boolean(workspaceError) || temporaryTimelineContext} onGraphUpdated={applyResearchGraph} />}
+        </div>
         <section className="gh-graph" aria-label="Evidence graph">
           {workspaceNodes && <TreeCanvasAdapter spine={activeNodes} selectedIndex={selectedIndex} focus={activeFocus} moving={motionOn} fitSignal={workspaceFitSignal} onHoverTarget={setHoverFocus} onSelectTarget={focusTarget} onClearPin={() => setPinnedFocus(null)} onContinue={() => void continueGraph()} isContinuing={continuing} />}
           <div className="gh-graph-label">EVIDENCE GRAPH <span>{activeNodes.length} events</span></div>

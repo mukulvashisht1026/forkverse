@@ -358,6 +358,7 @@ export function TreeCanvas({
     const svg = svgRef.current;
     const world = worldRef.current;
     if (!svg || !world) return;
+    // SVG elements may report empty dimensions while graph data is still rendering.
     const bbox = world.getBBox();
     if (!bbox.width || !bbox.height) return;
     const nextGoal = computeFitTransform(
@@ -374,12 +375,17 @@ export function TreeCanvas({
     }
   };
 
-  // Fit on initial mount and whenever fitRequest updates
+  // Fit after data render/layout and whenever graph or viewport changes.
   useEffect(() => {
     const frameId = requestAnimationFrame(() => {
       triggerFit(fitRequest.instant);
     });
-    return () => cancelAnimationFrame(frameId);
+    const observer = new ResizeObserver(() => triggerFit(true));
+    if (svgRef.current) observer.observe(svgRef.current);
+    return () => {
+      cancelAnimationFrame(frameId);
+      observer.disconnect();
+    };
   }, [fitRequest.id, fitRequest.instant, spine.length]);
 
   // Refit cleanly on viewport resize
