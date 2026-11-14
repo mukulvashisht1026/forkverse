@@ -1,5 +1,5 @@
 import { z } from 'zod';
-
+import 'dotenv/config';
 const EnvSchema = z.object({
   MONGODB_URI: z.string().regex(/^mongodb(\+srv)?:\/\//, 'must be a mongodb:// or mongodb+srv:// URI'),
   MONGODB_DB: z.string().default('forkverse'),
