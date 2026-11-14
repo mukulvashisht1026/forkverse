@@ -1,5 +1,17 @@
 import { useMemo } from 'react';
 import type { BranchNode, FocusTarget as AppFocus, SpineNode as AppSpine } from '../../types/tree';
+
+/** Tip tag for a vetted source: only shown when there is something to warn about. */
+export function vetTag(v: BranchNode['vetting']): string | undefined {
+  if (!v) return undefined;
+  if (v.verdict === 'manipulative') return 'MANIPULATIVE';
+  switch (v.rating?.kind) {
+    case 'state_media': return 'STATE MEDIA';
+    case 'unreliable': return 'LOW CREDIBILITY';
+    case 'satire': return 'SATIRE';
+    default: return undefined;
+  }
+}
 import type { ViewTransform } from './types/tree';
 import { TreeCanvas } from './components/TreeCanvas';
 import type { TreeLink } from './types/tree';
@@ -45,6 +57,8 @@ export function mapTreeModels(spine: AppSpine[], liveMarks?: ReadonlyMap<string,
     branches: node.branches.map((branch) => ({
       id: branch.id, name: shortLabel(branch.name), info: branch.info, seed: branch.seed, publishedAt: branch.publishedAt, ...(branch.stance && { stance: branch.stance }), ...(branch.outcomeReport && { outcomeReport: true }), ...(branch.sourceReport && { sourceReport: true }),
       ...(liveMarks?.get(branch.id) && { live: liveMarks.get(branch.id) }),
+      ...(branch.vetting && { vet: branch.vetting.verdict }),
+      ...(vetTag(branch.vetting) && { vetTag: vetTag(branch.vetting) }),
       // Branches a live monitor just added re-grow on screen.
       isNew: Boolean(branch._animateGrowth || (branch._prog !== undefined && branch._prog < 1) || liveMarks?.get(branch.id) === 'fresh'),
     })),

@@ -23,3 +23,17 @@ test('tree canvas adapter marks items added by live tracking (fresh regrows, nod
   assert.equal(mapped[1].live, 'recent');
   assert.equal(mapTreeModels(spine)[0].live, undefined);
 });
+
+test('tree canvas adapter carries source vetting: verdict class and warning tag', async () => {
+  const { vetTag } = await import('./investigationTree/TreeCanvasAdapter');
+  const base = { url: 'u', coverage: 1, reasons: [], depth: 'domain' as const, checkedAt: '' };
+  const spine = [{ id: 'e', name: 'E', info: '', branches: [
+    { id: 'a', name: 'A', info: '', seed: 1, vetting: { ...base, verdict: 'manipulative' as const } },
+    { id: 'b', name: 'B', info: '', seed: 2, vetting: { ...base, verdict: 'uncertain' as const, rating: { domain: 'rt.com', label: 'propaganda' as const, kind: 'state_media' as const, confidence: 'high' as const, subtypes: [], listedBy: [] } } },
+    { id: 'c', name: 'C', info: '', seed: 3, vetting: { ...base, verdict: 'credible' as const } },
+    { id: 'd', name: 'D', info: '', seed: 4 },
+  ] }] as unknown as SpineNode[];
+  const b = mapTreeModels(spine)[0].branches;
+  assert.deepEqual(b.map((x) => [x.vet, x.vetTag]), [['manipulative', 'MANIPULATIVE'], ['uncertain', 'STATE MEDIA'], ['credible', undefined], [undefined, undefined]]);
+  assert.equal(vetTag(undefined), undefined);
+});

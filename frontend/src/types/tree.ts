@@ -1,3 +1,4 @@
+import type { SourceVettingDto } from '../../../contracts/investigations';
 export type StockDirection = 'up' | 'down' | 'mixed';
 
 export interface StockImpactItem {
@@ -42,6 +43,8 @@ export interface BranchNode {
   sourceReport?: boolean;
   /** Claim view: short relation label, e.g. "Supports", "Reports the claim", "Not fulfilled". */
   relation?: string;
+  /** Propaganda / manipulation screening of this source. */
+  vetting?: SourceVettingDto;
 }
 
 export type ScrapeEngine =

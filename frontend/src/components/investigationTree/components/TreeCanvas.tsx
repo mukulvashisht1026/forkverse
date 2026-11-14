@@ -205,7 +205,7 @@ function BranchView({
   const targetFocus: FocusTarget = { spineIndex, branchIndex };
 
   return (
-    <g className={`branch ${isCited ? 'cited' : ''} ${branch.live ? `live-${branch.live}` : ''} ${role ? `role-${role}` : ''} ${branch.stance ? `stance-${branch.stance}` : ''} ${branch.outcomeReport ? 'outcome-report' : ''} ${branch.sourceReport ? 'source-report' : ''}`} transform={`translate(${geometry.points[0].x} ${geometry.points[0].y}) scale(${geometry.depthScale}) translate(${-geometry.points[0].x} ${-geometry.points[0].y})`}>
+    <g className={`branch ${isCited ? 'cited' : ''} ${branch.live ? `live-${branch.live}` : ''} ${branch.vet ? `vet-${branch.vet}` : ''} ${role ? `role-${role}` : ''} ${branch.stance ? `stance-${branch.stance}` : ''} ${branch.outcomeReport ? 'outcome-report' : ''} ${branch.sourceReport ? 'source-report' : ''}`} transform={`translate(${geometry.points[0].x} ${geometry.points[0].y}) scale(${geometry.depthScale}) translate(${-geometry.points[0].x} ${-geometry.points[0].y})`}>
       {/* Living-Tree mist stipple + neural-scan tangent filaments & micro-dendrites */}
       <g ref={mistGroupRef} style={{ transition: 'opacity 0.35s ease' }}>
         {geometry.filaments.map((strand, idx) => (
@@ -328,6 +328,12 @@ function BranchView({
           strokeWidth={2.6}
         />
         <circle className="fill-transparent" r={22} />
+        {branch.vetTag && (
+          <g className="vet-tip" aria-hidden="true">
+            {branch.vet === 'manipulative' && <circle className="vet-tip-ring" r={12} />}
+            <text className="vet-tag" x={-13} y={geometry.dir < 0 ? 14 : -10} textAnchor="end">{branch.vetTag}</text>
+          </g>
+        )}
         {branch.live && (
           <g className="live-tip" aria-hidden="true">
             <circle className="live-tip-ring" r={11} />

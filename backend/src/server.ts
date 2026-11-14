@@ -13,8 +13,7 @@ import { healthRouter } from './routes/health.js';
 import { helloRouter } from './routes/hello.js';
 import { investigationsRouter } from './routes/investigations.js';
 import { timelineRouter } from './routes/timeline.js';
-import { buildClaims } from './claims/builder.js';
-import { corroborateClaims, storeCorroboration } from './claims/corroborate.js';
+import { buildClaimGraph } from './claims/pipeline.js';
 import { defaultJsonLlm } from './proof/agents.js';
 import { planTopic } from './research/planner.js';
 import { ResearchChatService } from './investigations/chat.js';
@@ -23,6 +22,9 @@ import { contextDevMonitors, scrape as contextDevScrape } from './clients/contex
 import { contextDevNewsSearch } from './claims/corroborate.js';
 import { findLiveSources } from './monitors/liveSources.js';
 import { MonitorService } from './monitors/service.js';
+import { VettingService, withSourceRatings } from './vetting/service.js';
+import { cachedScraper } from './vetting/scrapeCache.js';
+import { contextDevScraper } from './proof/articles.js';
 import { MemoryInvestigationStore, MongoInvestigationStore, type InvestigationStore } from './investigations/store.js';
 import { closeContextMcp } from './agent/tools/contextMcp.js';
 import { initTools } from './agent/tools/index.js';
@@ -41,9 +43,11 @@ export interface ServerDeps {
   chat?: ResearchChatService;
   /** Live monitors (Context.dev Monitors API); needs `investigations`. */
   monitors?: MonitorService;
+  /** Source vetting (propaganda screening); needs `investigations`. */
+  vetting?: VettingService;
 }
 
-export function buildServer({ store, hub, investigations, chat, monitors, corsOrigins = config.CORS_ORIGINS }: ServerDeps) {
+export function buildServer({ store, hub, investigations, chat, monitors, vetting, corsOrigins = config.CORS_ORIGINS }: ServerDeps) {
   const app = express();
   app.disable('x-powered-by');
   // Never log credentials (browsers send cookies for every app on localhost).
@@ -69,7 +73,7 @@ export function buildServer({ store, hub, investigations, chat, monitors, corsOr
   api.use(helloRouter);
   api.use(chatRouter);
   api.use(timelineRouter({ store, hub }));
-  if (investigations) api.use(investigationsRouter(investigations, chat, monitors));
+  if (investigations) api.use(investigationsRouter(investigations, chat, monitors, vetting));
 
   // Caddy and the Vite dev proxy strip `/api`; `/api/*` is also served for clients that
   // point VITE_API_BASE_URL straight at the backend.
@@ -121,9 +125,10 @@ async function main() {
   if (config.TIMELINE_MOCK) await seedMockTimeline(store);
   const hub = new RealtimeHub(store);
 
-  const investigationStore: InvestigationStore = config.TIMELINE_MOCK
-    ? new MemoryInvestigationStore()
-    : new MongoInvestigationStore(col.investigations, col.researchRuns, col.chatMessages);
+  // Every new source gets its domain listing (influence operation / state media / rating) attached.
+  const investigationStore: InvestigationStore = withSourceRatings(
+    config.TIMELINE_MOCK ? new MemoryInvestigationStore() : new MongoInvestigationStore(col.investigations, col.researchRuns, col.chatMessages),
+  );
   // Runs cannot survive a restart: record any that were in flight as failed. Runs in the
   // background so startup never waits on the database.
   void investigationStore
@@ -139,13 +144,18 @@ async function main() {
     afterRun: (id) => rebuildClaims(id),
   });
 
+  // Screening, claim building and the proof engine read the same pages: fetch each once.
+  const scraper = cachedScraper(contextDevScraper);
+
+  // Screen sources -> build claims -> corroborate -> screen corroborating sources -> store.
   async function rebuildClaims(id: string, prefer: string[] = []) {
-    const record = await investigations.get(id);
-    const built = await buildClaims(record, { prefer });
-    // More than one independent source per claim: search Context.dev for each claim.
-    const corroborated = await corroborateClaims(record, built.claims);
-    await storeCorroboration(investigationStore, id, corroborated.added);
-    await investigationStore.setClaims(id, { claims: corroborated.claims, links: built.links, entity: built.entity ?? record.entity });
+    await buildClaimGraph(id, {
+      store: investigationStore,
+      scrape: scraper,
+      json: defaultJsonLlm,
+      prefer,
+      ...(config.AUTO_VET_SOURCES && { vetting }),
+    });
   }
 
   // Live monitors: Context.dev pushes changes to /webhook/monitor when this backend is publicly
@@ -168,11 +178,26 @@ async function main() {
     ...(webhookUrl && { webhookUrl }),
   });
   if (config.CONTEXT_DEV_API_KEY) monitors.startPolling(config.MONITOR_POLL_MS);
-  logger.info({ webhook: Boolean(webhookUrl), pollMs: config.MONITOR_POLL_MS }, 'live monitors ready');
+  logger.info({ webhook: Boolean(webhookUrl), pollMs: config.MONITOR_POLL_MS, autoVet: config.AUTO_VET_SOURCES }, 'live monitors ready');
 
-  const chat = new ResearchChatService({ store: investigationStore, investigations, publish: (e) => hub.broadcast(e) });
+  // Propaganda / manipulation screening of sources (domain listings + grounded rhetoric analysis).
+  const vetting = new VettingService({
+    store: investigationStore,
+    publish: (e) => hub.broadcast(e),
+    scrape: scraper,
+    json: defaultJsonLlm,
+    rebuildClaims: (id) => rebuildClaims(id),
+  });
 
-  const server = createHttpServer({ store, hub, investigations, chat, monitors });
+  const chat = new ResearchChatService({
+    store: investigationStore,
+    investigations,
+    publish: (e) => hub.broadcast(e),
+    proof: { scrape: scraper },
+    ...(config.AUTO_VET_SOURCES && { vetting }),
+  });
+
+  const server = createHttpServer({ store, hub, investigations, chat, monitors, vetting });
   server.listen(config.PORT, '0.0.0.0', () => {
     logger.info({ port: config.PORT, mockTimeline: config.TIMELINE_MOCK }, 'server listening (HTTP + WebSocket /ws)');
   });

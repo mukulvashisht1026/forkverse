@@ -6,7 +6,8 @@ import { useLiveTimeline } from './hooks/useLiveTimeline';
 import { TreeCanvasAdapter } from './components/investigationTree/TreeCanvasAdapter';
 import './components/investigationTree/treeCanvas.css';
 import { SpineNav } from './components/SpineNav';
-import { investigationRepository, rolesFrom, watchInvestigation, type Investigation, type InvestigationHighlight, type Monitor, type MonitorActivity } from './services/investigations';
+import { investigationRepository, rolesFrom, vettingRepository, watchInvestigation, type Investigation, type InvestigationHighlight, type Monitor, type MonitorActivity, type VettingActivity } from './services/investigations';
+import { SourceVettingPanel, VettingCard } from './components/SourceVetting';
 import { LiveMonitor, host as siteHost } from './components/LiveMonitor';
 import { addLiveIds, liveMarksAt, pruneLiveIds } from './utils/liveMarks';
 import { ResearchChat } from './components/ResearchChat';
@@ -83,6 +84,19 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
     }, 5000);
     return () => window.clearInterval(t);
   }, [liveAdded.size]);
+  /** Source vetting (propaganda screening) progress and per-source requests in flight. */
+  const [vettingActivity, setVettingActivity] = useState<VettingActivity[]>([]);
+  const [vetToast, setVetToast] = useState<VettingActivity | null>(null);
+  const [screeningIds, setScreeningIds] = useState<ReadonlySet<string>>(() => new Set());
+  const screenSource = useCallback(async (investigationId: string, evidenceId: string) => {
+    setScreeningIds((s) => new Set(s).add(evidenceId));
+    try {
+      await vettingRepository.start(investigationId, [evidenceId]);
+    } catch (error) {
+      setScreeningIds((s) => { const n = new Set(s); n.delete(evidenceId); return n; });
+      window.alert(error instanceof Error ? error.message : 'Could not screen this source.');
+    }
+  }, []);
   /** Websites currently tracked by live monitors (shown as links over the graph). */
   const [trackedMonitors, setTrackedMonitors] = useState<Monitor[]>([]);
   const lastRevisionRef = useRef(0);
@@ -207,6 +221,12 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
         if (next.messageId.startsWith('monitor-')) markLive([...next.evidenceIds, ...next.eventIds]);
         setHighlight(next.evidenceIds.size || next.eventIds.size ? next : null);
       },
+      onVetting: (activity) => {
+        setVettingActivity((list) => [...list.slice(-29), activity]);
+        if (activity.evidenceId) setScreeningIds((ids) => { if (!ids.has(activity.evidenceId!)) return ids; const n = new Set(ids); n.delete(activity.evidenceId!); return n; });
+        if (activity.phase === 'done' || activity.phase === 'error') { setScreeningIds(new Set()); setVetToast(activity); schedule(); }
+        else if (activity.verdict === 'manipulative') setVetToast(activity);
+      },
       onMonitor: (activity) => {
         if (activity.phase === 'claims_updated') markLive(activity.newClaimIds ?? []);
         setMonitorActivity((list) => [...list.slice(-29), activity]);
@@ -216,6 +236,13 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
     });
     return () => { stop(); window.clearTimeout(timer); };
   }, [liveInvestigationId, refreshGraph, markLive]);
+
+  useEffect(() => {
+    if (!vetToast) return;
+    const t = window.setTimeout(() => setVetToast(null), 9000);
+    return () => window.clearTimeout(t);
+  }, [vetToast]);
+  const allSources = useMemo(() => (workspaceNodes ?? []).flatMap((n) => n.branches), [workspaceNodes]);
 
   // Live toast fades after a while; the full history stays in the monitor panel.
   useEffect(() => {
@@ -229,6 +256,9 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
     setLiveToast(null);
     setTrackedMonitors([]);
     setLiveAdded(new Map());
+    setVettingActivity([]);
+    setVetToast(null);
+    setScreeningIds(new Set());
     setSelectedInvestigation(investigation);
     setTemporaryTimelineContext(false);
     setView('workspace');
@@ -428,9 +458,10 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
           {claimGraph && <div className="gh-graph-mode" role="group" aria-label="Graph view"><button type="button" className={showClaims ? 'on' : ''} onClick={() => { setGraphMode('claims'); setSelectedIndex(0); setPinnedFocus(null); setWorkspaceFitSignal((v) => v + 1); }}>Claims</button><button type="button" className={!showClaims ? 'on' : ''} onClick={() => { setGraphMode('runs'); setSelectedIndex(0); setPinnedFocus(null); setWorkspaceFitSignal((v) => v + 1); }}>Research runs</button></div>}
           {showClaims && !highlight?.roles && claimGraph?.mode === 'politician' && <div className="gh-claim-legend" aria-label="Claim legend"><span className="lg-source"><i />reports the claim</span><span className="lg-fulfilled"><i />fulfilled</span><span className="lg-contradicts"><i />not fulfilled</span><span className="lg-supports"><i />in progress</span><span className="lg-context"><i />no coloured branch = no follow-up yet</span><span className="lg-context"><i />UNVERIFIED badge = one source so far</span></div>}
           {showClaims && !highlight?.roles && claimGraph?.mode !== 'politician' && <div className="gh-claim-legend" aria-label="Claim legend"><span className="lg-supports"><i />supports</span><span className="lg-contradicts"><i />contradicts</span><span className="lg-context"><i />context</span><span className="lg-pending"><i />unverified lane</span><span className="lg-link"><i />links: solid = stated, dashed = inferred / sequence</span></div>}
-          <div className="gh-graph-controls">{selectedInvestigation && !temporaryTimelineContext && <LiveMonitor key={selectedInvestigation.id} investigationId={selectedInvestigation.id} topic={selectedInvestigation.title} activity={monitorActivity} disabled={workspaceLoading || Boolean(workspaceError)} onMonitorsChange={setTrackedMonitors} />}{highlight?.roles && <div className="gh-proof-legend" aria-label="Proof roles"><span className="role-consensus"><i />Shared facts</span><span className="role-angle"><i />Own angle</span><span className="role-dispute"><i />Disputed</span><span className="role-unreadable"><i />Unreadable</span></div>}{highlight && <button type="button" className="gh-highlight-clear" onClick={() => setHighlight(null)} title="Show the whole graph again">{highlight.roles ? `Comparing ${highlight.evidenceIds.size} articles` : highlight.final ? `Showing ${highlight.evidenceIds.size} cited source${highlight.evidenceIds.size === 1 ? '' : 's'}` : 'Citing sources…'} · Clear</button>}<button type="button" onClick={() => setMotionOn((value) => !value)}>{motionOn ? 'Pause motion' : 'Resume motion'}</button><button type="button" onClick={fitGraph}>Fit graph</button></div>
+          <div className="gh-graph-controls">{selectedInvestigation && !temporaryTimelineContext && <SourceVettingPanel key={`vet-${selectedInvestigation.id}`} investigationId={selectedInvestigation.id} sources={allSources} activity={vettingActivity} disabled={workspaceLoading || Boolean(workspaceError)} />}{selectedInvestigation && !temporaryTimelineContext && <LiveMonitor key={selectedInvestigation.id} investigationId={selectedInvestigation.id} topic={selectedInvestigation.title} activity={monitorActivity} disabled={workspaceLoading || Boolean(workspaceError)} onMonitorsChange={setTrackedMonitors} />}{highlight?.roles && <div className="gh-proof-legend" aria-label="Proof roles"><span className="role-consensus"><i />Shared facts</span><span className="role-angle"><i />Own angle</span><span className="role-dispute"><i />Disputed</span><span className="role-unreadable"><i />Unreadable</span></div>}{highlight && <button type="button" className="gh-highlight-clear" onClick={() => setHighlight(null)} title="Show the whole graph again">{highlight.roles ? `Comparing ${highlight.evidenceIds.size} articles` : highlight.final ? `Showing ${highlight.evidenceIds.size} cited source${highlight.evidenceIds.size === 1 ? '' : 's'}` : 'Citing sources…'} · Clear</button>}<button type="button" onClick={() => setMotionOn((value) => !value)}>{motionOn ? 'Pause motion' : 'Resume motion'}</button><button type="button" onClick={fitGraph}>Fit graph</button></div>
           {liveToast && <div className={`tw-live-toast p-${liveToast.phase}`} role="status" aria-live="polite"><span className="tw-live-toast-tag"><i className="tw-live-dot" aria-hidden="true" />LIVE</span><span>{liveToast.message}{liveToast.url && <> · <a href={liveToast.url} target="_blank" rel="noopener noreferrer" title={liveToast.url}>{siteHost(liveToast.url)}</a></>}</span><button type="button" aria-label="Dismiss live update" onClick={() => setLiveToast(null)}>×</button></div>}
           {trackedMonitors.length > 0 && <div className="tw-tracking-strip" aria-label="Websites tracked live"><span className="tw-tracking-tag"><i className="tw-live-dot" aria-hidden="true" />TRACKING</span>{trackedMonitors.map((m) => <a key={m.id} href={m.url} target="_blank" rel="noopener noreferrer" title={`${m.label}\n${m.url}`} className={`s-${m.status}`}>{siteHost(m.url)}</a>)}</div>}
+          {vetToast && <div className={`tw-live-toast tw-vet-toast ${vetToast.verdict ? `v-${vetToast.verdict}` : `p-${vetToast.phase}`}`} role="status" aria-live="polite"><span className="tw-live-toast-tag">VETTING</span><span>{vetToast.message}</span><button type="button" aria-label="Dismiss" onClick={() => setVetToast(null)}>×</button></div>}
           {workspaceLoading && <div className="gh-graph-state">Loading investigation graph…</div>}
           {workspaceError && <div className="gh-graph-state"><p>{workspaceError}</p><button onClick={() => selectedInvestigation && void openWorkspace(selectedInvestigation)}>Retry</button></div>}
           {!workspaceLoading && !workspaceError && workspaceNodes?.length === 0 && <div className="gh-graph-state">{researchRunning ? 'Researching… evidence will appear here as it is found.' : 'This investigation has no evidence yet.'}</div>}
@@ -441,6 +472,7 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
             {focusDescription && <p className="gh-detail-description">{focusDescription}</p>}
             {(focusBranch?.sourceType || sourceName) && <p className="gh-source-label">{sourceName ?? focusBranch?.sourceType}</p>}
             {sourceUrl && <a href={sourceUrl} target="_blank" rel="noopener noreferrer">Open original source <ArrowUpRight size={14} /></a>}
+            {focusBranch?.sourceUrl && selectedInvestigation && <VettingCard vetting={focusBranch.vetting} screening={screeningIds.has(focusBranch.id)} onScreen={() => void screenSource(selectedInvestigation.id, focusBranch.id)} />}
             {showClaims && focusBranch && focusNode && <button type="button" className="gh-detail-back" onClick={() => setPinnedFocus({ i: pinnedFocus.i })}>← Claim: {focusNode.name}</button>}
             {showClaims && !focusBranch && focusNode && <div className="gh-detail-children">
               <p className="gh-detail-sub">{focusNode.branches.length ? `${focusNode.branches.length} source${focusNode.branches.length === 1 ? '' : 's'} (child nodes)` : 'No sources attached yet.'}</p>
@@ -480,6 +512,7 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
                 onClose={() => { setPinnedFocus({ i: cardInfo.spineIndex, ...(branchIndex === undefined ? {} : { j: branchIndex }) }); }}
                 onDragEnd={(_id, offset) => { cardOffsets.current.set(branchCardKey, offset); setCardRevision((n) => n + 1); }}
                 cardKey={`${nodeId}-${isBranch ? 'b' + branchIndex : 's'}`}
+                {...(isBranch && selectedInvestigation ? { onScreen: () => void screenSource(selectedInvestigation.id, targetNode.id), screening: screeningIds.has(targetNode.id) } : {})}
               />
             );
           })}

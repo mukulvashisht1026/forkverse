@@ -168,7 +168,8 @@ const publisherOf = (e: InvestigationEvidenceDto) => (e.sourceName || hostOf(e.s
  *  `prefer` (e.g. just added by a live monitor) are always included, first. */
 export function pickEvidence(record: InvestigationRecord, max = MAX_ARTICLES, prefer: readonly string[] = []): InvestigationEvidenceDto[] {
   const seenUrl = new Set<string>();
-  const all = record.events.flatMap((ev) => ev.evidence);
+  // Sources vetted as manipulative are pruned: they stay visible (faded) but never support claims.
+  const all = record.events.flatMap((ev) => ev.evidence).filter((e) => e.vetting?.verdict !== 'manipulative');
   const preferred = new Set(prefer);
   const first: InvestigationEvidenceDto[] = [];
   for (const e of all) {

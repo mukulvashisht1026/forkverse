@@ -61,6 +61,8 @@ export interface InvestigationEvidenceDto {
   publishedAt?: IsoDateTime;
   relationship?: string;
   eventId?: string;
+  /** Propaganda / manipulation screening of this source (domain listing, optionally content). */
+  vetting?: SourceVettingDto;
 }
 
 export interface CreateInvestigationRequestDto {
@@ -330,4 +332,87 @@ export interface LiveSourceDto {
   signals: string[];
   readable: boolean;
   error?: string;
+}
+
+// ---- source vetting (propaganda / manipulation screening) -------------------------------------
+
+/** credible: no manipulation signal and at least one positive check; manipulative: documented
+ *  influence operation or grounded propaganda rhetoric; uncertain: everything else (abstain). */
+export type VettingVerdictDto = 'credible' | 'uncertain' | 'manipulative';
+
+/** Listing of the source's domain in public research/government lists (backend/data/SOURCE_RATINGS.md). */
+export interface SourceRatingDto {
+  domain: string;
+  /** Dataset label. */
+  label: 'propaganda' | 'unreliable' | 'satire' | 'reliable';
+  /** How the listing is used: only influence_operation counts as manipulative on its own. */
+  kind: 'influence_operation' | 'state_media' | 'unreliable' | 'satire' | 'reliable';
+  confidence: 'high' | 'medium' | 'low';
+  /** Who runs the operation (documented influence operations / state media). */
+  actorCountry?: string;
+  subtypes: string[];
+  /** Lists that name this domain (e.g. meta_cib, viginum_portal_kombat, lin2023). */
+  listedBy: string[];
+  /** Lin et al. 2023 ensemble quality score, 0 (worst) .. 1 (best). */
+  qualityScore?: number;
+  name?: string;
+}
+
+export type RhetoricTechniqueNameDto =
+  | 'loaded_language' | 'fear_or_prejudice' | 'name_calling' | 'false_dilemma' | 'causal_oversimplification'
+  | 'whataboutism' | 'straw_man' | 'repetition' | 'exaggeration_or_minimisation' | 'appeal_to_popularity'
+  | 'appeal_to_authority' | 'flag_waving' | 'slogans' | 'doubt' | 'dehumanization' | 'smears' | 'other';
+
+export interface RhetoricTechniqueDto {
+  technique: RhetoricTechniqueNameDto;
+  /** Verbatim passage, verified against the scraped page text. */
+  quote: string;
+  explanation: string;
+  /** Only the author's own voice counts towards a propaganda verdict. */
+  voice: 'author' | 'quoted_speaker' | 'unclear';
+}
+
+export interface RhetoricAnalysisDto {
+  verdict: 'likely_propaganda' | 'no_clear_evidence' | 'uncertain';
+  /** The model's verdict before grounding rules (kept when the rules downgrade it). */
+  modelVerdict: 'likely_propaganda' | 'no_clear_evidence' | 'uncertain';
+  genre: 'reporting' | 'opinion' | 'satire' | 'advertising' | 'landing_page' | 'other';
+  language: string;
+  rationale: string;
+  techniques: RhetoricTechniqueDto[];
+  /** Signs against a propaganda reading (sourcing, balance, attributed quotes...). */
+  counterevidence: string[];
+  /** Why the verdict was downgraded (ungrounded quotes, too few author passages, partial text...). */
+  warnings: string[];
+}
+
+export interface SourceVettingDto {
+  url: string;
+  verdict: VettingVerdictDto;
+  /** Share of checks that produced a signal (domain listing, content analysis): 0..1. */
+  coverage: number;
+  /** Human-readable, attributed reasons for the verdict. */
+  reasons: string[];
+  rating?: SourceRatingDto;
+  rhetoric?: RhetoricAnalysisDto;
+  /** domain = list lookup only; content = page text analysed too. */
+  depth: 'domain' | 'content';
+  checkedAt: IsoDateTime;
+  /** Content analysis failed (page unreadable...): kept visible, never counted as risky or safe. */
+  error?: string;
+}
+
+/** WebSocket frame: progress of a source vetting run on an investigation. */
+export interface InvestigationVettingEvent {
+  type: 'investigation:vetting';
+  payload: {
+    investigationId: InvestigationId;
+    phase: 'started' | 'checked' | 'done' | 'error';
+    message: string;
+    evidenceId?: string;
+    verdict?: VettingVerdictDto;
+    checked?: number;
+    total?: number;
+  };
+  timestamp: IsoDateTime;
 }

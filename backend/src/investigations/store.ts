@@ -19,6 +19,7 @@ import type {
   InvestigationRecord,
   MonitorRecord,
   ResearchRunDto,
+  SourceVettingDto,
 } from './types.js';
 
 export interface ListPage {
@@ -33,6 +34,8 @@ export interface InvestigationStore {
   addEvent(id: string, event: InvestigationEventDto): Promise<number>;
   addEvidence(id: string, eventId: string, evidence: InvestigationEvidenceDto): Promise<number>;
   setEventSummary(id: string, eventId: string, summary: string): Promise<number>;
+  /** Attach a vetting result to every occurrence of an evidence item. Bumps the revision. */
+  setEvidenceVetting(id: string, evidenceId: string, vetting: SourceVettingDto): Promise<number>;
   /** Replace the claim timeline built from the evidence (and the inferred entity). */
   setClaims(id: string, claims: { claims: ClaimDto[]; links: ClaimLinkDto[]; entity?: string }): Promise<number>;
 
@@ -149,11 +152,11 @@ export class MongoInvestigationStore implements InvestigationStore {
     return { items, ...(docs.length > limit && { nextCursor: encodeCursor(items.at(-1)!) }) };
   }
 
-  private async bump(id: string, update: Record<string, unknown>, filter: Record<string, unknown> = {}): Promise<number> {
+  private async bump(id: string, update: Record<string, unknown>, filter: Record<string, unknown> = {}, arrayFilters?: Record<string, unknown>[]): Promise<number> {
     const doc = await this.investigations.findOneAndUpdate(
       { _id: id, ...filter },
       { ...update, $inc: { revision: 1 }, $set: { ...((update.$set as object) ?? {}), updatedAt: nowIso() } },
-      { returnDocument: 'after', projection: { revision: 1 } },
+      { returnDocument: 'after', projection: { revision: 1 }, ...(arrayFilters && { arrayFilters }) },
     );
     if (!doc) throw new Error(`Investigation "${id}" (or event) not found.`);
     return doc.revision;
@@ -169,6 +172,10 @@ export class MongoInvestigationStore implements InvestigationStore {
 
   setEventSummary(id: string, eventId: string, summary: string) {
     return this.bump(id, { $set: { 'events.$.summary': summary } }, { 'events.id': eventId });
+  }
+
+  setEvidenceVetting(id: string, evidenceId: string, vetting: SourceVettingDto) {
+    return this.bump(id, { $set: { 'events.$[].evidence.$[ev].vetting': vetting } }, {}, [{ 'ev.id': evidenceId }]);
   }
 
   setClaims(id: string, { claims, links, entity }: { claims: ClaimDto[]; links: ClaimLinkDto[]; entity?: string }) {
@@ -291,6 +298,12 @@ export class MemoryInvestigationStore implements InvestigationStore {
   async setEventSummary(id: string, eventId: string, summary: string) {
     return this.mutate(id, (r) => {
       this.event(r, eventId).summary = summary;
+    });
+  }
+
+  async setEvidenceVetting(id: string, evidenceId: string, vetting: SourceVettingDto) {
+    return this.mutate(id, (r) => {
+      for (const e of r.events) for (const ev of e.evidence) if (ev.id === evidenceId) ev.vetting = structuredClone(vetting);
     });
   }
 

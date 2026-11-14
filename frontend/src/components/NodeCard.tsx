@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { X, ExternalLink, GripVertical } from 'lucide-react';
 import type { SpineNode, BranchNode } from '../types/tree';
+import { VettingCard } from './SourceVetting';
 
 export interface NodeCardProps {
   /** The node data (spine node or branch) */
@@ -23,6 +24,9 @@ export interface NodeCardProps {
   onDragEnd?: (nodeId: string, offset: { x: number; y: number }) => void;
   /** Unique key for this card instance */
   cardKey: string;
+  /** Evidence cards: screen this source for propaganda now. */
+  onScreen?: () => void;
+  screening?: boolean;
 }
 
 /**
@@ -43,6 +47,8 @@ export function NodeCard({
   offset,
   revision,
   cardKey,
+  onScreen,
+  screening,
 }: NodeCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   const [isOpen, setIsOpen] = useState(true);
@@ -208,6 +214,7 @@ export function NodeCard({
         <h3 className="node-card-title">{node.name}</h3>
         {displayDate && <p className="node-card-date">{displayDate}</p>}
         {node.info && <p className="node-card-description">{node.info}</p>}
+        {isBranch && branchNode?.sourceUrl && <VettingCard vetting={branchNode.vetting} onScreen={onScreen} screening={screening} />}
         {sourceUrl && (
           <a
             href={sourceUrl}

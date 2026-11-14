@@ -90,7 +90,7 @@ function hostOf(url: string) {
   }
 }
 
-function outcomeOf(claim: ClaimDto, evidence: ClaimEvidenceDto[]): ClaimDto['outcome'] {
+export function outcomeOf(claim: ClaimDto, evidence: ClaimEvidenceDto[]): ClaimDto['outcome'] {
   const outcomes = evidence.filter((e) => e.role === 'outcome');
   if (!outcomes.length) return 'no_update';
   if (claim.outcome && claim.outcome !== 'no_update') return claim.outcome;
@@ -172,6 +172,8 @@ export async function storeCorroboration(
   store: Pick<import('../investigations/store.js').InvestigationStore, 'addEvent' | 'addEvidence'>,
   investigationId: string,
   added: Article[],
+  /** Screening results by article URL (attached to the stored evidence). */
+  vetting: ReadonlyMap<string, import('../investigations/types.js').SourceVettingDto> = new Map(),
 ): Promise<void> {
   if (!added.length) return;
   const eventId = `evt-corr-${Date.now().toString(36)}`;
@@ -186,6 +188,7 @@ export async function storeCorroboration(
       ...(a.publishedAt && { publishedAt: a.publishedAt }),
       relationship: 'Corroborating source',
       eventId,
+      ...(vetting.get(a.url) && { vetting: vetting.get(a.url) }),
     });
   }
 }

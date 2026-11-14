@@ -1,5 +1,5 @@
 import type { BranchNode, SpineNode } from '../types/tree';
-import type { ClaimDto, InvestigationEventDto, InvestigationEvidenceDto } from '../../../contracts/investigations';
+import type { ClaimDto, InvestigationEventDto, InvestigationEvidenceDto, SourceVettingDto } from '../../../contracts/investigations';
 
 function stableSeed(value: string): number {
   let hash = 2166136261;
@@ -17,6 +17,7 @@ function evidenceToBranch(evidence: InvestigationEvidenceDto): BranchNode {
     ...(evidence.sourceUrl ? { sourceUrl: evidence.sourceUrl } : {}),
     ...(evidence.publishedAt ? { publishedAt: evidence.publishedAt } : {}),
     ...(evidence.relationship ? { impactAngle: evidence.relationship } : {}),
+    ...(evidence.vetting ? { vetting: evidence.vetting } : {}),
     seed: stableSeed(evidence.id),
   };
 }
@@ -54,7 +55,14 @@ export function evidenceLabel(e: ClaimDto['evidence'][number], politician: boole
   return e.stance === 'supports' ? 'Supports' : e.stance === 'contradicts' ? 'Contradicts' : 'Context';
 }
 
-export function claimsToSpineNodes(claims: ClaimDto[], mode: 'news' | 'politician' = 'news'): SpineNode[] {
+/** Vetting per evidence id, from the investigation's events (claim evidence only carries the id). */
+export function vettingByEvidence(events: InvestigationEventDto[]): Map<string, SourceVettingDto> {
+  const map = new Map<string, SourceVettingDto>();
+  for (const e of events) for (const ev of e.evidence) if (ev.vetting) map.set(ev.id, ev.vetting);
+  return map;
+}
+
+export function claimsToSpineNodes(claims: ClaimDto[], mode: 'news' | 'politician' = 'news', vetting: ReadonlyMap<string, SourceVettingDto> = new Map()): SpineNode[] {
   const politician = mode === 'politician';
   return claims.map((claim) => ({
     id: claim.id,
@@ -84,6 +92,7 @@ export function claimsToSpineNodes(claims: ClaimDto[], mode: 'news' | 'politicia
       ...(e.publishedAt ? { publishedAt: e.publishedAt } : {}),
       impactAngle: e.stance,
       stance: e.stance,
+      ...(vetting.get(e.evidenceId) ? { vetting: vetting.get(e.evidenceId)! } : {}),
       seed: stableSeed(`${claim.id}:${e.evidenceId}`),
     })),
   }));

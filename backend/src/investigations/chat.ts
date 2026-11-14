@@ -15,8 +15,9 @@
 import { randomUUID } from 'node:crypto';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { createChatModel } from '../agent/model.js';
-import { buildClaims, pickEvidence } from '../claims/builder.js';
-import { corroborateClaims, storeCorroboration } from '../claims/corroborate.js';
+import { pickEvidence } from '../claims/builder.js';
+import { buildClaimGraph } from '../claims/pipeline.js';
+import type { VettingService } from '../vetting/service.js';
 import type { Scraper } from '../proof/articles.js';
 import { selectArticles } from '../proof/articles.js';
 import { defaultJsonLlm, type JsonLlm } from '../proof/agents.js';
@@ -83,6 +84,8 @@ export interface ChatServiceDeps {
   model?: BaseChatModel;
   /** Overrides (tests): article scraper and JSON LLM (graph Q&A, proof agents, claims). */
   proof?: { scrape?: Scraper; json?: JsonLlm };
+  /** Screens sources for propaganda before claims are built (claims/pipeline.ts). */
+  vetting?: VettingService;
 }
 
 interface TurnResult {
@@ -273,23 +276,22 @@ export class ResearchChatService {
 
   /** build_claims: turn the investigation's evidence into a chronological, evidence-backed claim timeline. */
   private async claims(record: InvestigationRecord, emit: Emit): Promise<TurnResult> {
-    const built = await buildClaims(record, {
-      scrape: this.deps.proof?.scrape,
-      json: this.deps.proof?.json,
+    // Screen sources -> build -> corroborate -> screen corroborating sources -> store.
+    const { built, corroborationAdded, pruned } = await buildClaimGraph(record.id, {
+      store: this.deps.store,
+      ...(this.deps.vetting && { vetting: this.deps.vetting }),
+      ...(this.deps.proof?.scrape && { scrape: this.deps.proof.scrape }),
+      ...(this.deps.proof?.json && { json: this.deps.proof.json }),
       token: (text) => emit({ type: 'token', text }),
     });
-    emit({ type: 'token', text: '- Looking for more independent sources per claim…\n' });
-    const corroborated = await corroborateClaims(record, built.claims, { ...(this.deps.proof?.json && { json: this.deps.proof.json }) });
-    await storeCorroboration(this.deps.store, record.id, corroborated.added);
-    built.claims = corroborated.claims;
-    await this.deps.store.setClaims(record.id, { claims: built.claims, links: built.links, entity: built.entity });
+    const corroborated = { added: { length: corroborationAdded } };
     const updated = await this.deps.investigations.get(record.id);
     emit({ type: 'graph_updated', graph: toGraphDto(updated) });
     const { stats } = built;
     const established = built.claims.filter((c) => c.status === 'established').length;
     const multi = built.claims.filter((c) => new Set(c.evidence.map((e) => (e.publisher ?? e.url ?? '').toLowerCase())).size > 1).length;
     const content =
-      `Claim timeline ready: **${established} established**, ${built.claims.length - established} unverified, ${multi} with 2+ independent sources (${corroborated.added.length} added by corroboration), ${built.links.length} connection${built.links.length === 1 ? '' : 's'} ` +
+      `Claim timeline ready: **${established} established**, ${built.claims.length - established} unverified, ${multi} with 2+ independent sources (${corroborated.added.length} added by corroboration), ${built.links.length} connection${built.links.length === 1 ? '' : 's'}${pruned ? `, ${pruned} manipulative source${pruned === 1 ? '' : 's'} pruned` : ''} ` +
       `(from ${stats.articles} articles). ${SEE_GRAPH}`;
     return { content, sources: [], noHighlight: true };
   }

@@ -13,6 +13,10 @@ export interface BranchItem {
   sourceReport?: boolean;
   /** Added by a live monitor: fresh = just now (pulse + regrowth), recent = badge only. */
   live?: 'fresh' | 'recent';
+  /** Source vetting verdict (manipulative = pruned: faded, never supports claims). */
+  vet?: 'credible' | 'uncertain' | 'manipulative';
+  /** Short vetting tag shown at the tip, e.g. "MANIPULATIVE", "STATE MEDIA". */
+  vetTag?: string;
 }
 
 export interface SpineNode {
