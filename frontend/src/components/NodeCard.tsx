@@ -30,7 +30,6 @@ export function NodeCard({ node, isBranch, worldPos, view, svgRef, workspaceRef,
   const handleRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragSession | null>(null);
   const draggingRef = useRef(false);
-  const clickGuardRef = useRef(false);
   const [screenPos, setScreenPos] = useState<{ x: number; y: number } | null>(null);
   void revision; void cardKey;
 
@@ -78,11 +77,9 @@ export function NodeCard({ node, isBranch, worldPos, view, svgRef, workspaceRef,
     draggingRef.current = false;
     if (handleRef.current?.hasPointerCapture(pointerId)) handleRef.current.releasePointerCapture(pointerId);
     if (session.moved) {
-      clickGuardRef.current = true;
       const finalPos = session.current;
       const anchor = nodeScreenPosition();
       onDragEnd?.(node.id, { x: finalPos.x - anchor.x, y: finalPos.y - anchor.y });
-      window.setTimeout(() => { clickGuardRef.current = false; }, 0);
     }
   }, [node.id, nodeScreenPosition, onDragEnd]);
 
@@ -126,7 +123,7 @@ export function NodeCard({ node, isBranch, worldPos, view, svgRef, workspaceRef,
           <span className="node-card-source-type">{sourceLabel}</span>
           {sourceDomain && <span className="node-card-source-domain">{sourceDomain}</span>}
         </div>
-        <button className="node-card-close" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); if (!clickGuardRef.current) onClose(); }} aria-label="Close card"><X size={14} /></button>
+        <button className="node-card-close" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onClose(); }} aria-label="Close card"><X size={14} /></button>
       </div>
       <div className="node-card-content">
         <h3 className="node-card-title">{node.name}</h3>
