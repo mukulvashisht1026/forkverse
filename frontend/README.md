@@ -13,11 +13,19 @@ VITE_API_BASE_URL=https://api.your-backend.com
 VITE_WS_URL=wss://api.your-backend.com/ws
 ```
 
-For local development with the bundled Express + WebSocket + Vite server:
+Local development against the Forkverse backend (`backend/`):
 
 ```bash
-npm install
-npm run dev
+# terminal 1 (repo root): backend on :3000 (HTTP + WebSocket /ws)
+make dev
+# terminal 2: frontend on :5173, proxies /api/* and /ws to BACKEND_URL (default http://localhost:3000)
+cd frontend && npm install && npm run dev
+```
+
+To run the bundled in-memory mock server (Express + WebSocket + Vite) instead, without the backend:
+
+```bash
+npm run dev:mock
 ```
 
 Optional environment variables for live search scraping on the bundled server:
