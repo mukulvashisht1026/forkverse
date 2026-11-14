@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Mic, Square } from 'lucide-react';
 import type { ChatMessageDto, ResearchActionDto, ResearchStreamEventDto, SourceCitationDto } from '../../../contracts/investigations';
-import { getConversation, renderSafeMarkdown, runResearchAction, safeSourceUrl } from '../services/research';
+import { getConversation, renderSafeMarkdown, runResearchAction, safeSourceUrl, transcribeAudio } from '../services/research';
 
 interface Props {
   investigationId: string; disabled?: boolean; historyAvailable?: boolean;
@@ -21,13 +22,67 @@ export function ResearchChat({ investigationId, disabled, historyAvailable = tru
   const [loadingMore, setLoadingMore] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState('');
+  const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const [voiceError, setVoiceError] = useState('');
   const requestRef = useRef<AbortController | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
   const generation = useRef(0);
   const currentId = useRef(investigationId);
   const historyRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const stickToBottom = useRef(true);
   currentId.current = investigationId;
+
+  const stopRecording = useCallback(() => {
+    const recorder = recorderRef.current;
+    if (recorder && recorder.state !== 'inactive') recorder.stop();
+  }, []);
+
+  useEffect(() => () => {
+    const recorder = recorderRef.current;
+    if (recorder && recorder.state !== 'inactive') recorder.stop();
+    mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+  }, []);
+
+  const startRecording = async () => {
+    setVoiceError('');
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setVoiceError('Audio recording is not supported in this browser.'); return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+      const mimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find((type) => MediaRecorder.isTypeSupported(type));
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      recorderRef.current = recorder;
+      const chunks: BlobPart[] = [];
+      recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
+      recorder.onerror = () => { setVoiceError('Audio recording failed. Please try again.'); setRecording(false); };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((track) => track.stop());
+        mediaStreamRef.current = null;
+        recorderRef.current = null;
+        setRecording(false);
+        const audio = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+        if (!audio.size) return;
+        setTranscribing(true);
+        try {
+          const transcript = await transcribeAudio(audio);
+          setDraft((current) => current.trim() ? `${current.trimEnd()} ${transcript}` : transcript);
+        } catch (error) {
+          setVoiceError(error instanceof Error ? error.message : 'Transcription failed. Please try again.');
+        } finally { setTranscribing(false); }
+      };
+      recorder.start();
+      setRecording(true);
+    } catch (error) {
+      mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+      setVoiceError(error instanceof Error && error.name === 'NotAllowedError' ? 'Allow microphone access to record a prompt.' : 'Could not start the microphone. Please try again.');
+    }
+  };
 
   // Follow the conversation (new messages, streamed tokens) unless the reader scrolled up.
   useEffect(() => {
@@ -157,8 +212,16 @@ export function ResearchChat({ investigationId, disabled, historyAvailable = tru
 <div className="gh-composer-row"><label htmlFor="research-action">Action</label><select id="research-action" value={action} onChange={(event) => setAction(event.target.value as ResearchActionDto)} disabled={sending || loadingHistory || disabled}>
         <option value="answer_question">Answer question</option><option value="extend_graph">Extend evidence graph</option>
       </select></div>
-      <textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={action === 'answer_question' ? 'Ask about this investigation…' : 'What should the evidence graph explore next?'} rows={3} disabled={sending || loadingHistory || disabled} aria-label="Research prompt" />
-      <button type="submit" className="gh-primary" disabled={sending || disabled || !draft.trim()}>{sending ? 'Researching…' : action === 'answer_question' ? 'Ask question' : 'Extend graph'}</button>
+      <div className="gh-composer-input-row">
+        <textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={action === 'answer_question' ? 'Ask about this investigation…' : 'What should the evidence graph explore next?'} rows={3} disabled={sending || loadingHistory || disabled || transcribing} aria-label="Research prompt" />
+        <button type="button" className={`gh-mic-button${recording ? ' is-recording' : ''}`} onClick={() => recording ? stopRecording() : void startRecording()} disabled={sending || loadingHistory || disabled || transcribing} aria-label={recording ? 'Stop recording' : transcribing ? 'Transcribing audio' : 'Record a voice prompt'} title={recording ? 'Stop recording' : 'Transcribe with Gemini'}>
+          {recording ? <Square size={16} fill="currentColor" /> : <Mic size={18} />}
+        </button>
+      </div>
+      {recording && <p className="gh-voice-status" role="status">Recording… Select the microphone to finish.</p>}
+      {transcribing && <p className="gh-voice-status" role="status">Transcribing with Gemini…</p>}
+      {voiceError && <p className="gh-error" role="alert">{voiceError}</p>}
+      <button type="submit" className="gh-primary" disabled={sending || disabled || recording || transcribing || !draft.trim()}>{sending ? 'Researching…' : action === 'answer_question' ? 'Ask question' : 'Extend graph'}</button>
     </form>
     </div>
   </aside>;

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { X, ExternalLink, GripVertical } from 'lucide-react';
 import type { SpineNode, BranchNode } from '../types/tree';
 import { clampPosition, positionFromPointer, worldToViewport } from '../utils/cardGeometry';
+import { formatCardDate, getNodeCardPresentation, hasCardSourceMetadata } from '../utils/nodeCardPresentation';
 
 export interface NodeCardProps {
   node: SpineNode | BranchNode;
@@ -102,36 +103,38 @@ export function NodeCard({ node, isBranch, worldPos, view, svgRef, workspaceRef,
     setScreenPos(session.current);
   };
 
-  const branchNode = isBranch ? node as BranchNode : undefined;
-  const spineNode = !isBranch ? node as SpineNode : undefined;
-  const sourceLabel = branchNode
-    ? branchNode.sourceType.charAt(0).toUpperCase() + branchNode.sourceType.slice(1)
-    : spineNode?.scrapeEngine === 'exa' ? 'Exa AI Search'
-      : spineNode?.scrapeEngine === 'context.dev' ? 'Context.dev live'
-        : spineNode?.scrapeEngine === 'gemini-search' ? 'Live search grounding' : 'Source';
-  const sourceDomain = branchNode?.sourceDomain;
-  const sourceUrl = branchNode?.sourceUrl ?? spineNode?.sourceUrl;
-  const publishedAt = branchNode?.publishedAt ?? spineNode?.timestamp;
-  const parsedDate = publishedAt && publishedAt !== 'Live update' && publishedAt !== 'Live scrape' ? new Date(publishedAt) : null;
-  const displayDate = parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate.toLocaleDateString() : null;
+  const presentation = getNodeCardPresentation(node, isBranch);
+  const displayDate = formatCardDate(presentation.publishedAt);
+  const showSourceName = presentation.sourceName && presentation.sourceName.toLocaleLowerCase() !== presentation.sourceDomain?.toLocaleLowerCase();
+  const hasSourceMetadata = hasCardSourceMetadata(presentation);
+  const dragHandleProps = {
+    onPointerDown: handlePointerDown,
+    onPointerMove: handlePointerMove,
+    onPointerUp: (event: React.PointerEvent<HTMLDivElement>) => finishDrag(event.pointerId),
+    onPointerCancel: (event: React.PointerEvent<HTMLDivElement>) => finishDrag(event.pointerId),
+    onLostPointerCapture: (event: React.PointerEvent<HTMLDivElement>) => finishDrag(event.pointerId),
+  };
   if (!screenPos) return null;
 
   return createPortal(
     <div ref={cardRef} className="node-card node-card-workspace" style={{ left: screenPos.x, top: screenPos.y, zIndex: 100 }}>
-      <div ref={handleRef} className="node-card-header" aria-label="Drag evidence card" onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={(event) => finishDrag(event.pointerId)} onPointerCancel={(event) => finishDrag(event.pointerId)} onLostPointerCapture={(event) => finishDrag(event.pointerId)}>
-        <div className="node-card-title-row">
-          <span className="node-card-source-type">{sourceLabel}</span>
-          {sourceDomain && <span className="node-card-source-domain">{sourceDomain}</span>}
+      {hasSourceMetadata ? <div ref={handleRef} className="node-card-header" aria-label="Drag evidence card" {...dragHandleProps}>
+        <div className="node-card-metadata">
+          {presentation.sourceType && <span className="node-card-source-type">{presentation.sourceType}</span>}
+          {showSourceName && <span className="node-card-source-name">{presentation.sourceName}</span>}
+          {presentation.sourceDomain && <span className="node-card-source-domain">{presentation.sourceDomain}</span>}
         </div>
         <button className="node-card-close" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onClose(); }} aria-label="Close card"><X size={14} /></button>
-      </div>
-      <div className="node-card-content">
+      </div> : <>
+        <div ref={handleRef} className="node-card-compact-handle" aria-label="Drag evidence card" {...dragHandleProps}><GripVertical size={13} aria-hidden="true" /></div>
+        <button className="node-card-close node-card-close-compact" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onClose(); }} aria-label="Close card"><X size={14} /></button>
+      </>}
+      <div className={`node-card-content${hasSourceMetadata ? '' : ' has-compact-handle'}`}>
         <h3 className="node-card-title">{node.name}</h3>
-        {displayDate && <p className="node-card-date">{displayDate}</p>}
-        {node.info && <p className="node-card-description">{node.info}</p>}
-        {sourceUrl && <a href={sourceUrl} target="_blank" rel="noopener noreferrer" className="node-card-source-link"><ExternalLink size={12} />Open original source</a>}
+        {(displayDate || presentation.relationship) && <div className="node-card-details">{displayDate && <time className="node-card-date" dateTime={presentation.publishedAt}>{displayDate}</time>}{presentation.relationship && <span className="node-card-relationship">{presentation.relationship}</span>}</div>}
+        {presentation.description && <p className="node-card-description">{presentation.description}</p>}
+        {presentation.sourceUrl && <a href={presentation.sourceUrl} target="_blank" rel="noopener noreferrer" className="node-card-source-link"><ExternalLink size={12} />Open original source</a>}
       </div>
-      <div className="node-card-drag-handle" aria-hidden="true"><GripVertical size={14} /></div>
     </div>, document.body,
   );
 }

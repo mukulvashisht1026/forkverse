@@ -13,6 +13,7 @@ import { healthRouter } from './routes/health.js';
 import { helloRouter } from './routes/hello.js';
 import { investigationsRouter } from './routes/investigations.js';
 import { timelineRouter } from './routes/timeline.js';
+import { transcriptionRouter } from './routes/transcription.js';
 import { ResearchChatService } from './investigations/chat.js';
 import { InvestigationService } from './investigations/service.js';
 import { MemoryInvestigationStore, MongoInvestigationStore, type InvestigationStore } from './investigations/store.js';
@@ -50,6 +51,7 @@ export function buildServer({ store, hub, investigations, chat, corsOrigins = co
   api.use(healthRouter);
   api.use(helloRouter);
   api.use(chatRouter);
+  api.use(transcriptionRouter({ apiKey: config.GEMINI_API_KEY, model: config.GEMINI_TRANSCRIPTION_MODEL }));
   api.use(timelineRouter({ store, hub }));
   if (investigations) api.use(investigationsRouter(investigations, chat));
 

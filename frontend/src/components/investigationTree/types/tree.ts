@@ -10,6 +10,7 @@ export interface SpineNode {
   id: string;
   name: string;
   info: string;
+  isNew?: boolean;
   branches: BranchItem[];
 }
 

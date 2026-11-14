@@ -15,8 +15,8 @@ import { investigationEventsToSpineNodes } from './services/investigationGraphAd
 import { NodeCard } from './components/NodeCard';
 import { DraggableChatPanel } from './components/DraggableChatPanel';
 import { SPINE_GAP, generateBranchGeometry } from './components/investigationTree/utils/treeMath';
-import { closeNodeCard, keepExistingNodeCards, openNodeCard, type OpenNodeCards } from './utils/nodeCardState';
-import { findGraphAdditions, isNewerGraphRevision, type GraphAdditions } from './utils/graphAdditions';
+import { closeNodeCard, keepExistingNodeCard, nodeCardId, openNodeCard, shouldDismissNodeCardPointer, type ActiveNodeCard } from './utils/nodeCardState';
+import { animateGraphAdditions, findGraphAdditions, isNewerGraphRevision, type GraphAdditions } from './utils/graphAdditions';
 
 function HomeTypography() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -124,13 +124,21 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [hoverFocus, setHoverFocus] = useState<FocusTarget | null>(null);
   const [pinnedFocus, setPinnedFocus] = useState<FocusTarget | null>(null);
-  const [motionOn, setMotionOn] = useState(() => !window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const [motionOn, setMotionOn] = useState(() => {
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    try { return !reduced && window.sessionStorage.getItem('tracewire-motion') !== 'paused'; }
+    catch { return !reduced; }
+  });
+  const [detailLevel, setDetailLevel] = useState<'detailed' | 'minimal'>(() => {
+    try { return window.sessionStorage.getItem('tracewire-graph-detail') === 'minimal' ? 'minimal' : 'detailed'; }
+    catch { return 'detailed'; }
+  });
   const [topic, setTopic] = useState('');
   const [exampleOffset, setExampleOffset] = useState(0);
   const [exampleHovered, setExampleHovered] = useState(false);
   const [exampleFocused, setExampleFocused] = useState(false);
   const [topicFocused, setTopicFocused] = useState(false);
-  const [reducedMotion] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const [reducedMotion, setReducedMotion] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   const [visibleInvestigationCount, setVisibleInvestigationCount] = useState(2);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -150,13 +158,38 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
   const selectedInvestigationIdRef = useRef<string | null>(null);
   const graphSnapshotRef = useRef<{ investigationId: string; revision: number; nodes: SpineNode[] } | null>(null);
 
-  /** Stable event/evidence IDs are the sole source of truth for card visibility. */
-  const [openNodeCards, setOpenNodeCards] = useState<OpenNodeCards>(new Map());
+  /** Visibility is independent from graph selection: at most one stable-ID card is active. */
+  const [activeNodeCard, setActiveNodeCard] = useState<ActiveNodeCard>(null);
   const [viewTransform, setViewTransform] = useState({ k: 1, x: 0, y: 0 });
   const [canvasElement, setCanvasElement] = useState<SVGSVGElement | null>(null);
   const workspaceBodyRef = useRef<HTMLDivElement>(null);
   const cardOffsets = useRef(new Map<string, { x: number; y: number }>());
   const [cardRevision, setCardRevision] = useState(0);
+
+  useEffect(() => {
+    try { window.sessionStorage.setItem('tracewire-graph-detail', detailLevel); } catch { /* session preference is optional */ }
+  }, [detailLevel]);
+  useEffect(() => {
+    try { window.sessionStorage.setItem('tracewire-motion', motionOn ? 'playing' : 'paused'); } catch { /* session preference is optional */ }
+  }, [motionOn]);
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const onChange = () => { setReducedMotion(media.matches); if (media.matches) setMotionOn(false); };
+    media.addEventListener('change', onChange);
+    return () => media.removeEventListener('change', onChange);
+  }, []);
+
+  useEffect(() => {
+    if (!activeNodeCard) return;
+    const handleOutsidePointer = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (!shouldDismissNodeCardPointer(Boolean(target.closest('.node-card')), Boolean(target.closest('.node-group, .tip-group')))) return;
+      setActiveNodeCard((active) => active === activeNodeCard ? null : active);
+    };
+    document.addEventListener('pointerdown', handleOutsidePointer);
+    return () => document.removeEventListener('pointerdown', handleOutsidePointer);
+  }, [activeNodeCard]);
 
   const activeNodes = workspaceNodes ?? [];
   // These are editable example prompts, not claims about a configured demo investigation.
@@ -255,14 +288,40 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
     if (selectedInvestigationIdRef.current !== investigationId) return false;
     const previous = graphSnapshotRef.current;
     if (previous?.investigationId === investigationId && !isNewerGraphRevision(previous.revision, revision)) return false;
-    const additions = previous?.investigationId === investigationId ? findGraphAdditions(previous.nodes, nodes) : { events: [], evidence: [] };
-    graphSnapshotRef.current = { investigationId, revision, nodes };
-    setWorkspaceNodes(nodes);
-    setOpenNodeCards((cards) => keepExistingNodeCards(cards, new Set(nodes.map((node) => node.id)), new Set(nodes.flatMap((node) => node.branches.map((branch) => branch.id)))));
-    const liveCardIds = new Set(nodes.flatMap((node) => [`event:${node.id}`, ...node.branches.map((branch) => `evidence:${branch.id}`)]));
+    const sameInvestigation = previous?.investigationId === investigationId;
+    const additions = sameInvestigation ? findGraphAdditions(previous.nodes, nodes) : { events: [], evidence: [] };
+    const animatedNodes = animateGraphAdditions(sameInvestigation ? previous.nodes : null, nodes);
+    graphSnapshotRef.current = { investigationId, revision, nodes: animatedNodes };
+    setWorkspaceNodes(animatedNodes);
+    setActiveNodeCard((card) => keepExistingNodeCard(card, new Set(animatedNodes.map((node) => node.id)), new Set(animatedNodes.flatMap((node) => node.branches.map((branch) => branch.id)))));
+    const liveCardIds = new Set(animatedNodes.flatMap((node) => [`event:${node.id}`, ...node.branches.map((branch) => `evidence:${branch.id}`)]));
     for (const id of cardOffsets.current.keys()) if (!liveCardIds.has(id)) cardOffsets.current.delete(id);
     setWhatChanged(additions.events.length || additions.evidence.length ? { revision, additions } : null);
     return true;
+  }, []);
+
+  const completeGraphGrowth = useCallback((eventId: string, evidenceId?: string) => {
+    const complete = (nodes: SpineNode[]) => {
+      let changed = false;
+      const next = nodes.map((node) => {
+        if (node.id !== eventId) return node;
+        if (evidenceId) {
+          const branches = node.branches.map((branch) => {
+            if (branch.id !== evidenceId || !branch._animateGrowth) return branch;
+            changed = true;
+            return { ...branch, _animateGrowth: false, _prog: 1 };
+          });
+          return changed ? { ...node, branches } : node;
+        }
+        if (!node._animateGrowth) return node;
+        changed = true;
+        return { ...node, _animateGrowth: false };
+      });
+      return changed ? next : nodes;
+    };
+    setWorkspaceNodes((nodes) => nodes ? complete(nodes) : nodes);
+    const snapshot = graphSnapshotRef.current;
+    if (snapshot) graphSnapshotRef.current = { ...snapshot, nodes: complete(snapshot.nodes) };
   }, []);
 
   /** Re-fetch; only a strictly newer revision with new stable IDs can update What changed. */
@@ -309,7 +368,7 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
     setPinnedFocus(null);
     setHighlight(null);
     setWhatChanged(null);
-    setOpenNodeCards(new Map());
+    setActiveNodeCard(null);
     cardOffsets.current.clear();
     graphSnapshotRef.current = null;
     try {
@@ -361,7 +420,7 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
       const evidence = target.j === undefined ? undefined : node.branches[target.j];
       if (target.j !== undefined && !evidence) return;
       const card = { eventId: node.id, ...(evidence ? { evidenceId: evidence.id } : {}) };
-      setOpenNodeCards((cards) => openNodeCard(cards, card));
+      setActiveNodeCard((active) => openNodeCard(active, card));
     }
   }, [activeNodes, navigateToTarget]);
   const activeFocus = hoverFocus ?? pinnedFocus;
@@ -388,7 +447,10 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
     try {
       if (mockMode) {
         const graph = await repository.extendInvestigation(selectedInvestigation.id, { topic: `Next development after ${lastNode.name}` });
-        setWorkspaceNodes(graph.nodes);
+        const nextNodes = animateGraphAdditions(activeNodes, graph.nodes);
+        setWorkspaceNodes(nextNodes);
+        const snapshot = graphSnapshotRef.current;
+        if (snapshot) graphSnapshotRef.current = { ...snapshot, nodes: nextNodes };
         setSelectedIndex(graph.nodes.length - 1);
         setWorkspaceFitSignal((value) => value + 1);
         return;
@@ -398,15 +460,18 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
         mode: 'new-node', selectedNodeId: lastNode.id, selectedNodeName: lastNode.name, provider: 'auto',
       });
       if (result.node) {
-        setWorkspaceNodes((nodes) => {
-          const current = nodes ?? [];
-          if (current.some((node) => node.id === result.node!.id)) return current;
+        const current = graphSnapshotRef.current?.nodes ?? activeNodes;
+        if (!current.some((node) => node.id === result.node!.id)) {
           const node = result.branches?.length
             ? { ...result.node!, branches: [...result.node!.branches, ...result.branches.filter((branch) => !result.node!.branches.some((existing) => existing.id === branch.id))] }
             : result.node!;
-          return [...current, node];
-        });
-        setSelectedIndex(activeNodes.length);
+          const animatedNode = { ...node, _animateGrowth: true, branches: node.branches.map((branch) => ({ ...branch, _animateGrowth: true, _prog: 0 })) };
+          const nextNodes = [...current, animatedNode];
+          setWorkspaceNodes(nextNodes);
+          const snapshot = graphSnapshotRef.current;
+          if (snapshot) graphSnapshotRef.current = { ...snapshot, nodes: nextNodes };
+          setSelectedIndex(nextNodes.length - 1);
+        }
         setWorkspaceFitSignal((value) => value + 1);
       } else if (result.message) {
         window.alert(result.message);
@@ -512,21 +577,23 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
         <div className="gh-chat-column">
           {temporaryTimelineContext && <p className="gh-context-notice" role="status">Temporary timeline context; not a saved investigation.</p>}
           {selectedInvestigation && (mockMode
-            ? <MockResearchChat key={selectedInvestigation.id} onAddEvent={async (prompt) => { const graph = await repository.extendInvestigation(selectedInvestigation.id, { topic: prompt }); setWorkspaceNodes(graph.nodes); setWorkspaceFitSignal((value) => value + 1); }} />
+            ? <MockResearchChat key={selectedInvestigation.id} onAddEvent={async (prompt) => { const graph = await repository.extendInvestigation(selectedInvestigation.id, { topic: prompt }); acceptGraphSnapshot(graph.investigationId, graph.revision, graph.nodes); setWorkspaceFitSignal((value) => value + 1); }} />
             : <ResearchChat key={selectedInvestigation.id} investigationId={selectedInvestigation.id} historyAvailable={!temporaryTimelineContext} disabled={workspaceLoading || Boolean(workspaceError) || temporaryTimelineContext} onGraphUpdated={applyResearchGraph} onShowSources={(evidenceIds, eventIds) => setHighlight({ messageId: 'local', evidenceIds: new Set(evidenceIds), eventIds: new Set(eventIds), final: true })} />)}
         </div>
         </DraggableChatPanel>
         <section className="gh-graph" aria-label="Evidence graph">
-{workspaceNodes && <TreeCanvasAdapter spine={activeNodes} selectedIndex={selectedIndex} focus={activeFocus} moving={motionOn} fitSignal={workspaceFitSignal} onHoverTarget={setHoverFocus} onSelectTarget={focusTarget} onClearPin={() => setPinnedFocus(null)} onContinue={() => void continueGraph()} isContinuing={continuing} highlight={highlight} onViewChange={setViewTransform} onCanvasReady={setCanvasElement} />}
+{workspaceNodes && <TreeCanvasAdapter spine={activeNodes} selectedIndex={selectedIndex} focus={activeFocus} moving={motionOn} detailLevel={detailLevel} researching={researchRunning || continuing} fitSignal={workspaceFitSignal} onHoverTarget={setHoverFocus} onSelectTarget={focusTarget} onClearPin={() => setPinnedFocus(null)} onContinue={() => void continueGraph()} isContinuing={continuing} highlight={highlight} onViewChange={setViewTransform} onCanvasReady={setCanvasElement} onGrowthComplete={completeGraphGrowth} />}
 <div className="gh-graph-label">Evidence graph <span>{activeNodes.length} {activeNodes.length === 1 ? 'event' : 'events'}</span></div>
-<div className="gh-graph-controls">{whatChanged && <button type="button" className="gh-what-changed" onClick={focusWhatChanged} title={`New since graph revision ${whatChanged.revision}`}>What changed · {whatChanged.additions.events.length + whatChanged.additions.evidence.length}</button>}{highlight && <button type="button" className="gh-highlight-clear" onClick={() => setHighlight(null)} title="Show the whole graph again">{highlight.final ? `Showing ${highlight.evidenceIds.size} cited source${highlight.evidenceIds.size === 1 ? '' : 's'}` : 'Citing sources…'} · Clear</button>}<button type="button" onClick={() => setMotionOn((value) => !value)}>{motionOn ? 'Pause motion' : 'Resume motion'}</button><button type="button" onClick={fitGraph}>Fit graph</button></div>
+<div className="gh-graph-controls">{whatChanged && <button type="button" className="gh-what-changed" onClick={focusWhatChanged} title={`New since graph revision ${whatChanged.revision}`}>What changed · {whatChanged.additions.events.length + whatChanged.additions.evidence.length}</button>}{highlight && <button type="button" className="gh-highlight-clear" onClick={() => setHighlight(null)} title="Show the whole graph again">{highlight.final ? `Showing ${highlight.evidenceIds.size} cited source${highlight.evidenceIds.size === 1 ? '' : 's'}` : 'Citing sources…'} · Clear</button>}<button type="button" aria-pressed={motionOn && !reducedMotion} disabled={reducedMotion} title={reducedMotion ? 'Disabled by your reduced-motion preference' : undefined} onClick={() => setMotionOn((value) => !value)}>{motionOn && !reducedMotion ? 'Pause motion' : 'Resume motion'}</button><button type="button" aria-pressed={detailLevel === 'detailed'} onClick={() => setDetailLevel((level) => level === 'detailed' ? 'minimal' : 'detailed')}>{detailLevel === 'detailed' ? 'Detailed view' : 'Minimal view'}</button><button type="button" onClick={fitGraph}>Fit graph</button></div>
           {workspaceLoading && <div className="gh-graph-state">Loading investigation graph…</div>}
           {workspaceError && <div className="gh-graph-state"><p>{workspaceError}</p><button onClick={() => selectedInvestigation && void openWorkspace(selectedInvestigation)}>Retry</button></div>}
           {!workspaceLoading && !workspaceError && workspaceNodes?.length === 0 && <div className="gh-graph-state">{researchRunning ? 'Researching… evidence will appear here as it is found.' : 'This investigation has no evidence yet.'}</div>}
 
           {workspaceNodes && <SpineNav spine={activeNodes} selectedIndex={selectedIndex} onHoverNode={setHoverFocus} onSelectNode={(index) => navigateToTarget({ i: index })} />}
           {/* Floating node cards */}
-          {workspaceNodes && Array.from(openNodeCards.entries()).map(([cardId, cardInfo]) => {
+          {workspaceNodes && activeNodeCard && (() => {
+            const cardInfo = activeNodeCard;
+            const cardId = nodeCardId(cardInfo);
             const spineIdx = activeNodes.findIndex((item) => item.id === cardInfo.eventId);
             const node = activeNodes[spineIdx];
             if (!node) return null;
@@ -552,12 +619,12 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
                 workspaceRef={workspaceBodyRef}
                 offset={savedOffset}
                 revision={cardRevision}
-                onClose={() => { setOpenNodeCards((cards) => closeNodeCard(cards, cardId)); cardOffsets.current.delete(cardId); }}
+                onClose={() => setActiveNodeCard((active) => closeNodeCard(active, cardId))}
                 onDragEnd={(_id, offset) => { cardOffsets.current.set(branchCardKey, offset); setCardRevision((n) => n + 1); }}
                 cardKey={cardId}
               />
             );
-          })}
+          })()}
         </section>
       </div>
     </main>

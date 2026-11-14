@@ -7,3 +7,6 @@
 .itl-tree .citing .branch.cited .tip-core{fill:#d1bd91;stroke:#f5f2e8;filter:drop-shadow(0 0 7px #d1bd91)}
 .itl-tree .citing .branch.cited .tip-label{opacity:1}
 @media(prefers-reduced-motion:reduce){.itl-tree .branch{transition:none}}
+.itl-tree .node-group:focus,.itl-tree .tip-group:focus{outline:none}
+.itl-tree .keyboard-focus-ring{opacity:0;pointer-events:none;stroke:#d1bd91;stroke-width:1.5;stroke-dasharray:2 3;transition:opacity .12s ease}
+.itl-tree .node-group:focus-visible>.keyboard-focus-ring,.itl-tree .tip-group:focus-visible>.keyboard-focus-ring{opacity:.95}

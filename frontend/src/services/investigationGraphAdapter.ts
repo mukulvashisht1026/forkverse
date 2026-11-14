@@ -8,12 +8,16 @@ function stableSeed(value: string): number {
 }
 
 function evidenceToBranch(evidence: InvestigationEvidenceDto): BranchNode {
+  let sourceDomain: string | undefined;
+  try { sourceDomain = evidence.sourceUrl ? new URL(evidence.sourceUrl).hostname.replace(/^www\./i, '') : undefined; } catch { /* Preserve the URL without inventing a domain. */ }
   return {
     id: evidence.id,
     name: evidence.title,
     info: evidence.excerpt ?? '',
     sourceType: 'news',
-    ...(evidence.sourceName ? { sourceDomain: evidence.sourceName } : {}),
+    sourceTypeIsInferred: true,
+    ...(sourceDomain ? { sourceDomain } : {}),
+    ...(evidence.sourceName ? { sourceName: evidence.sourceName } : {}),
     ...(evidence.sourceUrl ? { sourceUrl: evidence.sourceUrl } : {}),
     ...(evidence.publishedAt ? { publishedAt: evidence.publishedAt } : {}),
     ...(evidence.relationship ? { impactAngle: evidence.relationship } : {}),

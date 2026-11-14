@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { SpineNode } from '../types/tree';
-import { findGraphAdditions, isNewerGraphRevision } from './graphAdditions';
+import { animateGraphAdditions, findGraphAdditions, isNewerGraphRevision } from './graphAdditions';
 
 test('only a strictly newer backend revision is eligible for What changed', () => {
   assert.equal(isNewerGraphRevision(4, 4), false);
@@ -34,4 +34,25 @@ test('graph additions list only new event and evidence IDs and associate evidenc
       { id: 'evidence-c', title: 'Source in new event', eventId: 'event-b' },
     ],
   });
+});
+
+test('initial graph snapshots stay static and only later stable IDs receive growth flags', () => {
+  const loaded = [event('event-a', 'Existing', [{ id: 'evidence-a', name: 'Known source' }])];
+  const initial = animateGraphAdditions(null, loaded);
+  assert.equal(initial[0]._animateGrowth, false);
+  assert.equal(initial[0].branches[0]._animateGrowth, false);
+
+  const updated = animateGraphAdditions(initial, [
+    event('event-a', 'Existing', [{ id: 'evidence-a', name: 'Known source' }, { id: 'evidence-b', name: 'New source' }]),
+    event('event-b', 'New event', [{ id: 'evidence-c', name: 'New event source' }]),
+  ]);
+  assert.equal(updated[0]._animateGrowth, false);
+  assert.equal(updated[0].branches[0]._animateGrowth, false);
+  assert.equal(updated[0].branches[1]._animateGrowth, true);
+  assert.equal(updated[1]._animateGrowth, true);
+  assert.equal(updated[1].branches[0]._animateGrowth, true);
+
+  const repeated = animateGraphAdditions(updated, updated);
+  assert.equal(repeated[1]._animateGrowth, true, 'rerenders preserve in-flight state rather than restarting it');
+  assert.equal(repeated[0].branches[1]._animateGrowth, true);
 });

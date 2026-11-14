@@ -4,12 +4,17 @@ import { mapInvestigationGraphDto, investigationRepository } from './investigati
 test('investigation graph adapter preserves event and evidence for canvas', () => {
   const graph = mapInvestigationGraphDto({
     investigationId: 'inv-1', revision: 2, updatedAt: '2026-01-01T00:00:00Z',
-    events: [{ id: 'event-1', title: 'Policy announced', summary: 'Summary', evidence: [{ id: 'source-1', title: 'Source headline', sourceUrl: 'https://example.com', excerpt: 'Evidence excerpt' }] }],
+    events: [{ id: 'event-1', title: 'Policy announced', summary: 'Summary', evidence: [{ id: 'source-1', title: 'Source headline', sourceName: 'The Daily Ledger', sourceUrl: 'https://news.example.test/story', publishedAt: '2026-01-03T00:00:00Z', relationship: 'News coverage', excerpt: 'Evidence excerpt' }] }],
   });
   assert.equal(graph.investigationId, 'inv-1');
   assert.equal(graph.nodes[0].name, 'Policy announced');
   assert.equal(graph.nodes[0].branches[0].name, 'Source headline');
-  assert.equal(graph.nodes[0].branches[0].sourceUrl, 'https://example.com');
+  assert.equal(graph.nodes[0].branches[0].sourceUrl, 'https://news.example.test/story');
+  assert.equal(graph.nodes[0].branches[0].sourceName, 'The Daily Ledger');
+  assert.equal(graph.nodes[0].branches[0].sourceDomain, 'news.example.test');
+  assert.equal(graph.nodes[0].branches[0].publishedAt, '2026-01-03T00:00:00Z');
+  assert.equal(graph.nodes[0].branches[0].impactAngle, 'News coverage');
+  assert.equal(graph.nodes[0].branches[0].sourceTypeIsInferred, true);
 });
 
 test('public investigations repository maps stable API records', async (t) => {
