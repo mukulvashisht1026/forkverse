@@ -4,7 +4,7 @@ import path from 'path';
 import {defineConfig, loadEnv} from 'vite';
 
 export default defineConfig(({mode}) => {
-  // Forkverse backend (Express + WebSocket). Override with BACKEND_URL in frontend/.env.
+  // TRACEWIRE backend (Express + WebSocket). Override with BACKEND_URL in frontend/.env.
   const backend = loadEnv(mode, process.cwd(), '').BACKEND_URL || 'http://localhost:3000';
   return {
     plugins: [react(), tailwindcss()],
@@ -21,6 +21,14 @@ export default defineConfig(({mode}) => {
           target: backend,
           changeOrigin: true,
           rewrite: (p: string) => p.replace(/^\/api/, ''),
+          configure: (proxy) => {
+            proxy.on('proxyRes', (proxyRes) => {
+              const type = proxyRes.headers['content-type'] ?? '';
+              if (String(type).includes('text/html')) {
+                console.error(`[vite proxy] ${proxyRes.statusCode} HTML from ${backend}; API path likely hit frontend fallback, not backend`);
+              }
+            });
+          },
         },
         '/ws': {target: backend, ws: true, changeOrigin: true},
       },

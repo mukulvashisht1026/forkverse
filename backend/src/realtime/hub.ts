@@ -87,6 +87,7 @@ export class RealtimeHub {
       } catch {
         return; // ignore malformed frames
       }
+      if (!msg || typeof msg !== 'object' || Array.isArray(msg)) return;
       if (msg.type === 'ping') {
         send(ws, { type: 'pong', timestamp: new Date().toISOString() });
       } else if (msg.type === 'timeline:sync') {

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Redeploy Forkverse to Azure (resources already created; see CLAUDE.md "Azure").
+# Redeploy TRACEWIRE to Azure (resources already created; see CLAUDE.md "Azure").
 #
 #   backend  -> Azure Container Apps (image built locally with Docker, pushed to ACR;
 #               Azure for Students blocks ACR cloud builds)

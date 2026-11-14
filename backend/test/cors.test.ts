@@ -15,7 +15,7 @@ async function withServer(corsOrigins: string[], fn: (base: string) => Promise<v
   }
 }
 
-const WEB = 'https://forkverse-web.azurestaticapps.net';
+const WEB = 'https://tracewire-web.azurestaticapps.net';
 
 describe('CORS', () => {
   it('allows configured origins, including preflight for JSON POSTs', async () => {

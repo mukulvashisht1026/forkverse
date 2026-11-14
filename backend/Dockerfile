@@ -1,3 +1,4 @@
+# TRACEWIRE backend image (pushed to ACR forkverseacrqb1xft, run as Container App forkverse-backend).
 FROM node:20-alpine AS build
 WORKDIR /app
 COPY package*.json ./

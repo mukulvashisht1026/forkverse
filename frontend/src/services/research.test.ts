@@ -4,15 +4,23 @@ import { getConversation, renderSafeMarkdown, runResearchAction, safeSourceUrl }
 
 const sseResponse = (body: ReadableStream<Uint8Array>, status = 200) => new Response(body, { status, headers: { 'Content-Type': 'text/event-stream' } });
 const streamFrom = (chunks: string[]) => new ReadableStream<Uint8Array>({ start(controller) { for (const chunk of chunks) controller.enqueue(new TextEncoder().encode(chunk)); controller.close(); } });
+const complete = 'data: {"type":"message_complete","message":{"id":"m1","role":"assistant","content":"done","createdAt":"2026-01-01T00:00:00Z"}}\n\n';
 
 test('SSE parser handles chunk splits inside frame boundaries and JSON payload', async () => {
   const payload = JSON.stringify({ type: 'token', text: 'hello' });
-  const chunks = [`data: ${payload.slice(0, 12)}`, `${payload.slice(12)}\n`, '\ndata: {"type":"token","text":" world"}\n\n'];
+  const chunks = [`data: ${payload.slice(0, 12)}`, `${payload.slice(12)}\r`, `\ndata: {"type":"token","text":" world"}\r\n\r\n${complete}`];
   const original = globalThis.fetch; globalThis.fetch = async () => sseResponse(streamFrom(chunks));
   const events: unknown[] = [];
   try { await runResearchAction({ investigationId: 'inv/1', action: 'answer_question', message: 'q' }, new AbortController().signal, (event) => events.push(event)); }
   finally { globalThis.fetch = original; }
-  assert.deepEqual(events, [{ type: 'token', text: 'hello' }, { type: 'token', text: ' world' }]);
+  assert.deepEqual(events, [{ type: 'token', text: 'hello' }, { type: 'token', text: ' world' }, { type: 'message_complete', message: { id: 'm1', role: 'assistant', content: 'done', createdAt: '2026-01-01T00:00:00Z' } }]);
+});
+
+test('SSE stream without message_complete rejects as truncated', async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = async () => sseResponse(streamFrom(['data: {"type":"token","text":"partial"}\n\n']));
+  try { await assert.rejects(runResearchAction({ investigationId: 'i', action: 'answer_question', message: 'q' }, new AbortController().signal, () => undefined), /ended before completion/); }
+  finally { globalThis.fetch = original; }
 });
 
 test('non-JSON HTML API response becomes concise service error', async () => {

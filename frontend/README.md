@@ -13,7 +13,7 @@ VITE_API_BASE_URL=https://api.your-backend.com
 VITE_WS_URL=wss://api.your-backend.com/ws
 ```
 
-Local development against the Forkverse backend (`backend/`):
+Local development against the TRACEWIRE backend (`backend/`):
 
 ```bash
 # terminal 1 (repo root): backend on :3000 (HTTP + WebSocket /ws)

@@ -56,6 +56,7 @@ interface TreeCanvasProps {
   className?: string;
   fitRequest: { id: number; instant: boolean };
   onSelectNode: (index: number) => void;
+  onSelectBranch: (spineIndex: number, branchIndex: number) => void;
   onSetFocus: (target: FocusTarget | null) => void;
   onBranchGrowthComplete: (spineIndex: number, branchId: string) => void;
   onContinue: () => void;
@@ -66,6 +67,8 @@ interface TreeCanvasProps {
   claimView?: boolean;
   /** Claim view: note shown at the end of the unverified lane (e.g. "+12 more unverified"). */
   laneNote?: string;
+  onViewChange?: (view: ViewTransform) => void;
+  onCanvasReady?: (svg: SVGSVGElement | null) => void;
   /** Evidence/event ids cited by the current answer: these stay lit, everything else dims. */
   highlight?: {
     evidenceIds: ReadonlySet<string>;
@@ -87,7 +90,7 @@ interface BranchViewProps {
   role?: string;
   isPaused: boolean;
   dragMovedRef: React.RefObject<boolean>;
-  onSelectNode: (index: number) => void;
+  onSelectBranch: (spineIndex: number, branchIndex: number) => void;
   onSetFocus: (target: FocusTarget | null) => void;
   onGrowthComplete: (spineIndex: number, branchId: string) => void;
 }
@@ -104,7 +107,7 @@ function BranchView({
   role,
   isPaused,
   dragMovedRef,
-  onSelectNode,
+  onSelectBranch,
   onSetFocus,
   onGrowthComplete,
 }: BranchViewProps) {
@@ -302,13 +305,13 @@ function BranchView({
         onClick={(e) => {
           e.stopPropagation();
           if (!dragMovedRef.current) {
-            onSelectNode(spineIndex);
+            onSelectBranch(spineIndex, branchIndex);
           }
         }}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
-            onSelectNode(spineIndex);
+            onSelectBranch(spineIndex, branchIndex);
           }
         }}
       >
@@ -340,10 +343,13 @@ export function TreeCanvas({
   isPaused,
   fitRequest,
   onSelectNode,
+  onSelectBranch,
   onSetFocus,
   onBranchGrowthComplete,
   onContinue,
   isContinuing,
+  onViewChange,
+  onCanvasReady,
   className = '',
   highlight = null,
   links = [],
@@ -352,6 +358,7 @@ export function TreeCanvas({
 }: TreeCanvasProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const worldRef = useRef<SVGGElement>(null);
+  useEffect(() => { onCanvasReady?.(svgRef.current); }, [onCanvasReady]);
 
   const viewRef = useRef<ViewTransform>({ k: 1, x: 0, y: 0 });
   const goalRef = useRef<ViewTransform | null>(null);
@@ -447,6 +454,7 @@ export function TreeCanvas({
     if (!world) return;
     const { x, y, k } = viewRef.current;
     world.setAttribute('transform', `translate(${x} ${y}) scale(${k})`);
+    onViewChange?.({ x, y, k });
   };
 
   const triggerFit = (instant: boolean) => {
@@ -612,10 +620,8 @@ export function TreeCanvas({
         dragMovedRef.current = false;
         goalRef.current = null;
       }}
-      onClick={() => {
-        if (!dragMovedRef.current) {
-          onSetFocus(null);
-        }
+      onClick={(event) => {
+        if (!dragMovedRef.current && event.target === svgRef.current) onSetFocus(null);
       }}
     >
       <defs>
@@ -846,7 +852,7 @@ export function TreeCanvas({
                     role={isCiting ? highlight!.roles?.get(branch.id) : undefined}
                     isPaused={isPaused}
                     dragMovedRef={dragMovedRef}
-                    onSelectNode={onSelectNode}
+                    onSelectBranch={onSelectBranch}
                     onSetFocus={onSetFocus}
                     onGrowthComplete={onBranchGrowthComplete}
                   />

@@ -160,8 +160,8 @@ export function ResearchChat({ investigationId, disabled, historyAvailable = tru
   };
 
   return <aside className="gh-research" aria-label="Investigation research chat">
-    <div className="gh-chat-heading"><h2>Research</h2><p>Investigation-scoped conversation</p></div>
-    <div className="gh-chat-messages" ref={scrollRef} onScroll={(event) => { const el = event.currentTarget; stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80; }} aria-live="polite" aria-busy={loadingHistory || sending}>
+<div className="gh-chat-heading"><h2>Research</h2><p>Investigation-scoped conversation</p></div>
+<div className="gh-chat-messages" ref={scrollRef} onScroll={(event) => { const el = event.currentTarget; stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80; }} aria-live="polite" aria-busy={loadingHistory || sending}>
       {loadingHistory && <p className="gh-muted">Loading conversation…</p>}
       {historyError && <div role="alert" className="gh-library-unavailable"><p>{historyError}</p><button type="button" onClick={() => void loadHistory()}>Retry history</button></div>}
       {!loadingHistory && !historyError && messages.length === 0 && <p className="gh-chat-intro">The graph on the right is the answer. Ask about it and the relevant claims and articles light up; if something is not in the graph yet, you can extend it.</p>}
@@ -182,7 +182,8 @@ export function ResearchChat({ investigationId, disabled, historyAvailable = tru
       </article>)}
       {sendError && <p role="alert" className="gh-error">{sendError}</p>}
     </div>
-    {sending && <button type="button" onClick={() => requestRef.current?.abort()}>Stop response</button>}
+    {sending && <div className="gh-chat-stop"><button type="button" onClick={() => requestRef.current?.abort()}>Stop response</button></div>}
+    <div className="gh-chat-composer-wrap">
     <form className="gh-composer" onSubmit={submit}>
       <div className="gh-composer-row"><label htmlFor="research-action">Action</label><select id="research-action" value={action} onChange={(event) => setAction(event.target.value as ResearchActionDto)} disabled={sending || loadingHistory || disabled}>
         <option value="answer_question">Answer question</option><option value="extend_graph">Extend evidence graph</option><option value="verify_sources">Verify sources (2 agents)</option><option value="build_claims">Build claim timeline</option>
@@ -192,5 +193,6 @@ export function ResearchChat({ investigationId, disabled, historyAvailable = tru
       <textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={action === 'answer_question' ? 'Ask about this investigation…' : action === 'verify_sources' ? 'Optional: what should the agents focus on?' : action === 'build_claims' ? 'Optional: anything to focus on?' : 'What should the evidence graph explore next?'} rows={3} disabled={sending || loadingHistory || disabled} aria-label="Research prompt" />
       <button type="submit" className="gh-primary" disabled={sending || disabled || (action === 'verify_sources' ? !selectedEvent : action === 'build_claims' ? false : !draft.trim())}>{sending ? 'Researching…' : action === 'answer_question' ? 'Ask question' : action === 'verify_sources' ? 'Verify sources' : action === 'build_claims' ? 'Build claim timeline' : 'Extend graph'}</button>
     </form>
+    </div>
   </aside>;
 }

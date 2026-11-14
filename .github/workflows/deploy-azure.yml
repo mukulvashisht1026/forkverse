@@ -1,4 +1,4 @@
-# Deploy Forkverse to Azure on every push to main.
+# Deploy TRACEWIRE to Azure on every push to main.
 #
 # - Detects which parts changed and deploys only those (backend, frontend, or both).
 # - Tests/typechecks must pass before anything is deployed.
@@ -29,6 +29,7 @@ env:
   RG: forkverse-rg
   ACR: forkverseacrqb1xft
   APP: forkverse-backend
+  BACKEND_FQDN: forkverse-backend.orangebeach-cf28400b.germanywestcentral.azurecontainerapps.io
   SA: forkversewebqb1xft
   NODE_VERSION: '22'
 
@@ -84,9 +85,8 @@ jobs:
       - name: Roll out to Container App
         run: |
           az containerapp update -g "$RG" -n "$APP" --image "$IMG" -o none
-          FQDN=$(az containerapp show -g "$RG" -n "$APP" --query properties.configuration.ingress.fqdn -o tsv)
           for i in $(seq 1 30); do
-            if curl -fsS "https://$FQDN/api/hello" >/dev/null; then echo "Backend healthy: https://$FQDN"; exit 0; fi
+            if curl -fsS "https://$BACKEND_FQDN/api/hello" >/dev/null; then echo "Backend healthy: https://$BACKEND_FQDN"; exit 0; fi
             sleep 10
           done
           echo "Backend did not become healthy" >&2
@@ -107,8 +107,8 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - run: npm ci
-      - run: npm run lint
+      - run: npm ci --legacy-peer-deps
+      - run: npm run check
 
       - uses: azure/login@v2
         with:
@@ -118,8 +118,7 @@ jobs:
 
       - name: Build against the deployed backend
         run: |
-          FQDN=$(az containerapp show -g "$RG" -n "$APP" --query properties.configuration.ingress.fqdn -o tsv)
-          VITE_API_BASE_URL="https://$FQDN/api" VITE_WS_URL="wss://$FQDN/ws" npx vite build --emptyOutDir
+          VITE_API_BASE_URL="https://$BACKEND_FQDN" VITE_WS_URL="wss://$BACKEND_FQDN/ws" npx vite build --emptyOutDir
 
       - name: Upload to Storage static website
         run: |

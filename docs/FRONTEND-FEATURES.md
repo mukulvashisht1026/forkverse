@@ -1,4 +1,4 @@
-# Ghostline frontend capabilities
+# TRACEWIRE frontend capabilities
 
 ## Ready in frontend
 
@@ -15,4 +15,4 @@ Investigation endpoints remain proposal only in current backend/docs. Required c
 
 The shared investigation chat contract is explicit: `GET /api/investigations/{investigationId}/messages?cursor={opaqueCursor}` returns `ChatPageDto` pages with investigation ID and oldest-first messages; `POST /api/investigations/{investigationId}/research` accepts `ResearchRequestDto` and responds `text/event-stream` frames whose `data:` JSON payloads are `message_start`, `token`, `sources`, `graph_updated`, `message_complete`, or `error`. Backend must keep investigation ID on message/history/graph, return each assistant message's own source list, and send `message_complete` to replace provisional streamed assistant text. Client uses opaque investigation IDs: legacy create-by-live-scrape and current timeline library return global timeline node IDs, not investigation IDs. Creation still opens a clearly marked temporary graph workspace; its chat requests may receive 404 until backend maps/issues stable investigation IDs. A durable create endpoint and ID migration/creation contract remain required.
 
-`https://forkversewebqb1xft.z1.web.core.windows.net/` responds with Azure static-site HTML (`text/html`, Ghostline SPA), not API. It is not configured as `VITE_API_BASE_URL`; no API host can be inferred. Set `VITE_API_BASE_URL` to actual API origin once provided. Existing live timeline websocket stays same-origin unless `VITE_WS_URL` separately configured.
+`https://forkversewebqb1xft.z1.web.core.windows.net/` responds with Azure static-site HTML (`text/html`, TRACEWIRE SPA), not API. It is not configured as `VITE_API_BASE_URL`; no API host can be inferred. Set `VITE_API_BASE_URL` to actual API origin once provided. Existing live timeline websocket stays same-origin unless `VITE_WS_URL` separately configured.
