@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { ArrowLeft, ArrowUpRight, LoaderCircle, Pencil, FolderClosed, Tag, MoreHorizontal } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, LoaderCircle, Pencil, Tag, MoreHorizontal } from 'lucide-react';
 import type { FocusTarget, SpineNode, BranchNode } from './types/tree';
 import { useLiveTimeline } from './hooks/useLiveTimeline';
 import { TreeCanvasAdapter } from './components/investigationTree/TreeCanvasAdapter';
@@ -112,17 +112,11 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
   const [view, setView] = useState<'home' | 'workspace'>('home');
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
-  const [activeFolder, setActiveFolder] = useState('All investigations');
   const [activeTag, setActiveTag] = useState<string | null>(null);
-  const graphFolders = ['All investigations', 'Policy & regulation', 'Climate & resources', 'Markets & economy'];
   const graphTags = ['Policy', 'Climate', 'Technology', 'Markets'];
   const tagsFor = (item: Investigation) => {
     const title = `${item.title} ${item.description ?? ''}`.toLowerCase();
     return graphTags.filter((tag) => title.includes(tag.toLowerCase()) || tag === 'Technology' && /ai|tech/.test(title));
-  };
-  const folderFor = (item: Investigation) => {
-    const tags = tagsFor(item);
-    return tags.includes('Climate') ? 'Climate & resources' : tags.includes('Markets') ? 'Markets & economy' : 'Policy & regulation';
   };
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [hoverFocus, setHoverFocus] = useState<FocusTarget | null>(null);
@@ -155,6 +149,7 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
   const [openNodeCards, setOpenNodeCards] = useState<Map<string, { isBranch: boolean; spineIndex: number; branchIndex?: number }>>(new Map());
   const [viewTransform, setViewTransform] = useState({ k: 1, x: 0, y: 0 });
   const [canvasElement, setCanvasElement] = useState<SVGSVGElement | null>(null);
+  const workspaceBodyRef = useRef<HTMLDivElement>(null);
   const cardOffsets = useRef(new Map<string, { x: number; y: number }>());
   const [cardRevision, setCardRevision] = useState(0);
 
@@ -167,8 +162,7 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
     'Investigate how central banks responded to inflation, comparing major decisions over time and tracing the evidence behind each shift.',
     'Trace changes in US tariffs and international trade policy, connecting official announcements with responses from affected trading partners.',
   ];
-  const filteredHomeInvestigations = (activeFolder === 'All investigations' ? investigations : investigations.filter((item) => folderFor(item) === activeFolder))
-    .filter((item) => !activeTag || tagsFor(item).includes(activeTag));
+  const filteredHomeInvestigations = investigations.filter((item) => !activeTag || tagsFor(item).includes(activeTag));
   const examplePaused = exampleHovered || exampleFocused || topicFocused || creating || reducedMotion || view !== 'home';
 
   useEffect(() => {
@@ -445,10 +439,8 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
         </section>
         {!libraryError && <section className="gh-existing" aria-labelledby="public-investigations-title">
           <div className="gh-section-heading"><h2 id="public-investigations-title">Explore investigations</h2></div>
-          <p className="gh-library-lede">Open an existing graph or browse by folder.</p>
           {libraryLoading ? <p className="gh-muted">Loading public investigations…</p> : investigations.length ? <>
-            <nav className="gh-folder-nav" aria-label="Investigation folders">{graphFolders.map((folder) => <button type="button" key={folder} className={activeFolder === folder ? 'is-active' : ''} onClick={() => { setActiveFolder(folder); setVisibleInvestigationCount(2); }}><FolderClosed size={14} />{folder}</button>)}</nav>
-            {activeFolder === 'All investigations' ? <div className="gh-tag-filter" aria-label="Filter by tag"><button type="button" className={!activeTag ? 'is-active' : ''} onClick={() => { setActiveTag(null); setVisibleInvestigationCount(2); }}>All tags</button>{graphTags.map((tag) => <button type="button" key={tag} className={activeTag === tag ? 'is-active' : ''} onClick={() => { setActiveTag(activeTag === tag ? null : tag); setVisibleInvestigationCount(2); }}><Tag size={12} />{tag}</button>)}</div> : null}
+            <div className="gh-tag-filter" aria-label="Filter by tag"><button type="button" className={!activeTag ? 'is-active' : ''} onClick={() => { setActiveTag(null); setVisibleInvestigationCount(2); }}>All tags</button>{graphTags.map((tag) => <button type="button" key={tag} className={activeTag === tag ? 'is-active' : ''} onClick={() => { setActiveTag(activeTag === tag ? null : tag); setVisibleInvestigationCount(2); }}><Tag size={12} />{tag}</button>)}</div>
             {filteredHomeInvestigations.slice(0, visibleInvestigationCount).map((item) => (
               <a className="gh-investigation" key={item.id} href={`/${encodeURIComponent(item.id)}`} onClick={(event) => {
                 if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -508,9 +500,10 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
                 worldPos={worldPos}
                 view={viewTransform}
                 svgRef={nodeRef}
+                workspaceRef={workspaceBodyRef}
                 offset={savedOffset}
                 revision={cardRevision}
-                onClose={() => { setPinnedFocus({ i: cardInfo.spineIndex, ...(branchIndex === undefined ? {} : { j: branchIndex }) }); }}
+                onClose={() => { setOpenNodeCards((cards) => { const next = new Map(cards); next.delete(nodeId); return next; }); }}
                 onDragEnd={(_id, offset) => { cardOffsets.current.set(branchCardKey, offset); setCardRevision((n) => n + 1); }}
                 cardKey={`${nodeId}-${isBranch ? 'b' + branchIndex : 's'}`}
               />

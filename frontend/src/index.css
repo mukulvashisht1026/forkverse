@@ -294,9 +294,8 @@ button { color: inherit; }
 .gh-title-edit:hover .gh-title-edit-button, .gh-title-edit:focus-within .gh-title-edit-button { opacity: 1; }
 .gh-title-edit-button:hover { background: var(--ws-panel-raised); color: var(--ws-text); }
 .gh-title-edit input { min-width: 0; max-width: min(760px, 72vw); flex: 1 1 auto; border: 1px solid var(--ws-border); border-radius: 5px; background: var(--ws-panel); padding: 5px 8px; color: var(--ws-text); }
-.gh-folder-nav { display: flex; gap: 8px; overflow-x: auto; margin: 10px 0 14px; padding: 2px 0 8px; }
-.gh-folder-nav button, .gh-tag-filter button { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 7px; border: 1px solid var(--border-default); border-radius: 7px; background: var(--bg-surface); padding: 8px 11px; color: var(--text-secondary); cursor: pointer; font-size: 12px; }
-.gh-folder-nav button.is-active, .gh-tag-filter button.is-active { border-color: var(--accent-primary); background: var(--accent-subtle); color: var(--text-primary); }
+.gh-tag-filter button { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 7px; border: 1px solid var(--border-default); border-radius: 7px; background: var(--bg-surface); padding: 8px 11px; color: var(--text-secondary); cursor: pointer; font-size: 12px; }
+.gh-tag-filter button.is-active { border-color: var(--accent-primary); background: var(--accent-subtle); color: var(--text-primary); }
 .gh-tag-filter { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
 .gh-tag-filter button { border-radius: 999px; padding: 5px 9px; }
 .gh-item-tags { display: flex; flex-wrap: wrap; gap: 5px; }
@@ -315,7 +314,6 @@ button { color: inherit; }
 .gh-workspace .node-card-title { color: #171c1b; }
 .gh-workspace .node-card-description { color: #394542; }
 @media (max-width: 760px) {
-  .gh-folder-nav { margin-right: -18px; }
   .gh-title-edit-button { opacity: 1; }
   .gh-workspace-title { padding-left: 8px; }
 }

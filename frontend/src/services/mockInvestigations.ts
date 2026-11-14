@@ -19,22 +19,22 @@ const node = (id: string, name: string, info: string, index: number): SpineNode 
 });
 
 const seedGraphs: StoredGraph[] = [
-  { id: 'demo-ai-regulation', title: 'European AI regulation', description: 'Policy & regulation · Technology', createdAt: '2026-05-12T10:00:00.000Z', updatedAt: '2026-05-14T10:00:00.000Z', nodes: [
+  { id: 'demo-ai-regulation', title: 'European AI regulation', description: 'Policy decisions and technology developments in AI governance.', createdAt: '2026-05-12T10:00:00.000Z', updatedAt: '2026-05-14T10:00:00.000Z', nodes: [
     node('ai-1', 'AI Act proposal introduced', 'The European Commission proposed a risk-based framework for artificial intelligence.', 0),
     node('ai-2', 'Parliament adopts negotiating position', 'Lawmakers refined obligations for high-risk systems and foundation models.', 1),
     node('ai-3', 'AI Act enters into force', 'The final regulation established a phased implementation timeline.', 2),
   ] },
-  { id: 'demo-lithium-supply', title: 'Global lithium supply chains', description: 'Climate & resources · Markets', createdAt: '2026-05-10T10:00:00.000Z', updatedAt: '2026-05-13T10:00:00.000Z', nodes: [
+  { id: 'demo-lithium-supply', title: 'Global lithium supply chains', description: 'Climate policy, resources, and market developments in the global lithium supply chain.', createdAt: '2026-05-10T10:00:00.000Z', updatedAt: '2026-05-13T10:00:00.000Z', nodes: [
     node('li-1', 'Demand accelerates', 'Battery manufacturing growth reshaped demand forecasts.', 0),
     node('li-2', 'Export policy shifts', 'Resource-rich states considered new rules for domestic processing.', 1),
     node('li-3', 'New refining capacity announced', 'Investment expanded refining capacity across several regions.', 2),
   ] },
-  { id: 'demo-arctic-routes', title: 'Arctic shipping routes', description: 'Climate & resources · Policy', createdAt: '2026-05-08T10:00:00.000Z', updatedAt: '2026-05-11T10:00:00.000Z', nodes: [
+  { id: 'demo-arctic-routes', title: 'Arctic shipping routes', description: 'Climate impacts and policy decisions around Arctic shipping routes.', createdAt: '2026-05-08T10:00:00.000Z', updatedAt: '2026-05-11T10:00:00.000Z', nodes: [
     node('ar-1', 'Seasonal access expands', 'Changing conditions prompted new seasonal route assessments.', 0),
     node('ar-2', 'Safety standards debated', 'Officials discussed infrastructure and emergency-response readiness.', 1),
     node('ar-3', 'Environmental safeguards proposed', 'New measures focused on monitoring and spill prevention.', 2),
   ] },
-  { id: 'demo-inflation-response', title: 'Central banks and inflation', description: 'Markets & economy · Policy', createdAt: '2026-05-06T10:00:00.000Z', updatedAt: '2026-05-09T10:00:00.000Z', nodes: [
+  { id: 'demo-inflation-response', title: 'Central banks and inflation', description: 'Market and policy responses by central banks to inflation.', createdAt: '2026-05-06T10:00:00.000Z', updatedAt: '2026-05-09T10:00:00.000Z', nodes: [
     node('cb-1', 'Inflation peaks', 'Price pressures triggered a series of policy responses.', 0),
     node('cb-2', 'Rates rise across major economies', 'Central banks adjusted rates as inflation outlooks evolved.', 1),
     node('cb-3', 'Policy paths diverge', 'Different economic conditions led to varied approaches.', 2),
