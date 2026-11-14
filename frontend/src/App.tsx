@@ -28,6 +28,11 @@ export default function App() {
   const [motionOn, setMotionOn] = useState(() => !window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   const [topic, setTopic] = useState('');
   const [exampleOffset, setExampleOffset] = useState(0);
+  const [suggestionHovered, setSuggestionHovered] = useState(false);
+  const [suggestionFocused, setSuggestionFocused] = useState(false);
+  const [topicFocused, setTopicFocused] = useState(false);
+  const [showAllInvestigations, setShowAllInvestigations] = useState(false);
+  const [reducedMotion] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [investigations, setInvestigations] = useState<Investigation[]>([]);
@@ -46,21 +51,21 @@ export default function App() {
   const lastRevisionRef = useRef(0);
 
   const activeNodes = workspaceNodes ?? [];
+  // These are editable example prompts, not claims about a configured demo investigation.
   const topicExamples = [
-    'US tariffs and international trade policy',
-    'European AI regulation and its global impact',
-    'Global lithium supply chains',
-    'The international dispute over Arctic shipping routes',
-    'How central banks are responding to inflation',
-    'A public figure’s documented political statements',
+    'Trace how European AI regulation has evolved, from early proposals to implementation, and connect the major policy decisions to original documents and reporting.',
+    'Investigate how global lithium supply chains have shifted, identifying key policy changes, investments, export restrictions, and their original sources.',
+    'Follow the international dispute over Arctic shipping routes, connecting policy decisions, environmental concerns, and documented shipping developments.',
+    'Investigate how central banks responded to inflation, comparing major decisions over time and tracing the evidence behind each shift.',
+    'Trace changes in US tariffs and international trade policy, connecting official announcements with responses from affected trading partners.',
   ];
-  const visibleExamples = Array.from({ length: 3 }, (_, index) => topicExamples[(exampleOffset + index) % topicExamples.length]);
+  const suggestionPaused = suggestionHovered || suggestionFocused || topicFocused || creating || reducedMotion;
 
   useEffect(() => {
-    if (topic || creating) return;
+    if (suggestionPaused) return;
     const timer = window.setInterval(() => setExampleOffset((offset) => (offset + 1) % topicExamples.length), 7000);
     return () => window.clearInterval(timer);
-  }, [topic, creating, topicExamples.length]);
+  }, [suggestionPaused, topicExamples.length]);
 
   const loadPublicInvestigations = useCallback(async () => {
     setLibraryLoading(true);
@@ -234,47 +239,83 @@ export default function App() {
   return view === 'home' ? (
     <main className="gh-home">
       <div className="gh-home-content">
-        <div className="gh-brand"><span className="gh-mark">G</span><span>GHOSTLINE</span></div>
-        <section className="gh-create">
-          <h1>What would you like to investigate?</h1>
-          <p className="gh-lede">Explore a topic through connected events and evidence.</p>
+        <div className="gh-brand"><span>tracewire</span></div>
+        <section className="gh-create" aria-labelledby="tracewire-headline">
+          <svg className="tw-hero-network" viewBox="0 0 380 180" aria-hidden="true" focusable="false">
+            <g fill="none" stroke="currentColor" strokeLinecap="round">
+              <path d="M18 95 C85 95 98 65 150 65 S242 106 358 55" strokeWidth="1.3" />
+              <path d="M76 88 C112 82 126 30 191 24 S260 40 314 16" strokeWidth=".75" />
+              <path d="M124 72 C161 91 184 145 248 145 S313 123 358 158" strokeWidth=".8" />
+              <path d="M188 76 C219 67 243 62 272 85 S316 110 352 107" strokeWidth=".7" />
+            </g>
+            <g fill="currentColor">
+              <circle cx="18" cy="95" r="3" /><circle cx="150" cy="65" r="4" />
+              <circle cx="191" cy="24" r="2" /><circle cx="248" cy="145" r="3" />
+              <circle cx="272" cy="85" r="2.5" /><circle cx="358" cy="55" r="3" />
+            </g>
+          </svg>
+          <h1 id="tracewire-headline">Every story evolves. Never lose the evidence.</h1>
+          <p className="gh-lede">Turn scattered reporting into a living investigation of connected events, claims, and original sources.</p>
           <form onSubmit={createInvestigation} className="gh-form">
             <label className="gh-topic-label" htmlFor="research-topic">Research topic</label>
             <div className="gh-research-composer">
-              <textarea id="research-topic" value={topic} onChange={(e) => { setTopic(e.target.value); setCreateError(null); }} placeholder="e.g. US tariffs and international trade policy" rows={3} disabled={creating} aria-describedby={createError ? 'topic-error' : undefined} />
+              <textarea id="research-topic" value={topic}
+                onFocus={() => setTopicFocused(true)}
+                onBlur={() => setTopicFocused(false)}
+                onChange={(e) => { setTopic(e.target.value); setCreateError(null); }}
+                placeholder="What would you like to investigate?" rows={3} disabled={creating}
+                aria-describedby={createError ? 'topic-error' : undefined} />
               <div className="gh-composer-footer">
-                <span className="gh-composer-note">Open-ended research · sources and events</span>
-                <button className="gh-primary" type="submit" disabled={creating || !topic.trim()}>{creating ? <><LoaderCircle className="gh-spin" size={15} /> Starting…</> : <>Start investigation <ArrowUpRight size={15} /></>}</button>
+                <span className="gh-composer-note">Explore events, claims and original sources</span>
+                <button className="gh-primary" type="submit" disabled={creating || !topic.trim()}>
+                  {creating ? <><LoaderCircle className="gh-spin" size={15} /> Starting…</> : <>Start investigation <ArrowUpRight size={15} /></>}
+                </button>
               </div>
             </div>
             {createError && <p id="topic-error" role="alert" className="gh-error">{createError}</p>}
             {creating && <p className="gh-hint">Starting live research…</p>}
-            <div className="gh-example-picker" aria-label="Topic examples">
-              <span className="gh-example-label">For example</span>
-              <div className="gh-example-list">
-                {visibleExamples.map((example) => <button className="gh-example-chip" type="button" key={example} disabled={creating} onClick={() => { setTopic(example); setCreateError(null); }} title="Fill research topic">
-                  <span>{example}</span>
-                </button>)}
-              </div>
+            <div className="tw-example" onMouseEnter={() => setSuggestionHovered(true)}
+              onMouseLeave={() => setSuggestionHovered(false)}
+              onFocusCapture={() => setSuggestionFocused(true)}
+              onBlurCapture={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setSuggestionFocused(false); }}>
+              <span className="gh-example-label">Try an investigation</span>
+              <button className="tw-example-button" type="button" disabled={creating}
+                onClick={() => { setTopic(topicExamples[exampleOffset]); setCreateError(null); }}>
+                <span key={exampleOffset} className="tw-example-text">{topicExamples[exampleOffset]}</span>
+                <ArrowUpRight size={15} aria-hidden="true" />
+              </button>
+              <span className="tw-example-caption">Select to fill the research topic</span>
             </div>
           </form>
         </section>
-        <section className="gh-existing">
-          <div className="gh-section-heading"><h2>Explore investigations</h2></div>
-          <p className="gh-library-lede">Browse existing public research.</p>
-          {libraryLoading ? <p className="gh-muted">Loading public investigations…</p> : libraryError ? <div className="gh-library-unavailable"><p>Public investigations are temporarily unavailable.</p><button type="button" onClick={() => void loadPublicInvestigations()}>Retry</button></div> : investigations.length ? investigations.map((item) => (
-            <button className="gh-investigation" key={item.id} onClick={() => void openWorkspace(item)}>
-              <span className="gh-investigation-copy"><strong>{item.title}</strong>{item.description && <span>{item.description}</span>}</span>
-              <span className="gh-investigation-meta">{asDate(item.updatedAt ?? item.createdAt) ?? ''}<ArrowUpRight size={16} /></span>
-            </button>
-          )) : <p className="gh-muted">No public investigations available yet.</p>}
+        <section className="gh-existing" aria-labelledby="public-investigations-title">
+          <div className="gh-section-heading"><h2 id="public-investigations-title">Explore investigations</h2></div>
+          <p className="gh-library-lede">Open real investigations and explore the evidence already collected.</p>
+          {libraryLoading ? <p className="gh-muted">Loading public investigations…</p> :
+            libraryError ? <div className="gh-library-unavailable"><p>Public investigations are temporarily unavailable.</p><button type="button" onClick={() => void loadPublicInvestigations()}>Retry</button></div> :
+            investigations.length ? <>
+              <div id="tw-investigation-list" className={showAllInvestigations ? 'tw-investigation-list is-expanded' : 'tw-investigation-list'}>
+                {(showAllInvestigations ? investigations : investigations.slice(0, 2)).map((item) => (
+                  <button className="gh-investigation" key={item.id} type="button" onClick={() => void openWorkspace(item)}>
+                    <span className="gh-investigation-copy"><strong>{item.title}</strong>{item.description && <span>{item.description}</span>}</span>
+                    <span className="gh-investigation-meta">{asDate(item.updatedAt ?? item.createdAt) ?? ''}<ArrowUpRight size={16} /></span>
+                  </button>
+                ))}
+              </div>
+              {investigations.length > 2 && <button className="tw-view-all" type="button"
+                aria-expanded={showAllInvestigations} aria-controls="tw-investigation-list"
+                onClick={() => setShowAllInvestigations((expanded) => !expanded)}>
+                {showAllInvestigations ? 'Show fewer investigations' : 'View all investigations'}
+                <span aria-hidden="true">{showAllInvestigations ? '−' : '+'}</span>
+              </button>}
+            </> : <p className="gh-muted">No public investigations available yet.</p>}
         </section>
       </div>
     </main>
   ) : (
     <main className="gh-workspace">
       <header className="gh-topbar">
-        <button className="gh-back" onClick={returnHome} aria-label="Back to investigations"><ArrowLeft size={16} /><span>Ghostline</span></button>
+        <button className="gh-back" onClick={returnHome} aria-label="Back to investigations"><ArrowLeft size={16} /><span>Tracewire</span></button>
         <span className="gh-workspace-title" title={selectedInvestigation?.title}>{selectedInvestigation?.title ?? 'Investigation'}</span>
       </header>
       <div className="gh-workspace-body">
