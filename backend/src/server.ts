@@ -1,6 +1,7 @@
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import cors from 'cors';
 import express, { type ErrorRequestHandler } from 'express';
 import { MongoNetworkError, MongoServerError, MongoServerSelectionError } from 'mongodb';
 import { pinoHttp } from 'pino-http';
@@ -20,12 +21,15 @@ import { logger } from './utils/logger.js';
 export interface ServerDeps {
   store: TimelineStore;
   hub: RealtimeHub;
+  /** Allowed cross-origin browser origins; defaults to CORS_ORIGINS. */
+  corsOrigins?: string[];
 }
 
-export function buildServer({ store, hub }: ServerDeps) {
+export function buildServer({ store, hub, corsOrigins = config.CORS_ORIGINS }: ServerDeps) {
   const app = express();
   app.disable('x-powered-by');
   app.use(pinoHttp({ logger }));
+  if (corsOrigins.length) app.use(cors({ origin: corsOrigins }));
   app.use(express.json({ limit: '1mb' }));
 
   const api = express.Router();

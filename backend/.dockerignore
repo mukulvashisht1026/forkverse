@@ -1,0 +1,10 @@
+# Keep the image clean: deps are installed inside the build, secrets come from the platform.
+node_modules
+dist
+debug
+coverage
+*.log
+.env
+.env.*
+.DS_Store
+.*.tmp.*
