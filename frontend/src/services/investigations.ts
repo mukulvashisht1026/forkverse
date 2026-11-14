@@ -71,8 +71,8 @@ export function mapInvestigationGraphDto(dto: InvestigationGraphDto): Investigat
 
 // ---- HTTP adapter (backend: backend/src/routes/investigations.ts) ------------------------
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
-const WS_BASE = import.meta.env.VITE_WS_URL ?? '';
+const API_BASE = import.meta.env?.VITE_API_BASE_URL ?? '';
+const WS_BASE = import.meta.env?.VITE_WS_URL ?? '';
 const RUN_POLL_MS = 1500;
 const RUN_TIMEOUT_MS = 5 * 60_000;
 

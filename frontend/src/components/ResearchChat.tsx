@@ -100,11 +100,11 @@ export function ResearchChat({ investigationId, disabled, historyAvailable = tru
   };
 
   return <aside className="gh-research" aria-label="Investigation research chat">
-    <div className="gh-chat-heading"><h2>Research</h2><p>Investigation-scoped conversation</p></div>
+    <div className="gh-chat-heading"><h2>Research</h2><p>Ask about this investigation or extend its evidence graph.</p></div>
     <div className="gh-chat-messages" aria-live="polite" aria-busy={loadingHistory || sending}>
       {loadingHistory && <p className="gh-muted">Loading conversation…</p>}
       {historyError && <div role="alert" className="gh-library-unavailable"><p>{historyError}</p><button type="button" onClick={() => void loadHistory()}>Retry history</button></div>}
-      {!loadingHistory && !historyError && messages.length === 0 && <p className="gh-chat-intro">No saved conversation yet. Research history appears here when backend supports it.</p>}
+      {!loadingHistory && !historyError && messages.length === 0 && <p className="gh-chat-intro">Ask a question about this investigation, or extend the graph with a new research angle.</p>}
       {nextCursor && <button type="button" disabled={loadingMore} onClick={() => void loadHistory(nextCursor)}>{loadingMore ? 'Loading…' : 'Load older messages'}</button>}
       {messages.map((message) => <article className={`gh-chat-message ${message.role}`} key={message.id}>
         <div>{renderSafeMarkdown(message.content).map((block, index) => {
@@ -133,13 +133,15 @@ export function ResearchChat({ investigationId, disabled, historyAvailable = tru
       </article>)}
       {sendError && <p role="alert" className="gh-error">{sendError}</p>}
     </div>
-    {sending && <button type="button" onClick={() => requestRef.current?.abort()}>Stop response</button>}
+    {sending && <div className="gh-chat-stop"><button type="button" onClick={() => requestRef.current?.abort()}>Stop response</button></div>}
+    <div className="gh-chat-composer-wrap">
     <form className="gh-composer" onSubmit={submit}>
-      <label htmlFor="research-action">Action</label><select id="research-action" value={action} onChange={(event) => setAction(event.target.value as ResearchActionDto)} disabled={sending || loadingHistory || disabled}>
+      <label htmlFor="research-action">Research mode</label><select id="research-action" value={action} onChange={(event) => setAction(event.target.value as ResearchActionDto)} disabled={sending || loadingHistory || disabled}>
         <option value="answer_question">Answer question</option><option value="extend_graph">Extend evidence graph</option>
       </select>
       <textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={action === 'answer_question' ? 'Ask about this investigation…' : 'What should the evidence graph explore next?'} rows={3} disabled={sending || loadingHistory || disabled} aria-label="Research prompt" />
       <button type="submit" className="gh-primary" disabled={sending || disabled || !draft.trim()}>{sending ? 'Researching…' : action === 'answer_question' ? 'Ask question' : 'Extend graph'}</button>
     </form>
+    </div>
   </aside>;
 }

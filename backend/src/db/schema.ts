@@ -135,7 +135,7 @@ export interface Collections {
   /** Frontend "Signal Spine" timeline: one doc per spine node, branches embedded. */
   timeline_nodes: TimelineNodeDoc;
   timeline_meta: TimelineMetaDoc;
-  /** Ghostline investigations (graph embedded) and their research runs. */
+  /** TRACEWIRE investigations (graph embedded) and their research runs. */
   investigations: InvestigationDoc;
   research_runs: ResearchRunDoc;
 }

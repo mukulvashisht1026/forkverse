@@ -144,7 +144,7 @@ export async function runResearch({ query, nodeId }: ResearchRequest, deps: Rese
       name: query,
       declaration: query,
       info: 'Researching related articles…',
-      platform: 'Forkverse research agent',
+      platform: 'TRACEWIRE research agent',
       timestamp: 'Just now',
       scrapeEngine: 'context.dev',
       stockImpact: { summary: 'No market data collected for this research query.', tickers: [] },

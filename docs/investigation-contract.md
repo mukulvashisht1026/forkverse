@@ -1,6 +1,6 @@
 # Investigation API contract (proposal)
 
-Audience: frontend/backend developers and coding assistants working on Ghostline. Read this before changing investigation data flow.
+Audience: frontend/backend developers and coding assistants working on TRACEWIRE. Read this before changing investigation data flow.
 
 ## Status and scope
 

@@ -197,7 +197,7 @@ export default function App() {
   return view === 'home' ? (
     <main className="gh-home">
       <div className="gh-home-content">
-        <div className="gh-brand"><span className="gh-mark">G</span><span>GHOSTLINE</span></div>
+        <div className="gh-brand"><span className="gh-mark">T</span><span>TRACEWIRE</span></div>
         <section className="gh-create">
           <h1>What would you like to investigate?</h1>
           <p className="gh-lede">Explore a topic through connected events and evidence.</p>
@@ -230,14 +230,14 @@ export default function App() {
               <span className="gh-investigation-copy"><strong>{item.title}</strong>{item.description && <span>{item.description}</span>}</span>
               <span className="gh-investigation-meta">{asDate(item.updatedAt ?? item.createdAt) ?? ''}<ArrowUpRight size={16} /></span>
             </button>
-          )) : <p className="gh-muted">No public investigations available yet.</p>}
+          )) : <p className="gh-muted gh-library-empty">No public investigations available yet.</p>}
         </section>
       </div>
     </main>
   ) : (
     <main className="gh-workspace">
       <header className="gh-topbar">
-        <button className="gh-back" onClick={returnHome} aria-label="Back to investigations"><ArrowLeft size={16} /><span>Ghostline</span></button>
+        <button className="gh-back" onClick={returnHome} aria-label="Back to investigations"><ArrowLeft size={16} /><span className="gh-topbar-brand">TRACEWIRE</span></button>
         <span className="gh-workspace-title" title={selectedInvestigation?.title}>{selectedInvestigation?.title ?? 'Investigation'}</span>
       </header>
       <div className="gh-workspace-body">
@@ -247,7 +247,7 @@ export default function App() {
         </div>
         <section className="gh-graph" aria-label="Evidence graph">
           {workspaceNodes && <TreeCanvasAdapter spine={activeNodes} selectedIndex={selectedIndex} focus={activeFocus} moving={motionOn} fitSignal={workspaceFitSignal} onHoverTarget={setHoverFocus} onSelectTarget={focusTarget} onClearPin={() => setPinnedFocus(null)} onContinue={() => void continueGraph()} isContinuing={continuing} />}
-          <div className="gh-graph-label">EVIDENCE GRAPH <span>{activeNodes.length} events</span></div>
+          <div className="gh-graph-label">Evidence graph <span>{activeNodes.length} {activeNodes.length === 1 ? 'event' : 'events'}</span></div>
           <div className="gh-graph-controls"><button type="button" onClick={() => setMotionOn((value) => !value)}>{motionOn ? 'Pause motion' : 'Resume motion'}</button><button type="button" onClick={fitGraph}>Fit graph</button></div>
           {workspaceLoading && <div className="gh-graph-state">Loading investigation graph…</div>}
           {workspaceError && <div className="gh-graph-state"><p>{workspaceError}</p><button onClick={() => selectedInvestigation && void openWorkspace(selectedInvestigation)}>Retry</button></div>}

@@ -4,7 +4,7 @@ import path from 'path';
 import {defineConfig, loadEnv} from 'vite';
 
 export default defineConfig(({mode}) => {
-  // Forkverse backend (Express + WebSocket). Override with BACKEND_URL in frontend/.env.
+  // TRACEWIRE backend (Express + WebSocket). Override with BACKEND_URL in frontend/.env.
   const backend = loadEnv(mode, process.cwd(), '').BACKEND_URL || 'http://localhost:3000';
   return {
     plugins: [react(), tailwindcss()],

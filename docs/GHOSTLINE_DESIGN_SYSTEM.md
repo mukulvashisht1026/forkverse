@@ -1,4 +1,4 @@
-# Ghostline design system — proposed v1
+# TRACEWIRE design system — proposed v1
 
 Status: Checkpoint 1 proposal, not applied to UI. Identity: precise, calm charcoal/teal interface; organic expression belongs to existing evidence graph. No new screens, services, controls or data capabilities.
 
@@ -14,7 +14,7 @@ Adopt principles, not branding: coherent surfaces, reduced chrome noise, compact
 
 ## Semantic colors
 
-CSS names below are proposed. Retain old variable aliases during migration to avoid breaking shared controls. Values are Ghostline design choices, NOT extracted Linear tokens or measured Linear luminance matches.
+CSS names below are proposed. Retain old variable aliases during migration to avoid breaking shared controls. Values are TRACEWIRE design choices, NOT extracted Linear tokens or measured Linear luminance matches.
 
 | Role / proposed CSS token | Value |
 |---|---|

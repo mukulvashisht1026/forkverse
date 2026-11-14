@@ -1,4 +1,4 @@
-# Ghostline design audit — Checkpoint 1
+# TRACEWIRE design audit — Checkpoint 1
 
 Status: code-based audit; proposed changes await review. No rendered screenshot inspected in this phase. Development checkpoint: `ae1ed06`. Other sessions may continue editing; recheck diffs before implementation.
 
