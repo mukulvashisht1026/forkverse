@@ -1,397 +1,225 @@
 import { useCallback, useEffect, useState } from 'react';
-import type {
-  BranchGrowthSide,
-  FocusTarget,
-  PromptTargetMode,
-  ScrapeProviderPreference,
-} from './types/tree';
-import { resolveApiUrl } from './utils/timelineReducer';
+import type { FormEvent } from 'react';
+import { ArrowLeft, ArrowUpRight, LoaderCircle } from 'lucide-react';
+import type { FocusTarget, SpineNode, BranchNode } from './types/tree';
 import { useLiveTimeline } from './hooks/useLiveTimeline';
 import { TreeMapCanvas } from './components/TreeMapCanvas';
 import { SpineNav } from './components/SpineNav';
-import { CenterFocusBox } from './components/CenterFocusBox';
-import { ScrapePanel } from './components/ScrapePanel';
-import { PromptBar } from './components/PromptBar';
+import { investigationRepository, type Investigation } from './services/investigations';
+
+interface ChatEntry {
+  id: number;
+  role: 'user' | 'system';
+  text: string;
+}
+
+function asDate(value?: string) {
+  if (!value || value === 'Live update' || value === 'Live scrape') return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toLocaleDateString();
+}
 
 export default function App() {
-  const [fitSignal, setFitSignal] = useState<number>(0);
-  const triggerFit = useCallback(() => setFitSignal((c) => c + 1), []);
-
-  const {
-    nodes: spine,
-    loading,
-    loadError,
-    liveMessage,
-    dismissMessage,
-    reload,
-    createMainNode,
-    createBranch,
-    scrapeMainNode,
-    scrapeBranches,
-    sendPrompt,
-    deleteMainNode,
-    deleteBranch,
-  } = useLiveTimeline(triggerFit);
-
-  const [selectedIndex, setSelectedIndex] = useState<number>(0);
+  const [fitSignal, setFitSignal] = useState(0);
+  const fitGraph = useCallback(() => setFitSignal((count) => count + 1), []);
+  useLiveTimeline(fitGraph);
+  const [view, setView] = useState<'home' | 'workspace'>('home');
+  const [selectedIndex, setSelectedIndex] = useState(0);
   const [hoverFocus, setHoverFocus] = useState<FocusTarget | null>(null);
   const [pinnedFocus, setPinnedFocus] = useState<FocusTarget | null>(null);
-  const [moving, setMoving] = useState<boolean>(() => {
-    if (typeof window !== 'undefined' && window.matchMedia) {
-      return !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    }
-    return true;
-  });
-  const [panelOpen, setPanelOpen] = useState<boolean>(false);
-  const [exaConfigured, setExaConfigured] = useState<boolean | null>(null);
-  const [contextConfigured, setContextConfigured] = useState<boolean | null>(
-    null
-  );
-  const [statusBanner, setStatusBanner] = useState<string | null>(null);
+  const [motionOn, setMotionOn] = useState(() => !window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const [topic, setTopic] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [investigations, setInvestigations] = useState<Investigation[]>([]);
+  const [libraryLoading, setLibraryLoading] = useState(true);
+  const [libraryError, setLibraryError] = useState<string | null>(null);
+  const [selectedInvestigation, setSelectedInvestigation] = useState<Investigation | null>(null);
+  const [workspaceLoading, setWorkspaceLoading] = useState(false);
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+  const [workspaceNodes, setWorkspaceNodes] = useState<SpineNode[] | null>(null);
+  const [workspaceFitSignal, setWorkspaceFitSignal] = useState(0);
+  const [chatText, setChatText] = useState('');
+  const [chatBusy, setChatBusy] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [chatEntries, setChatEntries] = useState<ChatEntry[]>([]);
 
-  useEffect(() => {
-    const statusUrl = resolveApiUrl(
-      '/api/status',
-      import.meta.env.VITE_API_BASE_URL ?? ''
-    );
-    fetch(statusUrl)
-      .then((res) => (res.ok ? res.json() : null))
-      .then(
-        (
-          data: {
-            exaConfigured?: boolean;
-            contextDevConfigured?: boolean;
-          } | null
-        ) => {
-          if (data) {
-            if (typeof data.exaConfigured === 'boolean') {
-              setExaConfigured(data.exaConfigured);
-            }
-            if (typeof data.contextDevConfigured === 'boolean') {
-              setContextConfigured(data.contextDevConfigured);
-            }
-          }
-        }
-      )
-      .catch(() => {
-        // Ignore status probe error
-      });
+  const activeNodes = workspaceNodes ?? [];
+
+  const loadPublicInvestigations = useCallback(async () => {
+    setLibraryLoading(true);
+    setLibraryError(null);
+    try {
+      setInvestigations(await investigationRepository.listPublicInvestigations());
+    } catch (error) {
+      setLibraryError(error instanceof Error ? error.message : 'Public investigations could not be loaded.');
+    } finally {
+      setLibraryLoading(false);
+    }
   }, []);
 
-  useEffect(() => {
-    if (spine.length === 0) {
-      setSelectedIndex(0);
-      setPinnedFocus(null);
-      return;
-    }
-    if (selectedIndex >= spine.length) {
-      setSelectedIndex(spine.length - 1);
-    }
-    if (pinnedFocus) {
-      const targetNode = spine[pinnedFocus.i];
-      if (
-        !targetNode ||
-        (pinnedFocus.j !== undefined && !targetNode.branches[pinnedFocus.j])
-      ) {
-        setPinnedFocus(null);
-      }
-    }
-  }, [spine, selectedIndex, pinnedFocus]);
+  useEffect(() => { void loadPublicInvestigations(); }, [loadPublicInvestigations]);
 
   useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setPinnedFocus(null);
-        setPanelOpen(false);
-      }
-    };
+    if (!pinnedFocus) return;
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') setPinnedFocus(null); };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+  }, [pinnedFocus]);
 
-  const activeFocus = hoverFocus ?? pinnedFocus;
+  useEffect(() => {
+    if (selectedIndex >= activeNodes.length) setSelectedIndex(Math.max(0, activeNodes.length - 1));
+    if (pinnedFocus) {
+      const current = activeNodes[pinnedFocus.i];
+      if (!current || (pinnedFocus.j !== undefined && !current.branches[pinnedFocus.j])) setPinnedFocus(null);
+    }
+  }, [activeNodes, pinnedFocus, selectedIndex]);
 
-  const handleSelectTarget = useCallback((target: FocusTarget) => {
+  const returnHome = () => {
+    setView('home');
+    setWorkspaceNodes(null);
+    setWorkspaceError(null);
+    setChatText('');
+  };
+
+  const openWorkspace = async (investigation: Investigation) => {
+    setSelectedInvestigation(investigation);
+    setView('workspace');
+    setWorkspaceNodes(null);
+    setWorkspaceError(null);
+    setWorkspaceLoading(true);
+    setChatEntries([]);
+    setChatError(null);
+    setPinnedFocus(null);
+    try {
+      const graph = await investigationRepository.getInvestigationGraph(investigation.id);
+      if (graph.investigationId !== investigation.id) throw new Error('Investigation graph ID mismatch.');
+      setWorkspaceNodes(graph.nodes);
+      setWorkspaceFitSignal((value) => value + 1);
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : 'Investigation could not be loaded.');
+    } finally {
+      setWorkspaceLoading(false);
+    }
+  };
+
+  const createInvestigation = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const cleanTopic = topic.trim();
+    if (!cleanTopic) {
+      setCreateError('Enter a research topic.');
+      return;
+    }
+    setCreating(true);
+    setCreateError(null);
+    try {
+      const created = await investigationRepository.createInvestigation({ topic: cleanTopic });
+      await openWorkspace(created);
+    } catch (error) {
+      setCreateError(error instanceof Error ? error.message : 'Investigation creation failed.');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const focusTarget = useCallback((target: FocusTarget) => {
     setSelectedIndex(target.i);
-    setPinnedFocus((prev) =>
-      prev && prev.i === target.i && prev.j === target.j ? null : target
-    );
+    setPinnedFocus((current) => current?.i === target.i && current.j === target.j ? null : target);
   }, []);
+  const activeFocus = hoverFocus ?? pinnedFocus;
+  const focusNode: SpineNode | undefined = pinnedFocus ? activeNodes[pinnedFocus.i] : undefined;
+  const focusBranch: BranchNode | undefined = pinnedFocus?.j !== undefined ? focusNode?.branches[pinnedFocus.j] : undefined;
+  const focusTitle = focusBranch?.name ?? focusNode?.name;
+  const focusDescription = focusBranch?.info ?? focusNode?.info;
+  const sourceUrl = focusBranch?.sourceUrl ?? focusNode?.sourceUrl;
+  const sourceName = focusBranch?.sourceDomain ?? (sourceUrl ? new URL(sourceUrl).hostname : undefined);
+  const focusDate = asDate(focusBranch?.publishedAt ?? focusNode?.timestamp);
 
-  const handleSelectFromNav = useCallback((index: number) => {
-    setSelectedIndex(index);
-    setPinnedFocus({ i: index });
-  }, []);
+  const submitResearch = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const prompt = chatText.trim();
+    if (!prompt || chatBusy || !selectedInvestigation) return;
+    setChatBusy(true);
+    setChatError(null);
+    try {
+      const graph = await investigationRepository.extendInvestigation(selectedInvestigation.id, { topic: prompt });
+      if (graph.investigationId !== selectedInvestigation.id) throw new Error('Research update returned a different investigation.');
+      setWorkspaceNodes(graph.nodes);
+      setWorkspaceFitSignal((value) => value + 1);
+      setChatEntries((entries) => [...entries, { id: Date.now(), role: 'system', text: 'Investigation updated.' }]);
+      setChatText('');
+    } catch (error) {
+      setChatError(error instanceof Error ? error.message : 'Investigation update failed.');
+    } finally {
+      setChatBusy(false);
+    }
+  };
 
-  const handleStepNode = useCallback((nextIndex: number) => {
-    setSelectedIndex(nextIndex);
-    setPinnedFocus({ i: nextIndex });
-  }, []);
-
-  const handleScrapeNewMainNode = useCallback(
-    async (input: {
-      query: string;
-      url?: string;
-      provider: ScrapeProviderPreference;
-    }) => {
-      setStatusBanner(null);
-      const prevLen = spine.length;
-      const result = await scrapeMainNode(input);
-      if (result.notice) {
-        setStatusBanner(result.notice);
-      }
-      setSelectedIndex(prevLen);
-      setPinnedFocus({ i: prevLen });
-      setFitSignal((c) => c + 1);
-      setPanelOpen(false);
-    },
-    [scrapeMainNode, spine.length]
-  );
-
-  const handleScrapeBranchOntoSelected = useCallback(
-    async (query: string, provider: ScrapeProviderPreference) => {
-      setStatusBanner(null);
-      const parent = spine[selectedIndex];
-      if (!parent) return;
-
-      const result = await scrapeBranches(parent.id, {
-        topic: parent.name,
-        query,
-        existingCount: parent.branches.length,
-        provider,
-      });
-      if (result.notice) {
-        setStatusBanner(result.notice);
-      }
-      setFitSignal((c) => c + 1);
-      setPanelOpen(false);
-    },
-    [scrapeBranches, selectedIndex, spine]
-  );
-
-  const handleAddManualBranch = useCallback(
-    async (name: string, info: string, growthSide: BranchGrowthSide) => {
-      const parent = spine[selectedIndex];
-      if (!parent) return;
-      await createBranch(parent.id, { name, info, growthSide });
-      setFitSignal((c) => c + 1);
-    },
-    [createBranch, selectedIndex, spine]
-  );
-
-  const handleAddManualMain = useCallback(
-    async (name: string, info: string) => {
-      const prevLen = spine.length;
-      await createMainNode({ name, info });
-      setSelectedIndex(prevLen);
-      setPinnedFocus({ i: prevLen });
-      setFitSignal((c) => c + 1);
-    },
-    [createMainNode, spine.length]
-  );
-
-  const handleDeleteNode = useCallback(
-    async (nodeId: string) => {
-      await deleteMainNode(nodeId);
-      setPinnedFocus(null);
-    },
-    [deleteMainNode]
-  );
-
-  const handleDeleteBranch = useCallback(
-    async (nodeId: string, branchId: string) => {
-      await deleteBranch(nodeId, branchId);
-      setPinnedFocus(null);
-    },
-    [deleteBranch]
-  );
-
-  const handleSubmitPrompt = useCallback(
-    async (input: {
-      prompt: string;
-      mode: PromptTargetMode;
-      provider: ScrapeProviderPreference;
-    }) => {
-      setStatusBanner(null);
-      const current = spine[selectedIndex];
-      const prevLen = spine.length;
-      const result = await sendPrompt({
-        prompt: input.prompt,
-        mode: input.mode,
-        selectedNodeId: current?.id,
-        selectedNodeName: current?.name,
-        provider: input.provider,
-      });
-      if (result.notice) {
-        setStatusBanner(result.notice);
-      }
-      if (result.node && result.mode !== 'branch') {
-        setSelectedIndex(prevLen);
-        setPinnedFocus({ i: prevLen });
-      }
-      setFitSignal((c) => c + 1);
-    },
-    [selectedIndex, sendPrompt, spine]
-  );
-
-  const selectedNode = spine[selectedIndex];
-  const bannerText = liveMessage?.text ?? statusBanner;
-
-  return (
-    <main className="relative h-full w-full overflow-hidden select-none">
-      <TreeMapCanvas
-        spine={spine}
-        selectedIndex={selectedIndex}
-        focus={activeFocus}
-        moving={moving}
-        fitSignal={fitSignal}
-        onHoverTarget={setHoverFocus}
-        onSelectTarget={handleSelectTarget}
-        onClearPin={() => setPinnedFocus(null)}
-      />
-
-      {/* Top Bar */}
-      <header className="pointer-events-none absolute inset-x-4 top-4 z-20 flex items-center justify-between gap-2 sm:inset-x-8 sm:top-[22px] sm:gap-4">
-        <h1 className="pointer-events-auto m-0 whitespace-nowrap shrink-0 text-[15px] font-normal tracking-[-0.01em] text-[#eef2fb] sm:text-[16px]">
-          Signal Spine
-        </h1>
-
-        <div className="pointer-events-auto flex items-center gap-1.5 sm:gap-3">
-          <button
-            type="button"
-            aria-pressed={moving}
-            onClick={() => setMoving((m) => !m)}
-            className="cursor-pointer whitespace-nowrap shrink-0 rounded-[10px] border border-white/14 bg-white/10 px-2.5 py-1.5 text-[12.5px] font-light text-white backdrop-blur-md transition-colors hover:bg-white/20 focus-visible:outline-2 focus-visible:outline-[#ff9a4d] sm:px-3.5 sm:text-[14px]"
-          >
-            {moving ? 'Pause' : 'Resume'}
-            <span className="hidden sm:inline"> motion</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setFitSignal((c) => c + 1)}
-            className="cursor-pointer whitespace-nowrap shrink-0 rounded-[10px] border border-white/14 bg-white/10 px-2.5 py-1.5 text-[12.5px] font-light text-white backdrop-blur-md transition-colors hover:bg-white/20 focus-visible:outline-2 focus-visible:outline-[#ff9a4d] sm:px-3.5 sm:text-[14px]"
-          >
-            Fit<span className="hidden sm:inline"> view</span>
-          </button>
-
-          <button
-            type="button"
-            aria-expanded={panelOpen}
-            onClick={() => setPanelOpen((o) => !o)}
-            className="cursor-pointer whitespace-nowrap shrink-0 rounded-[10px] border border-white/14 bg-white/10 px-2.5 py-1.5 text-[12.5px] font-light text-white backdrop-blur-md transition-colors hover:bg-white/20 focus-visible:outline-2 focus-visible:outline-[#ff9a4d] sm:px-3.5 sm:text-[14px]"
-          >
-            + Scrape<span className="hidden sm:inline"> / Add</span>
-          </button>
-        </div>
+  return view === 'home' ? (
+    <main className="gh-home">
+      <div className="gh-home-content">
+        <div className="gh-brand"><span className="gh-mark">G</span><span>GHOSTLINE</span></div>
+        <section className="gh-create">
+          <p className="gh-eyebrow">LIVING EVIDENCE INTELLIGENCE</p>
+          <h1>What would you like to investigate?</h1>
+          <p className="gh-lede">Explore a topic through connected events and evidence.</p>
+          <form onSubmit={createInvestigation} className="gh-form">
+            <label>Research topic<textarea value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="e.g. US tariffs and international trade policy" rows={3} disabled={creating} /></label>
+            {createError && <p role="alert" className="gh-error">{createError}</p>}
+            <button className="gh-primary" type="submit" disabled={creating}>{creating ? <><LoaderCircle className="gh-spin" size={16} /> Starting investigation…</> : 'Start investigation'}</button>
+            {creating && <p className="gh-hint">Creating a persistent investigation…</p>}
+          </form>
+        </section>
+        <section className="gh-existing">
+          <div className="gh-section-heading"><h2>Explore investigations</h2></div>
+          <p className="gh-library-lede">Browse existing public research.</p>
+          {libraryLoading ? <p className="gh-muted">Loading public investigations…</p> : libraryError ? <div className="gh-load-error"><p>{libraryError}</p><button type="button" onClick={() => void loadPublicInvestigations()}>Retry</button></div> : investigations.length ? investigations.map((item) => (
+            <button className="gh-investigation" key={item.id} onClick={() => void openWorkspace(item)}>
+              <span className="gh-investigation-copy"><strong>{item.title}</strong>{item.description && <span>{item.description}</span>}</span>
+              <span className="gh-investigation-meta">{asDate(item.updatedAt ?? item.createdAt) ?? ''}<ArrowUpRight size={16} /></span>
+            </button>
+          )) : <p className="gh-muted">No public investigations available yet.</p>}
+        </section>
+      </div>
+    </main>
+  ) : (
+    <main className="gh-workspace">
+      <header className="gh-topbar">
+        <button className="gh-back" onClick={returnHome} aria-label="Back to investigations"><ArrowLeft size={16} /><span>Ghostline</span></button>
+        <span className="gh-workspace-title" title={selectedInvestigation?.title}>{selectedInvestigation?.title ?? 'Investigation'}</span>
       </header>
-
-      {bannerText && (
-        <div
-          role="status"
-          data-testid="live-message-banner"
-          className="glass-panel-surface absolute left-1/2 top-16 z-20 flex max-w-[min(560px,calc(100%-32px))] -translate-x-1/2 items-center gap-3 px-3.5 py-2 text-[12.5px] text-[#9fd8ff]"
-        >
-          <span>{bannerText}</span>
-          <button
-            type="button"
-            onClick={() => {
-              dismissMessage();
-              setStatusBanner(null);
-            }}
-            aria-label="Dismiss message"
-            className="cursor-pointer shrink-0 text-[#8e9bb8] hover:text-white"
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
-
-      {loading && spine.length === 0 && (
-        <div
-          role="status"
-          className="glass-panel-surface absolute left-1/2 top-1/2 z-20 -translate-x-1/2 -translate-y-1/2 px-5 py-3 text-[13.5px] text-[#cfd8ea]"
-        >
-          Loading timeline from backend server...
-        </div>
-      )}
-
-      {loadError && spine.length === 0 && (
-        <div
-          role="alert"
-          className="glass-panel-surface absolute left-1/2 top-1/2 z-20 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-3 px-6 py-4 text-center"
-        >
-          <p className="m-0 text-[13.5px] text-[#ffcca6]">{loadError}</p>
-          <button
-            type="button"
-            onClick={() => void reload()}
-            className="cursor-pointer rounded-lg border border-white/15 bg-white/10 px-3.5 py-1.5 text-[13px] text-white transition-colors hover:bg-white/20"
-          >
-            Retry backend sync
-          </button>
-        </div>
-      )}
-
-      {!loading && !loadError && spine.length === 0 && !panelOpen && (
-        <div
-          data-testid="empty-timeline-state"
-          className="glass-panel-surface absolute left-1/2 top-1/2 z-20 flex w-[min(460px,calc(100%-32px))] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-3 px-6 py-5 text-center"
-        >
-          <p className="m-0 text-[15px] font-normal text-[#eef2fb]">
-            Waiting for live backend timeline data
-          </p>
-          <p className="m-0 text-[13px] leading-relaxed text-[#8e9bb8]">
-            Connected to <span className="font-mono-tabular text-[#cfd8ea]">/ws</span> and{' '}
-            <span className="font-mono-tabular text-[#cfd8ea]">/api/timeline</span>. Push nodes from your backend or scrape a live X / web event now.
-          </p>
-          <button
-            type="button"
-            onClick={() => setPanelOpen(true)}
-            className="mt-1 cursor-pointer rounded-lg border border-[#ff9a4d] bg-[#ff9a4d] px-3.5 py-1.5 text-[13px] font-medium text-[#1a0e04] transition-opacity hover:opacity-95"
-          >
-            Scrape live event
-          </button>
-        </div>
-      )}
-
-      <SpineNav
-        spine={spine}
-        selectedIndex={selectedIndex}
-        onHoverNode={setHoverFocus}
-        onSelectNode={handleSelectFromNav}
-      />
-
-      <CenterFocusBox
-        spine={spine}
-        focus={activeFocus}
-        pinned={Boolean(
-          pinnedFocus &&
-            (!hoverFocus ||
-              (hoverFocus.i === pinnedFocus.i &&
-                hoverFocus.j === pinnedFocus.j))
-        )}
-        onUnpin={() => setPinnedFocus(null)}
-        onStepNode={handleStepNode}
-        onDeleteNode={handleDeleteNode}
-        onDeleteBranch={handleDeleteBranch}
-      />
-
-      <ScrapePanel
-        open={panelOpen}
-        selectedNodeName={selectedNode?.name ?? ''}
-        exaConfigured={exaConfigured}
-        contextDevConfigured={contextConfigured}
-        onClose={() => setPanelOpen(false)}
-        onScrapeNewMainNode={handleScrapeNewMainNode}
-        onScrapeBranchOntoSelected={handleScrapeBranchOntoSelected}
-        onAddManualBranch={handleAddManualBranch}
-        onAddManualMain={handleAddManualMain}
-      />
-
-      <PromptBar
-        selectedNodeName={selectedNode?.name ?? ''}
-        onSubmitPrompt={handleSubmitPrompt}
-      />
+      <div className="gh-workspace-body">
+        <aside className="gh-research" aria-label="Research chat">
+          <div className="gh-chat-heading"><h2>Research</h2><p>{selectedInvestigation?.title}</p></div>
+          <div className="gh-chat-messages" aria-live="polite">
+            {!chatEntries.length && <p className="gh-chat-intro">Continue this investigation with additional research. Updates require investigation-scoped backend support.</p>}
+            {chatEntries.map((entry) => <div className={`gh-chat-message ${entry.role}`} key={entry.id}>{entry.text}</div>)}
+            {chatError && <p className="gh-error">{chatError}</p>}
+            {chatBusy && <p className="gh-muted">Updating investigation…</p>}
+          </div>
+          <form className="gh-composer" onSubmit={submitResearch}>
+            <textarea value={chatText} onChange={(e) => setChatText(e.target.value)} placeholder="What should this investigation explore next?" rows={3} disabled={chatBusy || workspaceLoading || Boolean(workspaceError)} aria-label="Extend investigation" />
+            <button type="submit" className="gh-primary" disabled={chatBusy || workspaceLoading || !chatText.trim() || Boolean(workspaceError)}>{chatBusy ? 'Updating…' : 'Continue research'}</button>
+          </form>
+        </aside>
+        <section className="gh-graph" aria-label="Evidence graph">
+          {workspaceNodes && <TreeMapCanvas spine={activeNodes} selectedIndex={selectedIndex} focus={activeFocus} moving={motionOn} fitSignal={fitSignal} onHoverTarget={setHoverFocus} onSelectTarget={focusTarget} onClearPin={() => setPinnedFocus(null)} />}
+          <div className="gh-graph-label">EVIDENCE GRAPH <span>{activeNodes.length} events</span></div>
+          <div className="gh-graph-controls"><button type="button" onClick={() => setMotionOn((value) => !value)}>{motionOn ? 'Pause motion' : 'Resume motion'}</button><button type="button" onClick={fitGraph}>Fit graph</button></div>
+          {workspaceLoading && <div className="gh-graph-state">Loading investigation graph…</div>}
+          {workspaceError && <div className="gh-graph-state"><p>{workspaceError}</p><button onClick={() => selectedInvestigation && void openWorkspace(selectedInvestigation)}>Retry</button></div>}
+          {!workspaceLoading && !workspaceError && workspaceNodes?.length === 0 && <div className="gh-graph-state">This investigation has no evidence yet.</div>}
+          {pinnedFocus && focusTitle && <article className="gh-detail" aria-label="Selected evidence">
+            <div className="gh-detail-head"><span>{focusBranch ? 'Evidence' : 'Event'}</span><button aria-label="Close evidence details" onClick={() => setPinnedFocus(null)}>Close</button></div>
+            <h3>{focusTitle}</h3>
+            {focusDate && <p className="gh-detail-date">{focusDate}</p>}
+            {focusDescription && <p className="gh-detail-description">{focusDescription}</p>}
+            {(focusBranch?.sourceType || sourceName) && <p className="gh-source-label">{sourceName ?? focusBranch?.sourceType}</p>}
+            {sourceUrl && <a href={sourceUrl} target="_blank" rel="noopener noreferrer">Open original source <ArrowUpRight size={14} /></a>}
+          </article>}
+          {workspaceNodes && <SpineNav spine={activeNodes} selectedIndex={selectedIndex} onHoverNode={setHoverFocus} onSelectNode={(index) => { setSelectedIndex(index); setPinnedFocus({ i: index }); }} />}
+        </section>
+      </div>
     </main>
   );
 }
