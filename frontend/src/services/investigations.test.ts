@@ -26,6 +26,23 @@ test('public investigations repository maps stable API records', async (t) => {
   assert.equal(requests[0], '/api/investigations?visibility=public');
 });
 
+test('investigation repository persists an edited title', async (t) => {
+  const originalFetch = globalThis.fetch;
+  let request: { url: string; init?: RequestInit } | undefined;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    request = { url: String(input), init };
+    return new Response(JSON.stringify({ id: 'graph-1', title: 'Renamed', topic: 'Original prompt', visibility: 'public', status: 'active', createdAt: '2026-01-01', updatedAt: '2026-01-02' }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    });
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  const renamed = await investigationRepository.renameInvestigation('graph-1', 'Renamed');
+  assert.equal(renamed.title, 'Renamed');
+  assert.equal(request?.url, '/api/investigations/graph-1');
+  assert.equal(request?.init?.method, 'PATCH');
+  assert.equal(request?.init?.body, JSON.stringify({ title: 'Renamed' }));
+});
+
 test('investigations repository reports request timeout rather than leaving request hanging', async (t) => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async () => { throw new DOMException('timed out', 'TimeoutError'); }) as typeof fetch;

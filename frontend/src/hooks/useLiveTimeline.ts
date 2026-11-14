@@ -19,6 +19,7 @@ import {
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 const WS_BASE = import.meta.env.VITE_WS_URL ?? '';
+const MOCK_DATA = import.meta.env.VITE_MOCK_DATA === 'true';
 
 async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(resolveApiUrl(path, API_BASE), {
@@ -95,10 +96,12 @@ export function useLiveTimeline(onTimelineGrew?: () => void) {
   }, []);
 
   useEffect(() => {
+    if (MOCK_DATA) { setLoading(false); return; }
     void fetchTimeline();
   }, [fetchTimeline]);
 
   useEffect(() => {
+    if (MOCK_DATA) return;
     let closedByCleanup = false;
     let socket: WebSocket | null = null;
     let reconnectTimer: number | null = null;
