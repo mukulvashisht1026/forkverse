@@ -64,6 +64,7 @@ export interface BranchGeometry {
   approxLength: number;
   tip: Point2D;
   dir: 1 | -1;
+  depthScale: number;
   points: Point2D[];
   mistParticles: ParticleDot[];
   filaments: FilamentStrand[];

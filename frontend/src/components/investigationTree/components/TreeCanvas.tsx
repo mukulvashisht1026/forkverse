@@ -150,7 +150,7 @@ function BranchView({
   const targetFocus: FocusTarget = { spineIndex, branchIndex };
 
   return (
-    <g>
+    <g transform={`translate(${geometry.points[0].x} ${geometry.points[0].y}) scale(${geometry.depthScale}) translate(${-geometry.points[0].x} ${-geometry.points[0].y})`}>
       {/* Living-Tree mist stipple + neural-scan tangent filaments & micro-dendrites */}
       <g ref={mistGroupRef} style={{ transition: 'opacity 0.35s ease' }}>
         {geometry.filaments.map((strand, idx) => (
@@ -200,18 +200,23 @@ function BranchView({
         ))}
       </g>
 
-      {/* Main retro-drafting branch curve */}
+      {/* Quiet branch rail, halo, and bounded colored current moving along the existing curve. */}
       <path
         ref={pathRef}
         d={geometry.pathD}
         fill="none"
         stroke={isGroupFocused ? accent : '#8e99ad'}
-        opacity={isGroupFocused ? 0.32 : 0.18}
+        opacity={isGroupFocused ? 0.28 : 0.14}
         strokeWidth={isGroupFocused ? 3 : 2.6}
         strokeLinecap="round"
         strokeLinejoin="round"
         style={{ transition: 'stroke 0.2s ease, stroke-width 0.2s ease' }}
       />
+      <g className={`branch-current${isPaused ? ' paused' : ''}`} aria-hidden="true">
+        <path d={geometry.pathD} fill="none" stroke={accent} strokeWidth="5.5" strokeLinecap="round" opacity="0.12" />
+        <path d={geometry.pathD} fill="none" stroke={accent} strokeWidth="2.2" strokeLinecap="round" strokeDasharray="34 1100" className="branch-current-trail" style={{ animationDelay: `${(spineIndex * 0.83 + branchIndex * 1.37) % 7}s` }} />
+        <path d={geometry.pathD} fill="none" stroke="#f5f2e8" strokeWidth="0.9" strokeLinecap="round" strokeDasharray="10 1100" className="branch-current-core" style={{ animationDelay: `${(spineIndex * 0.83 + branchIndex * 1.37) % 7}s` }} />
+      </g>
 
       {/* Glowing pen dot during live branch growth */}
       <circle ref={penRef} className="pen-dot" r={5.5} />
@@ -826,6 +831,7 @@ export function TreeCanvas({
                   {/* Main node title */}
                   <text
                     className="main-label"
+                    fill="#f5f2e8"
                     x={-34}
                     y={-18}
                     textAnchor="end"

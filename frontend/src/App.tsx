@@ -7,12 +7,10 @@ import { TreeCanvasAdapter } from './components/investigationTree/TreeCanvasAdap
 import './components/investigationTree/treeCanvas.css';
 import { SpineNav } from './components/SpineNav';
 import { investigationRepository, type Investigation } from './services/investigations';
-
-interface ChatEntry {
-  id: number;
-  role: 'user' | 'system';
-  text: string;
-}
+import { ResearchChat } from './components/ResearchChat';
+import type { InvestigationGraphDto } from '../../contracts/investigations';
+import { investigationEventsToSpineNodes } from './services/investigationGraphAdapter';
+import { temporaryWorkspaceFromTimelineNode } from './services/createWorkspace';
 
 function asDate(value?: string) {
   if (!value || value === 'Live update' || value === 'Live scrape') return null;
@@ -37,15 +35,12 @@ export default function App() {
   const [libraryLoading, setLibraryLoading] = useState(true);
   const [libraryError, setLibraryError] = useState<string | null>(null);
   const [selectedInvestigation, setSelectedInvestigation] = useState<Investigation | null>(null);
+  const [temporaryTimelineContext, setTemporaryTimelineContext] = useState(false);
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [workspaceNodes, setWorkspaceNodes] = useState<SpineNode[] | null>(null);
   const [workspaceFitSignal, setWorkspaceFitSignal] = useState(0);
-  const [chatText, setChatText] = useState('');
-  const [chatBusy, setChatBusy] = useState(false);
   const [continuing, setContinuing] = useState(false);
-  const [chatError, setChatError] = useState<string | null>(null);
-  const [chatEntries, setChatEntries] = useState<ChatEntry[]>([]);
 
   const activeNodes = workspaceNodes ?? [];
   const topicExamples = [
@@ -97,17 +92,15 @@ export default function App() {
     setView('home');
     setWorkspaceNodes(null);
     setWorkspaceError(null);
-    setChatText('');
   };
 
   const openWorkspace = async (investigation: Investigation) => {
     setSelectedInvestigation(investigation);
+    setTemporaryTimelineContext(false);
     setView('workspace');
     setWorkspaceNodes(null);
     setWorkspaceError(null);
     setWorkspaceLoading(true);
-    setChatEntries([]);
-    setChatError(null);
     setPinnedFocus(null);
     try {
       const graph = await investigationRepository.getInvestigationGraph(investigation.id);
@@ -132,17 +125,14 @@ export default function App() {
     setCreateError(null);
     try {
       const result = await scrapeMainNode({ query: cleanTopic, provider: 'auto' });
-      const created: Investigation = {
-        id: result.node.id,
-        title: result.node.name,
-        description: result.node.info,
-        createdAt: result.node.timestamp,
-      };
-      setSelectedInvestigation(created);
-      setWorkspaceNodes([result.node]);
+      const workspace = temporaryWorkspaceFromTimelineNode(result.node);
+      setSelectedInvestigation(workspace.investigation);
+      setTemporaryTimelineContext(workspace.temporary);
+      setWorkspaceNodes(workspace.nodes);
       setWorkspaceFitSignal((value) => value + 1);
       setView('workspace');
-      if (result.notice) setChatEntries([{ id: Date.now(), role: 'system', text: result.notice }]);
+      setCreateError(null);
+      if (result.notice) window.setTimeout(() => window.alert(result.notice!), 0);
     } catch (error) {
       setCreateError(error instanceof Error ? error.message : 'Investigation creation failed.');
     } finally {
@@ -163,12 +153,18 @@ export default function App() {
   const sourceName = focusBranch?.sourceDomain ?? (sourceUrl ? new URL(sourceUrl).hostname : undefined);
   const focusDate = asDate(focusBranch?.publishedAt ?? focusNode?.timestamp);
 
+  const applyResearchGraph = useCallback((event: { type: 'graph_updated'; graph: InvestigationGraphDto }) => {
+    if (!selectedInvestigation || event.graph.investigationId !== selectedInvestigation.id) return;
+    const nodes = investigationEventsToSpineNodes(event.graph.events);
+    setWorkspaceNodes(nodes);
+    setWorkspaceFitSignal((value) => value + 1);
+  }, [selectedInvestigation]);
+
   const continueGraph = async () => {
     if (continuing || !selectedInvestigation || activeNodes.length === 0) return;
     const lastNode = activeNodes[activeNodes.length - 1];
     const context = activeNodes.slice(-3).map((node) => node.name).join('; ');
     setContinuing(true);
-    setChatError(null);
     try {
       const result = await sendPrompt({
         prompt: `Continue this investigation after "${lastNode.name}". Research the next significant related event. Context: ${context}`,
@@ -186,41 +182,12 @@ export default function App() {
         setSelectedIndex(activeNodes.length);
         setWorkspaceFitSignal((value) => value + 1);
       } else if (result.message) {
-        setChatError(result.message);
+        window.alert(result.message);
       }
     } catch (error) {
-      setChatError(error instanceof Error ? error.message : 'Could not continue research.');
+      window.alert(error instanceof Error ? error.message : 'Could not continue research.');
     } finally {
       setContinuing(false);
-    }
-  };
-
-  const submitResearch = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const prompt = chatText.trim();
-    if (!prompt || chatBusy || !selectedInvestigation) return;
-    setChatBusy(true);
-    setChatError(null);
-    try {
-      const result = await sendPrompt({ prompt, mode: 'auto', selectedNodeId: selectedInvestigation.id, selectedNodeName: selectedInvestigation.title, provider: 'auto' });
-      if (result.branches?.length || result.node) {
-        const graph = await investigationRepository.getInvestigationGraph(selectedInvestigation.id);
-        setWorkspaceNodes(graph.nodes);
-        setWorkspaceFitSignal((value) => value + 1);
-        if (result.node) {
-          setChatEntries((entries) => [...entries, { id: Date.now(), role: 'system', text: 'Research created a separate event in shared timeline; it was not added to this investigation.' }]);
-        }
-      }
-      if (result.message || result.notice) {
-        setChatEntries((entries) => [...entries, { id: Date.now(), role: 'system', text: result.message ?? result.notice! }]);
-      } else {
-        setChatEntries((entries) => [...entries, { id: Date.now(), role: 'system', text: 'Research completed.' }]);
-      }
-      setChatText('');
-    } catch (error) {
-      setChatError(error instanceof Error ? error.message : 'Investigation update failed.');
-    } finally {
-      setChatBusy(false);
     }
   };
 
@@ -253,8 +220,8 @@ export default function App() {
           </form>
         </section>
         <section className="gh-existing">
-          <div className="gh-section-heading"><h2>Explore investigations</h2></div>
-          <p className="gh-library-lede">Browse existing public research.</p>
+          <div className="gh-section-heading"><h2>Explore timeline</h2></div>
+          <p className="gh-library-lede">Browse current global timeline nodes; these are not persisted investigations yet.</p>
           {libraryLoading ? <p className="gh-muted">Loading public investigations…</p> : libraryError ? <div className="gh-library-unavailable"><p>Public investigations are temporarily unavailable.</p><button type="button" onClick={() => void loadPublicInvestigations()}>Retry</button></div> : investigations.length ? investigations.map((item) => (
             <button className="gh-investigation" key={item.id} onClick={() => void openWorkspace(item)}>
               <span className="gh-investigation-copy"><strong>{item.title}</strong>{item.description && <span>{item.description}</span>}</span>
@@ -271,19 +238,8 @@ export default function App() {
         <span className="gh-workspace-title" title={selectedInvestigation?.title}>{selectedInvestigation?.title ?? 'Investigation'}</span>
       </header>
       <div className="gh-workspace-body">
-        <aside className="gh-research" aria-label="Research chat">
-          <div className="gh-chat-heading"><h2>Research</h2><p>{selectedInvestigation?.title}</p></div>
-          <div className="gh-chat-messages" aria-live="polite">
-            {!chatEntries.length && <p className="gh-chat-intro">Research prompts run against the current backend. Results may appear in shared timeline; investigation-specific persistence is not supported yet.</p>}
-            {chatEntries.map((entry) => <div className={`gh-chat-message ${entry.role}`} key={entry.id}>{entry.text}</div>)}
-            {chatError && <p className="gh-error">{chatError}</p>}
-            {chatBusy && <p className="gh-muted">Updating investigation…</p>}
-          </div>
-          <form className="gh-composer" onSubmit={submitResearch}>
-            <textarea value={chatText} onChange={(e) => setChatText(e.target.value)} placeholder="What should this investigation explore next?" rows={3} disabled={chatBusy || workspaceLoading || Boolean(workspaceError)} aria-label="Extend investigation" />
-            <button type="submit" className="gh-primary" disabled={chatBusy || workspaceLoading || !chatText.trim() || Boolean(workspaceError)}>{chatBusy ? 'Updating…' : 'Continue research'}</button>
-          </form>
-        </aside>
+        {temporaryTimelineContext && <p className="gh-hint" role="status">This view uses a global timeline node as temporary context, not a persisted investigation. Investigation-scoped chat may be unavailable until backend supports durable investigation IDs.</p>}
+        {selectedInvestigation && <ResearchChat key={selectedInvestigation.id} investigationId={selectedInvestigation.id} disabled={workspaceLoading || Boolean(workspaceError)} onGraphUpdated={applyResearchGraph} />}
         <section className="gh-graph" aria-label="Evidence graph">
           {workspaceNodes && <TreeCanvasAdapter spine={activeNodes} selectedIndex={selectedIndex} focus={activeFocus} moving={motionOn} fitSignal={workspaceFitSignal} onHoverTarget={setHoverFocus} onSelectTarget={focusTarget} onClearPin={() => setPinnedFocus(null)} onContinue={() => void continueGraph()} isContinuing={continuing} />}
           <div className="gh-graph-label">EVIDENCE GRAPH <span>{activeNodes.length} events</span></div>

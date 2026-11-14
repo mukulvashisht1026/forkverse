@@ -11,6 +11,19 @@ import {
 
 export const SPINE_GAP = 340;
 
+/** Fixed-camera projection for the tree's shallow, deterministic world depth. */
+export function projectTreePoint(x: number, y: number, z: number): Point2D {
+  const perspective = Math.max(0.78, Math.min(1.08, 1 - z / 1400));
+  return {
+    x: Number(((x + z * 0.32) * perspective).toFixed(2)),
+    y: Number(((y - z * 0.42) * perspective).toFixed(2)),
+  };
+}
+
+export function treeDepthScale(z: number): number {
+  return Math.max(0.88, Math.min(1.12, 1 - z / 1400));
+}
+
 /**
  * Curated retro-tech accent palette blending Tree Map's archival brass/parchment
  * with Living Tree's deep nocturnal ember, teal, and slate tones, plus phosphor verdigris.
@@ -189,6 +202,15 @@ export function generateBranchGeometry(
     if (x > xLimit) break;
   }
 
+  // Give each secondary branch a stable world-space depth, then project its curve
+  // through one fixed camera. The branch root stays pinned to the spine.
+  const depth = ((pairIndex % 3) - 1) * 92 + dir * 24;
+  for (let i = 1; i < points.length; i++) {
+    const progress = i / (points.length - 1);
+    const projected = projectTreePoint(points[i].x, points[i].y, depth * progress);
+    points[i] = projected;
+  }
+
   // Generate subtle Living-Tree particle stipple along the branch curve
   const mistParticles: ParticleDot[] = [];
   const mistCount = Math.min(48, points.length * 2);
@@ -226,6 +248,7 @@ export function generateBranchGeometry(
     approxLength: dist,
     tip: points[points.length - 1],
     dir,
+    depthScale: treeDepthScale(((pairIndex % 3) - 1) * 92 + dir * 24),
     points,
     mistParticles,
     filaments,

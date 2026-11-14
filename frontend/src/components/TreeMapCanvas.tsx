@@ -343,8 +343,23 @@ export function TreeMapCanvas({
               ? Math.min(1, curProg + dt / o.dur)
               : 1;
           }
+          if (o.b._animateGrowth && (o.b._prog ?? 1) >= 1) {
+            o.b._animateGrowth = false;
+          }
           o.prog = o.b._prog ?? 1;
           o.reach = (1 - Math.pow(1 - o.prog, 3)) * o.maxD;
+
+          if (o.b._animateGrowth) {
+            const progress = Math.max(0, Math.min(1, o.prog));
+            ctx.globalAlpha = g.dim * (1 - progress) * 0.34;
+            ctx.strokeStyle = o.verticalDir < 0 ? '#ff9a4d' : '#4dafb8';
+            ctx.lineWidth = 1.2;
+            ctx.setLineDash([4, 7]);
+            ctx.beginPath();
+            ctx.arc(o.x, o.y, 11 + progress * 17, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+          }
 
           const hotOrb =
             Boolean(activeFocus) &&

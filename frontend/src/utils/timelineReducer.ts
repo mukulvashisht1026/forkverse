@@ -84,6 +84,7 @@ export function applyTimelineEvent(
           branches: (n.branches || []).map((b) => ({
             ...b,
             _prog: b._prog ?? 1,
+            _animateGrowth: false,
           })),
         })),
         version: event.payload.version,
@@ -106,6 +107,7 @@ export function applyTimelineEvent(
         branches: (incoming.branches || []).map((b) => ({
           ...b,
           _prog: 0,
+          _animateGrowth: true,
         })),
       };
       const existingIdx = state.nodes.findIndex((n) => n.id === incoming.id);
@@ -146,6 +148,7 @@ export function applyTimelineEvent(
                   return {
                     ...b,
                     _prog: prevBranch ? prevBranch._prog ?? 1 : 0,
+                    _animateGrowth: !prevBranch,
                   };
                 }),
               }
@@ -187,7 +190,7 @@ export function applyTimelineEvent(
         changed = true;
         return {
           ...n,
-          branches: [...n.branches, { ...branch, _prog: 0 }],
+          branches: [...n.branches, { ...branch, _prog: 0, _animateGrowth: true }],
         };
       });
       if (!changed) {

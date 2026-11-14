@@ -25,6 +25,21 @@ Optional environment variables for live search scraping on the bundled server:
 - `CONTEXT_DEV_API_KEY`: Enables Context.dev live web/social scraping (`/v1/web/search`, `/v1/web/scrape`, `/v1/web/answers`)
 - `GEMINI_API_KEY`: Enables Google Search grounding fallback when neither Exa nor Context.dev key is set
 
+### Production configuration (non-secret)
+
+Tracked in `frontend/.env.production` and embedded in the client bundle at build time:
+
+```bash
+# Production API origin (backend running frontend/server.ts)
+# Do NOT include /api or /api/status suffix — the client resolves paths
+VITE_API_BASE_URL=https://forkverse-backend.orangebeach-cf28400b.germanywestcentral.azurecontainerapps.io
+
+# Production WebSocket URL (same origin, /ws path per frontend/server.ts)
+VITE_WS_URL=wss://forkverse-backend.orangebeach-cf28400b.germanywestcentral.azurecontainerapps.io/ws
+```
+
+Local overrides (not committed): use `frontend/.env.local` for development and `frontend/.env.production.local` to override production builds. Priority, highest first: existing process environment, `.env.[mode].local`, `.env.[mode]`, `.env.local`, `.env`. Only the selected mode's files are loaded; production builds do not load `.env.development`. Restart development server or rebuild after changing configuration.
+
 ---
 
 ## 2. Core Data Models (JSON / TypeScript)

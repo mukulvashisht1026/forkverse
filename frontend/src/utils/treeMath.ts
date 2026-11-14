@@ -289,7 +289,8 @@ export function buildSpineLayout(spine: SpineNode[]): SpineLayout {
 
   // Horizontal spine baseline stream
   const groundParts: Particle[] = [];
-  for (let i = 0; i < n * 500; i++) {
+  const groundCount = n * 500;
+  for (let i = 0; i < groundCount; i++) {
     groundParts.push({
       x: -140 + r0() * (width + 280),
       y: (r0() - 0.5) * 9,
@@ -342,6 +343,12 @@ export function buildSpineLayout(spine: SpineNode[]): SpineLayout {
         b,
         j
       );
+      // Freshly appended branches grow into the graph; loaded branches stay settled.
+      if (b._animateGrowth && b._prog === undefined) {
+        b._prog = 0;
+      }
+      orb.prog = b._prog ?? 1;
+      orb.reach = (1 - Math.pow(1 - orb.prog, 3)) * orb.maxD;
       minY = Math.min(minY, orb.minY - 40);
       maxY = Math.max(maxY, orb.maxY + 40);
       bx0 = Math.min(bx0, orb.minX - 160);
