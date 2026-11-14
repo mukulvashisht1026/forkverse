@@ -4,7 +4,7 @@ Audience: frontend/backend developers and coding assistants working on Ghostline
 
 ## Status and scope
 
-This is a versioned-in-repository TypeScript contract. The backend implements it (see "Implemented backend API"); the frontend adapter is not wired yet. DTOs live in `contracts/investigations.ts`; frontend ports and view models live in `frontend/src/services/investigations.ts`; the Canvas adapter lives in `frontend/src/services/investigationGraphAdapter.ts`.
+This is a versioned-in-repository TypeScript contract. The backend implements it and the frontend adapter uses it (see "Implemented backend API"). DTOs live in `contracts/investigations.ts`; frontend ports and view models live in `frontend/src/services/investigations.ts`; the Canvas adapter lives in `frontend/src/services/investigationGraphAdapter.ts`.
 
 The frontend server currently exposes one process-local global timeline. It is not durable and has no investigation ID, public library, investigation-specific graph, creation, extension, or scoped WebSocket events. Do not wire the global timeline or `/api/scrape-event` / `/api/prompt` as persistent investigation operations. Do not add fake records or claim these flows work end-to-end.
 
@@ -40,7 +40,7 @@ Behaviour:
 - Runs in flight when the server restarts are marked `failed` (`run_interrupted`).
 - Storage: MongoDB `investigations` (graph embedded) and `research_runs`, or in memory when `TIMELINE_MOCK=true`.
 
-The frontend adapter (`frontend/src/services/investigations.ts`) still throws `CapabilityUnavailableError` until it is switched to these routes.
+Frontend: `frontend/src/services/investigations.ts` implements `InvestigationApi` over these routes (honouring `VITE_API_BASE_URL`). `createInvestigation` returns as soon as the investigation exists. `extendInvestigation` waits for its run (polling `GET …/runs/:runId`) and then returns the graph. `watchInvestigation(id, {onUpdate, onResync})` subscribes to `/ws`, drops other IDs and stale revisions, and signals resync after reconnects. The Workspace uses it to re-fetch the graph while research runs. Errors surface the backend `ApiErrorDto.message`.
 
 ## DTOs
 

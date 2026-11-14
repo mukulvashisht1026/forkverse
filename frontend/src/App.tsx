@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { ArrowLeft, ArrowUpRight, LoaderCircle } from 'lucide-react';
 import type { FocusTarget, SpineNode, BranchNode } from './types/tree';
 import { useLiveTimeline } from './hooks/useLiveTimeline';
 import { TreeMapCanvas } from './components/TreeMapCanvas';
 import { SpineNav } from './components/SpineNav';
-import { investigationRepository, type Investigation } from './services/investigations';
+import { investigationRepository, watchInvestigation, type Investigation } from './services/investigations';
 
 interface ChatEntry {
   id: number;
@@ -43,6 +43,9 @@ export default function App() {
   const [chatBusy, setChatBusy] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const [chatEntries, setChatEntries] = useState<ChatEntry[]>([]);
+  /** A research run is queued/running for the open investigation (from create, extend or /ws). */
+  const [runActive, setRunActive] = useState(false);
+  const lastRevisionRef = useRef(0);
 
   const activeNodes = workspaceNodes ?? [];
 
@@ -80,7 +83,44 @@ export default function App() {
     setWorkspaceNodes(null);
     setWorkspaceError(null);
     setChatText('');
+    setRunActive(false);
+    void loadPublicInvestigations();
   };
+
+  /** Re-fetch the open investigation's graph; ignores responses older than what is shown. */
+  const refreshGraph = useCallback(async (investigationId: string) => {
+    try {
+      const graph = await investigationRepository.getInvestigationGraph(investigationId);
+      if (graph.investigationId !== investigationId || graph.revision < lastRevisionRef.current) return;
+      lastRevisionRef.current = graph.revision;
+      setWorkspaceNodes((previous) => {
+        const before = previous?.reduce((n, node) => n + 1 + node.branches.length, 0) ?? 0;
+        const after = graph.nodes.reduce((n, node) => n + 1 + node.branches.length, 0);
+        if (after > before) fitGraph();
+        return graph.nodes;
+      });
+    } catch {
+      // Live refresh is best effort; the explicit load path reports errors.
+    }
+  }, [fitGraph]);
+
+  // Live updates for the open investigation: refresh the graph as evidence arrives (throttled).
+  const openInvestigationId = view === 'workspace' ? selectedInvestigation?.id : undefined;
+  useEffect(() => {
+    if (!openInvestigationId) return;
+    let timer: number | undefined;
+    const schedule = () => {
+      if (timer === undefined) timer = window.setTimeout(() => { timer = undefined; void refreshGraph(openInvestigationId); }, 400);
+    };
+    const stop = watchInvestigation(openInvestigationId, {
+      onUpdate: (update) => {
+        setRunActive(update.runStatus === 'queued' || update.runStatus === 'running');
+        schedule();
+      },
+      onResync: schedule,
+    });
+    return () => { stop(); window.clearTimeout(timer); };
+  }, [openInvestigationId, refreshGraph]);
 
   const openWorkspace = async (investigation: Investigation) => {
     setSelectedInvestigation(investigation);
@@ -91,9 +131,11 @@ export default function App() {
     setChatEntries([]);
     setChatError(null);
     setPinnedFocus(null);
+    lastRevisionRef.current = 0;
     try {
       const graph = await investigationRepository.getInvestigationGraph(investigation.id);
       if (graph.investigationId !== investigation.id) throw new Error('Investigation graph ID mismatch.');
+      lastRevisionRef.current = graph.revision;
       setWorkspaceNodes(graph.nodes);
       setWorkspaceFitSignal((value) => value + 1);
     } catch (error) {
@@ -114,7 +156,9 @@ export default function App() {
     setCreateError(null);
     try {
       const created = await investigationRepository.createInvestigation({ topic: cleanTopic });
+      setTopic('');
       await openWorkspace(created);
+      setRunActive(true); // research continues in the background; evidence streams in over /ws
     } catch (error) {
       setCreateError(error instanceof Error ? error.message : 'Investigation creation failed.');
     } finally {
@@ -141,10 +185,15 @@ export default function App() {
     if (!prompt || chatBusy || !selectedInvestigation) return;
     setChatBusy(true);
     setChatError(null);
+    setRunActive(true);
+    setChatEntries((entries) => [...entries, { id: Date.now(), role: 'user', text: prompt }]);
     try {
       const graph = await investigationRepository.extendInvestigation(selectedInvestigation.id, { topic: prompt });
       if (graph.investigationId !== selectedInvestigation.id) throw new Error('Research update returned a different investigation.');
-      setWorkspaceNodes(graph.nodes);
+      if (graph.revision >= lastRevisionRef.current) {
+        lastRevisionRef.current = graph.revision;
+        setWorkspaceNodes(graph.nodes);
+      }
       setWorkspaceFitSignal((value) => value + 1);
       setChatEntries((entries) => [...entries, { id: Date.now(), role: 'system', text: 'Investigation updated.' }]);
       setChatText('');
@@ -152,6 +201,7 @@ export default function App() {
       setChatError(error instanceof Error ? error.message : 'Investigation update failed.');
     } finally {
       setChatBusy(false);
+      setRunActive(false);
     }
   };
 
@@ -192,14 +242,14 @@ export default function App() {
         <aside className="gh-research" aria-label="Research chat">
           <div className="gh-chat-heading"><h2>Research</h2><p>{selectedInvestigation?.title}</p></div>
           <div className="gh-chat-messages" aria-live="polite">
-            {!chatEntries.length && <p className="gh-chat-intro">Continue this investigation with additional research. Updates require investigation-scoped backend support.</p>}
+            {!chatEntries.length && <p className="gh-chat-intro">Continue this investigation with additional research. New evidence is added to the graph as it is found.</p>}
             {chatEntries.map((entry) => <div className={`gh-chat-message ${entry.role}`} key={entry.id}>{entry.text}</div>)}
             {chatError && <p className="gh-error">{chatError}</p>}
-            {chatBusy && <p className="gh-muted">Updating investigation…</p>}
+            {(chatBusy || runActive) && <p className="gh-muted">Researching… evidence appears in the graph as it is found.</p>}
           </div>
           <form className="gh-composer" onSubmit={submitResearch}>
-            <textarea value={chatText} onChange={(e) => setChatText(e.target.value)} placeholder="What should this investigation explore next?" rows={3} disabled={chatBusy || workspaceLoading || Boolean(workspaceError)} aria-label="Extend investigation" />
-            <button type="submit" className="gh-primary" disabled={chatBusy || workspaceLoading || !chatText.trim() || Boolean(workspaceError)}>{chatBusy ? 'Updating…' : 'Continue research'}</button>
+            <textarea value={chatText} onChange={(e) => setChatText(e.target.value)} placeholder="What should this investigation explore next?" rows={3} disabled={chatBusy || runActive || workspaceLoading || Boolean(workspaceError)} aria-label="Extend investigation" />
+            <button type="submit" className="gh-primary" disabled={chatBusy || runActive || workspaceLoading || !chatText.trim() || Boolean(workspaceError)}>{chatBusy ? 'Updating…' : 'Continue research'}</button>
           </form>
         </aside>
         <section className="gh-graph" aria-label="Evidence graph">
@@ -208,7 +258,7 @@ export default function App() {
           <div className="gh-graph-controls"><button type="button" onClick={() => setMotionOn((value) => !value)}>{motionOn ? 'Pause motion' : 'Resume motion'}</button><button type="button" onClick={fitGraph}>Fit graph</button></div>
           {workspaceLoading && <div className="gh-graph-state">Loading investigation graph…</div>}
           {workspaceError && <div className="gh-graph-state"><p>{workspaceError}</p><button onClick={() => selectedInvestigation && void openWorkspace(selectedInvestigation)}>Retry</button></div>}
-          {!workspaceLoading && !workspaceError && workspaceNodes?.length === 0 && <div className="gh-graph-state">This investigation has no evidence yet.</div>}
+          {!workspaceLoading && !workspaceError && workspaceNodes?.length === 0 && <div className="gh-graph-state">{runActive ? 'Researching… evidence will appear here as it is found.' : 'This investigation has no evidence yet.'}</div>}
           {pinnedFocus && focusTitle && <article className="gh-detail" aria-label="Selected evidence">
             <div className="gh-detail-head"><span>{focusBranch ? 'Evidence' : 'Event'}</span><button aria-label="Close evidence details" onClick={() => setPinnedFocus(null)}>Close</button></div>
             <h3>{focusTitle}</h3>
