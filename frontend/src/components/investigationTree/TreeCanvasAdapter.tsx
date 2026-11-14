@@ -17,11 +17,17 @@ interface Props {
   highlight?: { evidenceIds: ReadonlySet<string>; eventIds: ReadonlySet<string> } | null;
 }
 
+/** Canvas labels only: long article titles are truncated (the detail panel keeps the full title). */
+export function shortLabel(name: string, max = 44): string {
+  const clean = name.replace(/\s+/g, ' ').trim();
+  return clean.length > max ? `${clean.slice(0, max - 1).trimEnd()}…` : clean;
+}
+
 export function mapTreeModels(spine: AppSpine[]) {
   return spine.map((node) => ({
     id: node.id, name: node.name, info: node.info,
     branches: node.branches.map((branch) => ({
-      id: branch.id, name: branch.name, info: branch.info, seed: branch.seed,
+      id: branch.id, name: shortLabel(branch.name), info: branch.info, seed: branch.seed,
       isNew: Boolean(branch._animateGrowth || (branch._prog !== undefined && branch._prog < 1)),
     })),
   }));

@@ -139,7 +139,8 @@ export function citedLabels(text: string, known: Set<string>): string[] {
 
 /** Remove citation markers that do not refer to a provided source. */
 export function stripUnknownCitations(text: string, known: Set<string>): string {
-  return text.replace(CITATION, (m, label: string) => (known.has(label) ? m : ''));
+  // Also drop the whitespace before a removed marker, so "fines [[source:S12]]." becomes "fines.".
+  return text.replace(/[ \t]*\[\[source:(S\d{1,2})\]\]/g, (m, label: string) => (known.has(label) ? m : ''));
 }
 
 export interface ChatServiceDeps {

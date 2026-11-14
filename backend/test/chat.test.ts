@@ -43,7 +43,8 @@ describe('retrieval and citations', () => {
   it('extracts known citations in order and strips unknown ones', () => {
     const known = new Set(['S1', 'S2', 'S3']);
     expect(citedLabels('a [[source:S3]] b [[source:S1]] c [[source:S3]] [[source:S9]]', known)).toEqual(['S3', 'S1']);
-    expect(stripUnknownCitations('x [[source:S9]] y [[source:S2]]', known)).toBe('x  y [[source:S2]]');
+    expect(stripUnknownCitations('x [[source:S9]] y [[source:S2]]', known)).toBe('x y [[source:S2]]');
+    expect(stripUnknownCitations('fines [[source:S12]].', known)).toBe('fines.');
   });
 });
 
