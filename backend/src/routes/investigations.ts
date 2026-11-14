@@ -77,6 +77,12 @@ export function investigationsRouter(service: InvestigationService, chat?: Resea
     res.json(toGraphDto(await service.get(String(req.params.id))));
   });
 
+  r.patch('/investigations/:id', async (req, res) => {
+    const body = z.object({ title: z.string() }).safeParse(req.body);
+    if (!body.success) throw new InvestigationError(400, 'invalid_title', 'Title is required.');
+    res.json(await service.rename(String(req.params.id), body.data.title));
+  });
+
   r.post('/investigations/:id/runs', async (req, res) => {
     res.status(202).json(await service.extend(String(req.params.id), parse(RunBody, req.body)));
   });

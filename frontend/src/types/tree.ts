@@ -27,6 +27,10 @@ export interface BranchNode {
   sourceType: BranchSourceType;
   growthSide?: BranchGrowthSide;
   sourceDomain?: string;
+  /** Publisher/source name supplied by the investigation API when available. */
+  sourceName?: string;
+  /** True when the UI adapter supplied a fallback rather than API-authentic type metadata. */
+  sourceTypeIsInferred?: boolean;
   sourceUrl?: string;
   publishedAt?: string;
   impactAngle?: string;
@@ -59,6 +63,8 @@ export interface SpineNode {
   };
   publicAppeal: PublicAppealMetrics;
   scrapeEngine: ScrapeEngine;
+  /** Set only when this event ID arrives after the initial graph snapshot. */
+  _animateGrowth?: boolean;
   branches: BranchNode[];
 }
 
@@ -159,4 +165,3 @@ export interface PromptResponse {
   message?: string;
   notice?: string;
 }
-

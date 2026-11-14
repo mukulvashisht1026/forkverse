@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getConversation, renderSafeMarkdown, runResearchAction, safeSourceUrl } from './research';
+import { getConversation, renderSafeMarkdown, runResearchAction, safeSourceUrl, transcribeAudio } from './research';
 
 const sseResponse = (body: ReadableStream<Uint8Array>, status = 200) => new Response(body, { status, headers: { 'Content-Type': 'text/event-stream' } });
 const streamFrom = (chunks: string[]) => new ReadableStream<Uint8Array>({ start(controller) { for (const chunk of chunks) controller.enqueue(new TextEncoder().encode(chunk)); controller.close(); } });
@@ -46,6 +46,18 @@ test('history request scopes encoded ID and pagination cursor; preserves HTTP er
   assert.match(requested, /a%2Fb\/messages\?cursor=c%20d$/);
   globalThis.fetch = async () => new Response(JSON.stringify({ code: 'missing', message: 'not found' }), { status: 404, headers: { 'content-type': 'application/json' } });
   try { await assert.rejects(getConversation('missing'), /not found/); } finally { globalThis.fetch = original; }
+});
+
+test('audio transcription sends binary audio to backend and returns editable transcript', async () => {
+  const original = globalThis.fetch; let url = ''; let init: RequestInit | undefined;
+  globalThis.fetch = async (input, requestInit) => { url = String(input); init = requestInit; return Response.json({ transcript: '  Spoken words  ' }); };
+  try {
+    const audio = new Blob(['audio bytes'], { type: 'audio/webm' });
+    assert.equal(await transcribeAudio(audio), 'Spoken words');
+    assert.equal(url, '/api/transcriptions');
+    assert.equal(new Headers(init?.headers).get('content-type'), 'audio/webm');
+    assert.equal(await (init?.body as Blob).text(), 'audio bytes');
+  } finally { globalThis.fetch = original; }
 });
 
 test('aborting active stream cancels reader and rejects', async () => {

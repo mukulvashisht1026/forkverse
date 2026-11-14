@@ -4,12 +4,17 @@ import { mapInvestigationGraphDto, investigationRepository } from './investigati
 test('investigation graph adapter preserves event and evidence for canvas', () => {
   const graph = mapInvestigationGraphDto({
     investigationId: 'inv-1', revision: 2, updatedAt: '2026-01-01T00:00:00Z',
-    events: [{ id: 'event-1', title: 'Policy announced', summary: 'Summary', evidence: [{ id: 'source-1', title: 'Source headline', sourceUrl: 'https://example.com', excerpt: 'Evidence excerpt' }] }],
+    events: [{ id: 'event-1', title: 'Policy announced', summary: 'Summary', evidence: [{ id: 'source-1', title: 'Source headline', sourceName: 'The Daily Ledger', sourceUrl: 'https://news.example.test/story', publishedAt: '2026-01-03T00:00:00Z', relationship: 'News coverage', excerpt: 'Evidence excerpt' }] }],
   });
   assert.equal(graph.investigationId, 'inv-1');
   assert.equal(graph.nodes[0].name, 'Policy announced');
   assert.equal(graph.nodes[0].branches[0].name, 'Source headline');
-  assert.equal(graph.nodes[0].branches[0].sourceUrl, 'https://example.com');
+  assert.equal(graph.nodes[0].branches[0].sourceUrl, 'https://news.example.test/story');
+  assert.equal(graph.nodes[0].branches[0].sourceName, 'The Daily Ledger');
+  assert.equal(graph.nodes[0].branches[0].sourceDomain, 'news.example.test');
+  assert.equal(graph.nodes[0].branches[0].publishedAt, '2026-01-03T00:00:00Z');
+  assert.equal(graph.nodes[0].branches[0].impactAngle, 'News coverage');
+  assert.equal(graph.nodes[0].branches[0].sourceTypeIsInferred, true);
 });
 
 test('public investigations repository maps stable API records', async (t) => {
@@ -24,6 +29,23 @@ test('public investigations repository maps stable API records', async (t) => {
   t.after(() => { globalThis.fetch = originalFetch; });
   assert.equal((await investigationRepository.listPublicInvestigations())[0]?.id, 'saved-id');
   assert.equal(requests[0], '/api/investigations?visibility=public');
+});
+
+test('investigation repository persists an edited title', async (t) => {
+  const originalFetch = globalThis.fetch;
+  let request: { url: string; init?: RequestInit } | undefined;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    request = { url: String(input), init };
+    return new Response(JSON.stringify({ id: 'graph-1', title: 'Renamed', topic: 'Original prompt', visibility: 'public', status: 'active', createdAt: '2026-01-01', updatedAt: '2026-01-02' }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    });
+  }) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  const renamed = await investigationRepository.renameInvestigation('graph-1', 'Renamed');
+  assert.equal(renamed.title, 'Renamed');
+  assert.equal(request?.url, '/api/investigations/graph-1');
+  assert.equal(request?.init?.method, 'PATCH');
+  assert.equal(request?.init?.body, JSON.stringify({ title: 'Renamed' }));
 });
 
 test('investigations repository reports request timeout rather than leaving request hanging', async (t) => {
