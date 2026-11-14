@@ -1,7 +1,5 @@
 # Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 services:
-  db:
-    ports: !reset []
   backend:
     ports: !reset []
     restart: unless-stopped
