@@ -137,7 +137,7 @@ describe('verify_sources over SSE', () => {
     const ev = events(await res.text());
     const types = ev.map((e) => e.type);
     expect(types[0]).toBe('message_start');
-    expect(types.slice(-3)).toEqual(['proof', 'sources', 'message_complete']);
+    expect(types.slice(-4)).toEqual(['proof', 'sources', 'highlight', 'message_complete']);
     const progress = ev.filter((e) => e.type === 'token').map((e) => e.text).join('');
     expect(progress).toMatch(/Reading 4 articles/);
     expect(progress).toMatch(/3 readable, 1 unavailable \(Delta\)/);
@@ -152,8 +152,11 @@ describe('verify_sources over SSE', () => {
 
     const done = ev.at(-1).message;
     expect(done.proof.eventId).toBe('evt');
-    expect(done.content).not.toContain('S9');
-    expect(done.content).toMatch(/Coverage: 3 of 4 articles read in full; 4 quotes verified/);
+    // Chat shows only the verdict; the full comparison lives in the proof card.
+    expect(done.content).toMatch(/^Outlets agree the AI Office opened its first probe, with different emphasis\.\n\n→ The graph colours each article/);
+    expect(done.proof.summary).not.toContain('S9');
+    expect(done.proof.summary).toMatch(/Coverage: 3 of 4 articles read in full; 4 quotes verified/);
+    expect(ev.find((e) => e.type === 'highlight').roles).toEqual({ ea: 'consensus', eb: 'consensus', ec: 'angle', ed: 'unreadable' });
 
     await new Promise((r) => setTimeout(r, 100));
     const hl = frames.filter((f) => f.type === 'investigation:highlight').map((f) => f.payload);

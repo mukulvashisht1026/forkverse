@@ -136,6 +136,8 @@ export type ResearchStreamEventDto =
   | { type: 'sources'; sources: SourceCitationDto[] }
   | { type: 'graph_updated'; graph: InvestigationGraphDto }
   | { type: 'proof'; report: ProofReportDto }
+  /** What the frontend should light up for this answer (graph node ids = claims or events). */
+  | { type: 'highlight'; nodeIds: string[]; evidenceIds: string[]; roles?: Record<string, ProofRoleDto> }
   | { type: 'message_complete'; message: ChatMessageDto }
   | { type: 'error'; error: ApiErrorDto };
 
@@ -200,6 +202,8 @@ export interface ProofReportDto {
   /** Skeptic: points where outlets disagree. */
   disputes: { point: string; positions: { source: string; position: string; quote: string }[] }[];
   stats: { articles: number; readable: number; quotesVerified: number; quotesRejected: number };
+  /** Full synthesis (Markdown with [[source:Sn]] citations); the chat shows only the verdict. */
+  summary?: string;
 }
 
 // ---- claims (action build_claims): Entity -> Topic -> Claims -> Evidence --------------------

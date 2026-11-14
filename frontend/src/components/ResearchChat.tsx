@@ -7,8 +7,35 @@ interface Props {
   onGraphUpdated: (graph: ResearchStreamEventDto & { type: 'graph_updated' }) => void;
   /** Highlight the graph evidence an answer cited ("Show in graph"). */
   onShowSources?: (evidenceIds: string[], eventIds: string[], roles?: Record<string, ProofRoleDto>) => void;
+  /** Graph items the backend says answer this message (SSE `highlight`); empty = clear. */
+  onHighlight?: (nodeIds: string[], evidenceIds: string[], roles?: Record<string, ProofRoleDto>) => void;
   /** Graph event targeted by "Verify sources" (the selected event in the graph). */
   selectedEvent?: { id: string; title: string } | null;
+}
+
+/** Safe Markdown with [[source:Sn]] citation pills resolved against `sources`. */
+function MarkdownBody({ content, sources }: { content: string; sources: SourceCitationDto[] }) {
+  return <div>{renderSafeMarkdown(content).map((block, index) => {
+          if (block.type === 'rule') return <hr key={index} />;
+          const children = block.inline.map((part, tokenIndex) => {
+            if (part.type === 'link') return <a key={tokenIndex} href={part.href} target="_blank" rel="noopener noreferrer">{part.text}</a>;
+            if (part.type === 'citation') {
+              const source = sources.find((item) => item.id === part.citationId);
+              const href = source && safeSourceUrl(source.url);
+              const label = (part.citationId ?? '').replace(/^S/i, '');
+              return href ? <a key={tokenIndex} className="gh-cite" href={href} target="_blank" rel="noopener noreferrer" title={`${source.title}${source.publisher ? ` · ${source.publisher}` : ''}`}>{label}</a> : <span key={tokenIndex} className="gh-cite gh-cite-missing" title="Source metadata unavailable or unsafe">{label}</span>;
+            }
+            if (part.type === 'strong') return <strong key={tokenIndex}>{part.text}</strong>;
+            if (part.type === 'emphasis') return <em key={tokenIndex}>{part.text}</em>;
+            if (part.type === 'code') return <code key={tokenIndex}>{part.text}</code>;
+            return <span key={tokenIndex}>{part.text}</span>;
+          });
+          if (block.type === 'heading') return <div key={index} className={`gh-markdown-h${block.level}`}>{children}</div>;
+          if (block.type === 'quote') return <blockquote key={index}>{children}</blockquote>;
+          if (block.type === 'list-item') return <div key={index} role="listitem" className="gh-markdown-list-item">{children}</div>;
+          if (block.type === 'code') return <pre key={index}><code>{block.text}</code></pre>;
+          return <p key={index}>{children}</p>;
+  })}</div>;
 }
 
 const ROLE_LABEL: Record<ProofRoleDto, string> = { consensus: 'Shared facts', angle: 'Own angle', dispute: 'Disputed', unreadable: 'Unreadable' };
@@ -19,12 +46,13 @@ function ProofCard({ report, onShow }: { report: ProofReportDto; onShow?: () => 
     <div className="gh-proof-head"><span>Proof · {report.eventTitle}</span><span>{report.stats.readable}/{report.stats.articles} read · {report.stats.quotesVerified} quotes verified</span></div>
     <div className="gh-proof-roles">{(['consensus', 'angle', 'dispute', 'unreadable'] as ProofRoleDto[]).filter((r) => counts[r]).map((r) => <span key={r} className={`gh-proof-role role-${r}`}><i />{ROLE_LABEL[r]} · {counts[r]}</span>)}</div>
     {onShow && <button type="button" className="gh-show-in-graph" onClick={onShow}>Show roles in graph</button>}
+    {report.summary && <details className="gh-proof-details"><summary>Full comparison</summary><MarkdownBody content={report.summary} sources={report.sources.map((s) => ({ id: s.id, title: s.title, url: s.url, ...(s.publisher ? { publisher: s.publisher } : {}) }))} /></details>}
   </div>;
 }
 type Message = ChatMessageDto & { pending?: boolean; interrupted?: boolean };
 const localId = () => `local-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-export function ResearchChat({ investigationId, disabled, historyAvailable = true, onGraphUpdated, onShowSources, selectedEvent }: Props) {
+export function ResearchChat({ investigationId, disabled, historyAvailable = true, onGraphUpdated, onShowSources, onHighlight, selectedEvent }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState('');
   const [action, setAction] = useState<ResearchActionDto>('answer_question');
@@ -110,6 +138,7 @@ export function ResearchChat({ investigationId, disabled, historyAvailable = tru
         if (event.type === 'token') update((items) => items.map((item) => item.id === assistantId ? { ...item, content: item.content + event.text } : item));
         else if (event.type === 'sources') update((items) => items.map((item) => item.id === assistantId ? { ...item, sources: event.sources } : item));
         else if (event.type === 'proof') update((items) => items.map((item) => item.id === assistantId ? { ...item, proof: event.report } : item));
+        else if (event.type === 'highlight') onHighlight?.(event.nodeIds, event.evidenceIds, event.roles);
         else if (event.type === 'graph_updated') { if (event.graph.investigationId === id) onGraphUpdated(event); }
         else if (event.type === 'message_complete' && event.message.investigationId === id) update((items) => items.map((item) => item.id === assistantId ? { ...event.message, pending: false } : item.id === userMessage.id ? { ...item, pending: false } : item));
       });
@@ -135,33 +164,12 @@ export function ResearchChat({ investigationId, disabled, historyAvailable = tru
     <div className="gh-chat-messages" ref={scrollRef} onScroll={(event) => { const el = event.currentTarget; stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80; }} aria-live="polite" aria-busy={loadingHistory || sending}>
       {loadingHistory && <p className="gh-muted">Loading conversation…</p>}
       {historyError && <div role="alert" className="gh-library-unavailable"><p>{historyError}</p><button type="button" onClick={() => void loadHistory()}>Retry history</button></div>}
-      {!loadingHistory && !historyError && messages.length === 0 && <p className="gh-chat-intro">No saved conversation yet. Research history appears here when backend supports it.</p>}
+      {!loadingHistory && !historyError && messages.length === 0 && <p className="gh-chat-intro">The graph on the right is the answer. Ask about it and the relevant claims and articles light up; if something is not in the graph yet, you can extend it.</p>}
       {nextCursor && <button type="button" disabled={loadingMore} onClick={() => void loadHistory(nextCursor)}>{loadingMore ? 'Loading…' : 'Load older messages'}</button>}
       {messages.map((message) => <article className={`gh-chat-message ${message.role}`} key={message.id}>
-        <div>{renderSafeMarkdown(message.content).map((block, index) => {
-          if (block.type === 'rule') return <hr key={index} />;
-          const children = block.inline.map((part, tokenIndex) => {
-            if (part.type === 'link') return <a key={tokenIndex} href={part.href} target="_blank" rel="noopener noreferrer">{part.text}</a>;
-            if (part.type === 'citation') {
-              const source = message.sources.find((item) => item.id === part.citationId);
-              const href = source && safeSourceUrl(source.url);
-              const label = (part.citationId ?? '').replace(/^S/i, '');
-              return href ? <a key={tokenIndex} className="gh-cite" href={href} target="_blank" rel="noopener noreferrer" title={`${source.title}${source.publisher ? ` · ${source.publisher}` : ''}`}>{label}</a> : <span key={tokenIndex} className="gh-cite gh-cite-missing" title="Source metadata unavailable or unsafe">{label}</span>;
-            }
-            if (part.type === 'strong') return <strong key={tokenIndex}>{part.text}</strong>;
-            if (part.type === 'emphasis') return <em key={tokenIndex}>{part.text}</em>;
-            if (part.type === 'code') return <code key={tokenIndex}>{part.text}</code>;
-            return <span key={tokenIndex}>{part.text}</span>;
-          });
-          if (block.type === 'heading') return <div key={index} className={`gh-markdown-h${block.level}`}>{children}</div>;
-          if (block.type === 'quote') return <blockquote key={index}>{children}</blockquote>;
-          if (block.type === 'list-item') return <div key={index} role="listitem" className="gh-markdown-list-item">{children}</div>;
-          if (block.type === 'code') return <pre key={index}><code>{block.text}</code></pre>;
-          return <p key={index}>{children}</p>;
-        })}</div>
+        <MarkdownBody content={message.content} sources={message.sources} />
         {message.pending && message.role === 'assistant' && <span className="gh-muted">{message.content ? 'Generating…' : 'Researching…'}</span>}
         {message.interrupted && <span className="gh-muted">Response interrupted.</span>}
-        {message.sources.length > 0 && <div className="gh-chat-sources"><span className="gh-chat-sources-label">Sources</span>{message.sources.map((source) => { const href = safeSourceUrl(source.url); return href ? <a key={source.id} href={href} target="_blank" rel="noopener noreferrer" className="gh-chat-source" title={source.title}><b>{source.id.replace(/^S/i, '')}</b>{source.publisher ?? source.title}</a> : null; })}</div>}
         {message.proof && !message.pending && <ProofCard report={message.proof} onShow={onShowSources && (() => onShowSources(
           message.proof!.sources.map((source) => source.evidenceId),
           [message.proof!.eventId],

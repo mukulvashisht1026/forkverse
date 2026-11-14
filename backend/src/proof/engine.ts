@@ -67,6 +67,8 @@ export async function runProof(
     token: (text: string) => void;
     onArticles?: (articles: ProofArticle[], roles?: Map<string, ProofRoleDto>) => void;
     signal?: AbortSignal;
+    /** Stream synthesis tokens into the chat (default true); false keeps the chat short. */
+    streamSynthesis?: boolean;
   },
   deps: ProofDeps,
 ): Promise<ProofRun> {
@@ -142,12 +144,13 @@ export async function runProof(
     ],
     { signal: args.signal },
   );
+  if (args.streamSynthesis === false) token('- Writing the comparison…\n');
   let synthesis = '';
   for await (const chunk of stream) {
     const piece = typeof chunk.content === 'string' ? chunk.content : '';
     if (!piece) continue;
     synthesis += piece;
-    token(piece);
+    if (args.streamSynthesis !== false) token(piece);
   }
 
   const coverage = `\n\n_Coverage: ${readable.length} of ${articles.length} articles read in full; ${findings.quotesVerified} quotes verified verbatim${findings.quotesRejected ? `, ${findings.quotesRejected} unverifiable quotes discarded` : ''}._`;

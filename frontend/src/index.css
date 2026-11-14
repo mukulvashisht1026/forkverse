@@ -302,3 +302,6 @@ button { color: inherit; }
 .lg-link i { width: 14px; height: 0; border-radius: 0; border-top: 1.5px solid #d1bd91; }
 @media (max-width: 760px) { .gh-claim-legend { display: none; } .gh-graph-mode { top: 8px; left: 8px; } }
 .gh-workspace .gh-graph nav { max-height: 28vh; }
+.gh-proof-details { border-top: 1px solid var(--border); padding-top: 6px; }
+.gh-proof-details summary { color: var(--muted); font-size: 11px; cursor: pointer; }
+.gh-proof-details > div { margin-top: 8px; font-size: 12px; }
