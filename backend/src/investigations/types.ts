@@ -16,6 +16,8 @@ export interface InvestigationDto {
   description?: string;
   /** Broader entity this topic belongs to (e.g. "Donald Trump"), set by claim building. */
   entity?: string;
+  /** news: track how a story develops; politician: track the politician's claims and whether they were kept. */
+  mode?: 'news' | 'politician';
   visibility: InvestigationVisibility;
   status: 'active' | 'archived';
   createdAt: IsoDateTime;
@@ -40,6 +42,8 @@ export interface InvestigationGraphDto {
   claims?: ClaimDto[];
   claimLinks?: ClaimLinkDto[];
   entity?: string;
+  /** news | politician: how the claim graph should be read (politician: outcome branches only). */
+  mode?: 'news' | 'politician';
   claimsUpdatedAt?: IsoDateTime;
 }
 
@@ -97,6 +101,8 @@ export interface ApiErrorDto {
 /** Stored form: investigation metadata plus its graph (events with embedded evidence). */
 export interface InvestigationRecord extends InvestigationDto {
   revision: number;
+  /** Topic planner output used for research relevance. */
+  plan?: { queries: string[]; keyTerms: string[] };
   events: InvestigationEventDto[];
   claims?: ClaimDto[];
   claimLinks?: ClaimLinkDto[];
@@ -230,6 +236,10 @@ export interface ClaimEvidenceDto {
   evidenceId: string; // InvestigationEvidenceDto.id
   stance: EvidenceStanceDto;
   quote: string; // verbatim, verified against the article text
+  /** One-sentence summary of what the (scraped) article says. */
+  summary?: string;
+  /** politician mode: 'source' reports the claim itself, 'outcome' reports whether it happened. */
+  role?: 'source' | 'outcome';
   title: string;
   publisher?: string;
   url?: string;
@@ -246,6 +256,8 @@ export interface ClaimDto {
   statusReason: string;
   /** Contradicting evidence exists; perspectives are preserved, not averaged. */
   disputed: boolean;
+  /** politician mode: what later articles say happened to the claim/promise. */
+  outcome?: 'fulfilled' | 'not_fulfilled' | 'in_progress' | 'no_update';
   /** Earliest publication date among verified evidence (chronological order). */
   occurredAt?: string;
   evidence: ClaimEvidenceDto[];

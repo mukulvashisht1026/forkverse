@@ -122,11 +122,12 @@ describe('answer_question points at the graph', () => {
     expect(r.events.at(-1).message.content).toMatch(/does not cover US export controls yet\. Use \*\*Extend evidence graph\*\*/);
   });
 
-  it('empty graph: asks to extend first without calling the model', async () => {
+  it('empty graph: researches the topic right away instead of asking the user to', async () => {
     await store.create({ ...record(), id: 'empty', events: [], claims: [] });
-    graphAnswer = null; // would throw if the model were called
-    const r = await sse('empty', { investigationId: 'empty', action: 'answer_question', message: 'Anything?' });
-    expect(r.events.at(-1).message.content).toMatch(/graph is empty/);
+    graphAnswer = null; // the navigator model must not be called for an empty graph
+    const r = await sse('empty', { investigationId: 'empty', action: 'answer_question', message: 'DO IT' });
+    expect(r.events.some((e) => e.type === 'graph_updated')).toBe(true);
+    expect(r.events.at(-1).message.content).toMatch(/^The graph was empty, so I researched “EU AI Act”: 2 articles/);
   });
 
   it('extend_graph: one-line result and the new articles highlighted', async () => {

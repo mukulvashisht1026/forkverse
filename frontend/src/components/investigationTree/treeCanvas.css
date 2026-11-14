@@ -36,3 +36,13 @@
 .itl-tree .claim-link text{fill:#c8d1da;font-size:10px;letter-spacing:.04em;paint-order:stroke;stroke:#02040a;stroke-width:3px}
 .itl-tree .claim-link.link-potential_inconsistency text{fill:#ffb4a5}
 .itl-tree .citing .claim-link{opacity:.3}
+/* Politician view: outcome reports and claim outcome badges */
+.itl-tree .branch.outcome-report.stance-supports .tip-core{fill:#6fcf97;stroke:#e3f8ec}
+.itl-tree .branch.outcome-report.stance-supports path{stroke:#6fcf97}
+.itl-tree .branch.outcome-report.stance-context .tip-core{fill:#d1bd91;stroke:#f5f2e8}
+.itl-tree .branch.outcome-report.stance-context{opacity:1}
+.itl-tree .outcome-badge{font-size:9px;font-weight:700;letter-spacing:.12em;paint-order:stroke;stroke:#02040a;stroke-width:3px}
+.itl-tree .outcome-fulfilled{fill:#6fcf97}
+.itl-tree .outcome-not_fulfilled{fill:#ff8a73}
+.itl-tree .outcome-in_progress{fill:#d1bd91}
+.itl-tree .outcome-no_update{fill:#8b9baa}

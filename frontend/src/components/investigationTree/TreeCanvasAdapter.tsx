@@ -31,9 +31,12 @@ export function shortLabel(name: string, max = 44): string {
 export function mapTreeModels(spine: AppSpine[]) {
   return spine.map((node) => ({
     id: node.id, name: node.claimStatus ? node.name : shortLabel(node.name, 46), info: node.info,
-    ...(node.claimStatus === 'pending' && { pending: true }), ...(node.disputed && { disputed: true }),
+    // News view: pending claims go to the separate unverified lane. Politician view: the main line IS
+    // the claim tracker, so single-source claims stay on it with an UNVERIFIED badge instead.
+    ...(node.claimStatus === 'pending' && (node.outcome ? { unverified: true } : { pending: true })),
+    ...(node.disputed && { disputed: true }), ...(node.outcome && { outcome: node.outcome }),
     branches: node.branches.map((branch) => ({
-      id: branch.id, name: shortLabel(branch.name), info: branch.info, seed: branch.seed, publishedAt: branch.publishedAt, ...(branch.stance && { stance: branch.stance }),
+      id: branch.id, name: shortLabel(branch.name), info: branch.info, seed: branch.seed, publishedAt: branch.publishedAt, ...(branch.stance && { stance: branch.stance }), ...(branch.outcomeReport && { outcomeReport: true }),
       isNew: Boolean(branch._animateGrowth || (branch._prog !== undefined && branch._prog < 1)),
     })),
   }));

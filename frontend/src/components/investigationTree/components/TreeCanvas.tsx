@@ -197,7 +197,7 @@ function BranchView({
   const targetFocus: FocusTarget = { spineIndex, branchIndex };
 
   return (
-    <g className={`branch ${isCited ? 'cited' : ''} ${role ? `role-${role}` : ''} ${branch.stance ? `stance-${branch.stance}` : ''}`} transform={`translate(${geometry.points[0].x} ${geometry.points[0].y}) scale(${geometry.depthScale}) translate(${-geometry.points[0].x} ${-geometry.points[0].y})`}>
+    <g className={`branch ${isCited ? 'cited' : ''} ${role ? `role-${role}` : ''} ${branch.stance ? `stance-${branch.stance}` : ''} ${branch.outcomeReport ? 'outcome-report' : ''}`} transform={`translate(${geometry.points[0].x} ${geometry.points[0].y}) scale(${geometry.depthScale}) translate(${-geometry.points[0].x} ${-geometry.points[0].y})`}>
       {/* Living-Tree mist stipple + neural-scan tangent filaments & micro-dendrites */}
       <g ref={mistGroupRef} style={{ transition: 'opacity 0.35s ease' }}>
         {geometry.filaments.map((strand, idx) => (
@@ -796,7 +796,12 @@ export function TreeCanvas({
                 transform={laneY ? `translate(0 ${laneY})` : undefined}
               >
                 {node.disputed && <circle className="disputed-ring" cx={cx} cy={0} r={27} fill="none" />}
-                {node.pending && <text className="pending-badge" x={cx} y={42} textAnchor="middle">UNVERIFIED</text>}
+                {(node.pending || node.unverified) && <text className="pending-badge" x={cx} y={42} textAnchor="middle">UNVERIFIED</text>}
+                {node.outcome && (
+                  <text className={`outcome-badge outcome-${node.outcome}`} x={cx} y={node.pending || node.unverified ? 55 : 42} textAnchor="middle">
+                    {node.outcome === 'no_update' ? 'NO UPDATE YET' : node.outcome.replace('_', ' ').toUpperCase()}
+                  </text>
+                )}
                 {/* Date ticks: where each article meets the timeline; sparse labels in one row below the line */}
                 {branches.map(({ branch, tick }) => (
                   <g key={`tick-${branch.id}`} className="date-tick" aria-hidden="true">

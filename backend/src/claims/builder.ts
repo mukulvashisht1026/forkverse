@@ -52,8 +52,18 @@ const HEDGED = /\b(reportedly|allegedly|rumou?red|rumou?rs?|unconfirmed|sources 
 const PRIMARY_HOST = /(\.gov(\.[a-z]{2})?|\.int|europa\.eu|whitehouse\.gov|parliament\.[a-z.]+|\.mil)$/i;
 
 export const CandidateOutput = z.object({
+  /** One sentence: what this article reports (shown on its graph branch). */
+  summary: z.string().default(''),
   claims: z
-    .array(z.object({ statement: z.string(), kind: z.enum(['statement', 'position', 'development']).catch('development'), quote: z.string() }))
+    .array(
+      z.object({
+        statement: z.string(),
+        kind: z.enum(['statement', 'position', 'development']).catch('development'),
+        /** politician mode: 'claim' = something the politician said/promised; 'outcome' = report of what happened to an earlier claim. */
+        type: z.enum(['claim', 'outcome']).catch('claim').optional(),
+        quote: z.string(),
+      }),
+    )
     .default([]),
 });
 
@@ -65,7 +75,15 @@ export const MergeOutput = z.object({
         key: z.string(),
         statement: z.string(),
         kind: z.enum(['statement', 'position', 'development']).catch('development'),
-        members: z.array(z.object({ candidate: z.string(), stance: z.enum(['supports', 'contradicts', 'context']).catch('supports') })),
+        /** politician mode: what later reports say happened to this claim. */
+        outcome: z.enum(['fulfilled', 'not_fulfilled', 'in_progress', 'no_update']).catch('no_update').optional(),
+        members: z.array(
+          z.object({
+            candidate: z.string(),
+            stance: z.enum(['supports', 'contradicts', 'context']).catch('supports'),
+            role: z.enum(['source', 'outcome']).catch('source').optional(),
+          }),
+        ),
       }),
     )
     .default([]),
@@ -86,7 +104,19 @@ export const CANDIDATE_PROMPT = `Extract the specific claims this ONE news artic
 A claim is one concrete statement, position, or documented development (who did/said/decided what, when, numbers) - e.g. "Trump promised to reduce taxes." Not opinions or vague themes.
 For each claim give a quote copied VERBATIM from the article (exact words, 5-35 words) that shows it. Quotes are machine-checked; paraphrases are discarded.
 Report claims exactly as the article does: if the article hedges ("reportedly", "sources say"), keep that hedge in the statement.
-Return JSON {"claims":[{"statement":"...","kind":"statement|position|development","quote":"..."}]} with the 1-3 MOST important claims, or {"claims":[]} if none. Neutral wording. JSON only.`;
+Also give "summary": ONE neutral sentence saying what the article reports.
+Return JSON {"summary":"...","claims":[{"statement":"...","kind":"statement|position|development","quote":"..."}]} with the 1-3 MOST important claims, or "claims":[] if none. Neutral wording. JSON only.`;
+
+export const POLITICIAN_CANDIDATE_PROMPT = `This ONE news article is about a politician (named in the topic). Extract two kinds of items:
+- "claim": something THE POLITICIAN HIMSELF/HERSELF said, promised or took a position on (e.g. "Modi promised 2 crore jobs a year."), with the date if the article gives it.
+  Only the politician's own words or announced policies. NOT what opponents, allies, journalists or others say about them.
+  Write the statement starting with the politician's name.
+- "outcome": an INDEPENDENT report of what actually happened to something the politician promised or claimed: official data/statistics, audits, court or parliament records, fact-checks, project completions, delays, cancellations or reversals (e.g. "Unemployment data shows job creation fell short of the 2 crore target.", "Only 30% of the smart cities projects were completed by 2023.").
+  A politician's or government's OWN statement that it delivered ("we fulfilled 90% of our promises") is a "claim", not an outcome.
+For each item give a quote copied VERBATIM from the article (exact words, 5-35 words). Quotes are machine-checked; paraphrases are discarded.
+Report exactly as the article does; keep hedges ("reportedly"). Never judge intent.
+Also give "summary": ONE neutral sentence saying what the article reports.
+Return JSON {"summary":"...","claims":[{"statement":"...","kind":"statement|position|development","type":"claim|outcome","quote":"..."}]} with up to 3 items, or "claims":[] if none. JSON only.`;
 
 export const MERGE_PROMPT = `You merge candidate claims extracted from different news articles about one topic into a traceable claim timeline.
 
@@ -103,6 +133,20 @@ export const MERGE_PROMPT = `You merge candidate claims extracted from different
 3. entity: the main person/organization the topic is about, or null.
 
 Return JSON {"entity":"...","claims":[{"key":"C1","statement":"...","kind":"statement|position|development","members":[{"candidate":"K1","stance":"supports"}]}],"links":[{"from":"C1","to":"C2","type":"follow_up","basis":"sequence_only","description":"..."}]}. JSON only.`;
+
+export const POLITICIAN_MERGE_PROMPT = `You build a promise/claim tracker for a politician from candidate items extracted from news articles.
+Candidates are marked [claim] (something the politician said/promised/positioned) or [outcome] (a report of what happened later).
+
+1. Each canonical claim = one thing the politician said or promised (merge the same claim reported by different outlets).
+   Its "source" members are the [claim] candidates reporting it (stance "supports"; "contradicts" if an outlet disputes that it was ever said).
+2. Attach each [outcome] candidate to the claim it is about as a member with role "outcome" and stance:
+   "supports" = it shows the claim was fulfilled, "contradicts" = it shows it was not fulfilled / reversed, "context" = in progress or partial.
+3. outcome for each claim: "fulfilled", "not_fulfilled", "in_progress" (from its outcome members), or "no_update" if it has no outcome members.
+   Base this ONLY on the outcome reports; never assume a promise was kept or broken without one.
+4. LINKS between claims over time: "evolution" (a later statement changes an earlier position), "follow_up", "potential_inconsistency" (a later claim may conflict with an earlier one); basis "stated" | "sequence_only" | "inferred"; one neutral sentence; never infer intent or causation.
+5. entity: the politician's full name.
+Put every candidate in exactly one claim. Aim for 5-12 claims.
+Return JSON {"entity":"...","claims":[{"key":"C1","statement":"...","kind":"statement|position|development","outcome":"no_update","members":[{"candidate":"K1","stance":"supports","role":"source"}]}],"links":[...]}. JSON only.`;
 
 export interface BuildResult {
   claims: ClaimDto[];
@@ -210,51 +254,58 @@ export async function buildClaims(
   token(`- ${fullText} read in full, ${articles.length - fullText} from title/excerpt only\n- Extracting claims, stances and links…\n`);
 
   // Stage 1: candidates per article (parallel), quotes verified against that article.
-  token(`- Extracting candidate claims from each article…\n`);
+  const politician = record.mode === 'politician';
+  token(`- Extracting ${politician ? 'the politician\'s claims and outcome reports' : 'candidate claims'} from each article…\n`);
   let verified = 0;
   let rejected = 0;
-  interface Candidate { key: string; article: ProofArticle; statement: string; kind: ClaimDto['kind']; quote: string }
+  interface Candidate { key: string; article: ProofArticle; statement: string; kind: ClaimDto['kind']; type: 'claim' | 'outcome'; quote: string }
   const candidates: Candidate[] = [];
+  const articleSummary = new Map<string, string>();
   const perArticle = await mapLimit(articles, CANDIDATE_CONCURRENCY, async (a) => {
     const out = await json(CandidateOutput, [
-      { role: 'system', content: CANDIDATE_PROMPT },
-      { role: 'user', content: `Topic: ${record.topic}\nArticle (${a.publisher}, ${a.evidence.publishedAt?.slice(0, 10) ?? 'undated'}): ${a.evidence.title}\n\n${a.text.slice(0, ARTICLE_CHARS)}` },
-    ]).catch(() => ({ claims: [] }));
-    return { a, claims: out.claims.slice(0, 3) };
+      { role: 'system', content: politician ? POLITICIAN_CANDIDATE_PROMPT : CANDIDATE_PROMPT },
+      { role: 'user', content: `Topic: ${record.topic}${record.entity ? ` (${record.entity})` : ''}\nArticle (${a.publisher}, ${a.evidence.publishedAt?.slice(0, 10) ?? 'undated'}): ${a.evidence.title}\n\n${a.text.slice(0, ARTICLE_CHARS)}` },
+    ]).catch(() => ({ summary: '', claims: [] }));
+    return { a, summary: out.summary.trim(), claims: out.claims.slice(0, 3) };
   });
-  for (const { a, claims: found } of perArticle) {
+  for (const { a, summary, claims: found } of perArticle) {
+    if (summary) articleSummary.set(a.evidence.id, summary.slice(0, 300));
     for (const c of found) {
       if (!c.statement.trim() || !verifyQuote(c.quote, a.text)) {
         rejected++;
         continue;
       }
       verified++;
-      candidates.push({ key: `K${candidates.length + 1}`, article: a, statement: c.statement.trim(), kind: c.kind, quote: c.quote.trim() });
+      candidates.push({ key: `K${candidates.length + 1}`, article: a, statement: c.statement.trim(), kind: c.kind, type: politician ? (c.type ?? 'claim') : 'claim', quote: c.quote.trim() });
     }
   }
-  token(`- ${candidates.length} candidate claims with verified quotes (${rejected} unverifiable quotes discarded)\n- Merging candidates across outlets and linking claims over time…\n`);
+  token(`- ${candidates.length} items with verified quotes (${rejected} unverifiable quotes discarded)\n- Building the timeline…\n`);
   if (!candidates.length) {
     return { claims: [], links: [], stats: { articles: articles.length, fullText, claims: 0, established: 0, pending: 0, quotesVerified: verified, quotesRejected: rejected } };
   }
 
-  // Stage 2: merge equivalent candidates from different outlets, assign stances, link claims.
+  // Stage 2: merge across outlets, stances (and for politicians: attach outcome reports), links.
   const list = candidates
-    .map((c) => `${c.key} | ${c.article.publisher} | ${c.article.evidence.publishedAt?.slice(0, 10) ?? 'undated'} | ${c.statement}`)
+    .map((c) => `${c.key} | ${politician ? `[${c.type}] | ` : ''}${c.article.publisher} | ${c.article.evidence.publishedAt?.slice(0, 10) ?? 'undated'} | ${c.statement}`)
     .join('\n');
   const merged = await json(MergeOutput, [
-    { role: 'system', content: MERGE_PROMPT },
-    { role: 'user', content: `Topic: ${record.topic}\n\nCandidates (key | outlet | date | statement):\n${list}` },
+    { role: 'system', content: politician ? POLITICIAN_MERGE_PROMPT : MERGE_PROMPT },
+    { role: 'user', content: `Topic: ${record.topic}\n\nCandidates (key | ${politician ? 'type | ' : ''}outlet | date | statement):\n${list}` },
   ]);
 
+  type Member = { c: Candidate; stance: ClaimEvidenceDto['stance']; role: 'source' | 'outcome' };
   const byKey = new Map(candidates.map((c) => [c.key, c]));
   const used = new Set<string>();
-  const groups: { key: string; statement: string; kind: ClaimDto['kind']; members: { c: Candidate; stance: ClaimEvidenceDto['stance'] }[] }[] = [];
+  const groups: { key: string; statement: string; kind: ClaimDto['kind']; outcome?: ClaimDto['outcome']; members: Member[] }[] = [];
   for (const g of merged.claims) {
     const members = g.members
-      .map((m) => ({ c: byKey.get(m.candidate), stance: m.stance }))
-      .filter((m): m is { c: Candidate; stance: ClaimEvidenceDto['stance'] } => Boolean(m.c) && !used.has(m.c!.key));
+      .map((m) => {
+        const c = byKey.get(m.candidate);
+        return c ? { c, stance: m.stance, role: politician ? (m.role ?? (c.type === 'outcome' ? 'outcome' : 'source')) : 'source' } : undefined;
+      })
+      .filter((m): m is Member => Boolean(m) && !used.has(m!.c.key));
     members.forEach((m) => used.add(m.c.key));
-    if (members.length && g.statement.trim()) groups.push({ key: g.key, statement: g.statement.trim(), kind: g.kind, members });
+    if (members.length && g.statement.trim()) groups.push({ key: g.key, statement: g.statement.trim(), kind: g.kind, ...(politician && { outcome: g.outcome }), members });
   }
   // Candidates the merge step left out: attach to the most similar claim (shared words/numbers),
   // otherwise group them among themselves - nothing silently dropped, no flood of singletons.
@@ -267,31 +318,52 @@ export async function buildClaims(
       const score = Math.max(similarity(c.statement, g.statement), ...g.members.map((m) => similarity(c.statement, m.c.statement)));
       if (score > bestScore) [best, bestScore] = [g, score];
     }
-    if (best && bestScore >= SIMILAR) best.members.push({ c, stance: 'supports' });
-    else groups.push({ key: c.key, statement: c.statement, kind: c.kind, members: [{ c, stance: 'supports' }] });
+    const role: Member['role'] = c.type === 'outcome' ? 'outcome' : 'source';
+    // An unmatched outcome report has no claim to attach to; it is kept only in news mode.
+    if (best && bestScore >= SIMILAR) best.members.push({ c, stance: role === 'outcome' ? 'context' : 'supports', role });
+    else if (role === 'source') groups.push({ key: c.key, statement: c.statement, kind: c.kind, ...(politician && { outcome: 'no_update' as const }), members: [{ c, stance: 'supports', role }] });
   }
 
   const keyToId = new Map<string, string>();
   const claims: ClaimDto[] = [];
   for (const g of groups) {
     const evidence: ClaimEvidenceDto[] = [];
-    for (const { c, stance } of g.members) {
+    for (const { c, stance, role } of g.members) {
       if (evidence.some((e) => e.evidenceId === c.article.evidence.id)) continue;
+      const summary = articleSummary.get(c.article.evidence.id);
       evidence.push({
         evidenceId: c.article.evidence.id,
         stance,
         quote: c.quote,
+        ...(summary && { summary }),
+        ...(politician && { role }),
         title: c.article.evidence.title,
         ...(c.article.publisher && { publisher: c.article.publisher }),
         ...(c.article.evidence.sourceUrl && { url: c.article.evidence.sourceUrl }),
         ...(c.article.evidence.publishedAt && { publishedAt: c.article.evidence.publishedAt }),
       });
     }
+    // Politicians: whether the claim was MADE is judged on source reports; outcome reports only
+    // drive `outcome` (they are not a dispute about the claim itself).
+    const sourceEvidence = politician ? evidence.filter((e) => e.role !== 'outcome') : evidence;
+    if (!sourceEvidence.length) continue;
+    const outcomes = evidence.filter((e) => e.role === 'outcome');
+    const outcome: ClaimDto['outcome'] | undefined = politician
+      ? outcomes.length
+        ? g.outcome && g.outcome !== 'no_update'
+          ? g.outcome
+          : outcomes.some((e) => e.stance === 'contradicts')
+            ? 'not_fulfilled'
+            : outcomes.some((e) => e.stance === 'supports')
+              ? 'fulfilled'
+              : 'in_progress'
+        : 'no_update'
+      : undefined;
     const id = claimId(g.statement);
     if (claims.some((x) => x.id === id)) continue;
     keyToId.set(g.key, id);
-    const dates = evidence.map((e) => e.publishedAt).filter((d): d is string => Boolean(d && !Number.isNaN(Date.parse(d)))).sort();
-    claims.push({ id, statement: g.statement, kind: g.kind, ...decideStatus(evidence), ...(dates[0] && { occurredAt: dates[0] }), evidence });
+    const dates = sourceEvidence.map((e) => e.publishedAt).filter((d): d is string => Boolean(d && !Number.isNaN(Date.parse(d)))).sort();
+    claims.push({ id, statement: g.statement, kind: g.kind, ...decideStatus(sourceEvidence), ...(outcome && { outcome }), ...(dates[0] && { occurredAt: dates[0] }), evidence });
   }
   const out = merged;
   claims.sort((a, b) => (a.occurredAt && b.occurredAt ? a.occurredAt.localeCompare(b.occurredAt) : a.occurredAt ? -1 : b.occurredAt ? 1 : 0));

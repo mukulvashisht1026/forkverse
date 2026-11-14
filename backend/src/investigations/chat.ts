@@ -194,7 +194,7 @@ export class ResearchChatService {
           ? await this.verify(record, event!, message, messageId, emit, signal)
           : action === 'build_claims'
             ? await this.claims(record, emit)
-            : await this.answer(record, message);
+            : await this.answer(record, message, emit);
 
     const assistant: ChatMessageDto = {
       id: messageId,
@@ -223,10 +223,24 @@ export class ResearchChatService {
   }
 
   /** answer_question: point at the graph items that answer the question, or say it is not there. */
-  private async answer(record: InvestigationRecord, question: string): Promise<TurnResult> {
+  private async answer(record: InvestigationRecord, question: string, emit: Emit): Promise<TurnResult> {
     const listing = buildGraphListing(record);
     if (!listing.hasContent) {
-      return { content: 'The graph is empty so far. Use **Extend evidence graph** to collect articles first.', sources: [], noHighlight: true };
+      // Nothing to point at yet: research the investigation's topic now instead of asking the user to.
+      const active = await this.deps.store.activeRun(record.id);
+      if (active) {
+        return { content: 'Research for this topic is still running; the graph will fill in on the right as articles arrive.', sources: [], noHighlight: true };
+      }
+      const result = await this.extend(record, record.topic, emit);
+      const updated = await this.deps.investigations.get(record.id);
+      const established = (updated.claims ?? []).filter((c) => c.status === 'established').length;
+      const claims = updated.claims?.length ?? 0;
+      return {
+        ...result,
+        content: result.sources.length
+          ? `The graph was empty, so I researched “${record.topic}”: ${result.sources.length} articles, ${claims} claims (${established} established). ${SEE_GRAPH}`
+          : `I researched “${record.topic}” but found no relevant articles yet. Try rephrasing the topic.`,
+      };
     }
     const past = (await this.deps.store.listMessages(record.id, { limit: HISTORY_MESSAGES + 1 })).items.slice(0, -1);
     const conversation = past.length
@@ -250,7 +264,7 @@ export class ResearchChatService {
     const count = resolved.claimIds.length + (resolved.claimIds.length ? 0 : sources.length);
     const what = resolved.claimIds.length ? `${resolved.claimIds.length} claim${resolved.claimIds.length === 1 ? '' : 's'}` : `${count} article${count === 1 ? '' : 's'}`;
     return {
-      content: `${resolved.answer}\n\n→ Highlighted ${what} on the graph.`,
+      content: `${resolved.answer}${outcomeCaveat(record, resolved.claimIds)}\n\n→ Highlighted ${what} on the graph.`,
       sources,
       nodeIds: resolved.claimIds,
     };
@@ -330,8 +344,16 @@ export class ResearchChatService {
     const event = updated.events.find((e) => e.id === `evt-${run.id}`);
     const added = (event?.evidence ?? []).map((evidence, i) => ({ label: `S${i + 1}`, evidence, event: event!, score: 0 }));
     const content = added.length
-      ? `Added ${added.length} new article${added.length === 1 ? '' : 's'} about “${topic}” (highlighted). Run **Build claim timeline** to fold them into claims. ${SEE_GRAPH}`
+      ? `Added ${added.length} new article${added.length === 1 ? '' : 's'} about “${topic}” (highlighted) and updated the claim timeline. ${SEE_GRAPH}`
       : `No new relevant articles were found for “${topic}”.`;
     return { content, sources: added, runId: run.id, ...(!added.length && { noHighlight: true }) };
   }
+}
+
+/** Politician view: never let a "yes, delivered" stand on the politician's own word alone. */
+export function outcomeCaveat(record: InvestigationRecord, claimIds: string[]): string {
+  if (record.mode !== 'politician' || !claimIds.length) return '';
+  const lit = (record.claims ?? []).filter((c) => claimIds.includes(c.id));
+  if (!lit.length || lit.some((c) => c.outcome && c.outcome !== 'no_update')) return '';
+  return ' _Note: these are the politician’s/government’s own statements; no independent outcome report is in the graph yet._';
 }

@@ -305,3 +305,4 @@ button { color: inherit; }
 .gh-proof-details { border-top: 1px solid var(--border); padding-top: 6px; }
 .gh-proof-details summary { color: var(--muted); font-size: 11px; cursor: pointer; }
 .gh-proof-details > div { margin-top: 8px; font-size: 12px; }
+.lg-fulfilled i { background: #6fcf97; }

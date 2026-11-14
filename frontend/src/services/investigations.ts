@@ -41,6 +41,7 @@ export interface InvestigationGraph {
   claimLinks?: ClaimLink[];
   /** Broader entity the topic belongs to (Entity -> Topic). */
   entity?: string;
+  mode?: 'news' | 'politician';
 }
 
 export type CreateInvestigationInput = CreateInvestigationRequestDto;
@@ -83,8 +84,9 @@ export function mapInvestigationGraphDto(dto: InvestigationGraphDto): Investigat
     investigationId: dto.investigationId,
     revision: dto.revision,
     nodes: investigationEventsToSpineNodes(dto.events),
-    ...(dto.claims?.length ? { claimNodes: claimsToSpineNodes(dto.claims), claimLinks: dto.claimLinks ?? [] } : {}),
+    ...(dto.claims?.length ? { claimNodes: claimsToSpineNodes(dto.claims, dto.mode), claimLinks: dto.claimLinks ?? [] } : {}),
     ...(dto.entity ? { entity: dto.entity } : {}),
+    ...(dto.mode ? { mode: dto.mode } : {}),
   };
 }
 

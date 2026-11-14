@@ -83,6 +83,10 @@ export interface CollectRequest {
   graph?: ReturnType<typeof createAgentGraph>;
   /** Article ids (articleBranchId) already present, so they are not reported again. */
   skipIds?: Iterable<string>;
+  /** From the topic planner: an article is relevant if it mentions ANY of these. */
+  keyTerms?: string[];
+  /** From the topic planner: suggested search queries for the agent. */
+  queries?: string[];
 }
 
 /**
@@ -91,14 +95,24 @@ export interface CollectRequest {
  * Returns how many articles were reported and the agent's closing summary.
  */
 export async function collectArticles(
-  { query, context, graph, skipIds = [] }: CollectRequest,
+  { query, context, graph, skipIds = [], keyTerms, queries }: CollectRequest,
   onArticle: (article: Article, n: number) => Promise<void>,
 ): Promise<{ articles: number; summary: string }> {
   const known = new Set(skipIds);
   const terms = queryTerms(query);
+  const phrases = (keyTerms ?? []).map((t) => t.toLowerCase().normalize('NFKD')).filter(Boolean);
+  // Planner key terms: ANY match is enough (typos/filler in the raw text no longer drop everything).
+  const relevant = (a: Article) =>
+    phrases.length ? phrases.some((p) => `${a.title} ${a.description ?? ''}`.toLowerCase().normalize('NFKD').includes(p)) : isRelevant(a, terms);
   let added = 0;
   let summary = '';
-  const prompt = context?.trim() ? `Find articles about: ${query}\nContext: ${context.trim()}` : `Find articles about: ${query}`;
+  const prompt = [
+    `Find articles about: ${query}`,
+    context?.trim() ? `Context: ${context.trim()}` : '',
+    queries?.length ? `Suggested searches: ${queries.map((q) => `"${q}"`).join(', ')}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
   const stream = await (graph ?? createResearchGraph()).stream(
     { messages: [new HumanMessage(prompt)] },
     { configurable: { thread_id: randomUUID() }, recursionLimit: RECURSION_LIMIT, streamMode: 'updates' },
@@ -113,7 +127,7 @@ export async function collectArticles(
           let fromThisResult = 0;
           for (const article of extractArticles(text, tool)) {
             if (added >= MAX_ARTICLES || fromThisResult >= MAX_PER_RESULT) break;
-            if (!isRelevant(article, terms)) continue;
+            if (!relevant(article)) continue;
             const id = articleBranchId(article.url);
             if (known.has(id)) continue;
             known.add(id);

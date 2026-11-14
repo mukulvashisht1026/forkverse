@@ -13,6 +13,9 @@ import { healthRouter } from './routes/health.js';
 import { helloRouter } from './routes/hello.js';
 import { investigationsRouter } from './routes/investigations.js';
 import { timelineRouter } from './routes/timeline.js';
+import { buildClaims } from './claims/builder.js';
+import { defaultJsonLlm } from './proof/agents.js';
+import { planTopic } from './research/planner.js';
 import { ResearchChatService } from './investigations/chat.js';
 import { InvestigationService } from './investigations/service.js';
 import { MemoryInvestigationStore, MongoInvestigationStore, type InvestigationStore } from './investigations/store.js';
@@ -112,7 +115,18 @@ async function main() {
     .failStaleRuns('Server restarted while the run was in progress.')
     .then((stale) => stale && logger.warn({ stale }, 'marked interrupted research runs as failed'))
     .catch((err) => logger.error({ err }, 'could not clean up stale research runs'));
-  const investigations = new InvestigationService({ store: investigationStore, publish: (e) => hub.broadcast(e) });
+  const investigations: InvestigationService = new InvestigationService({
+    store: investigationStore,
+    publish: (e) => hub.broadcast(e),
+    // Clean topic, mode (news / politician), search queries and key terms from whatever was typed.
+    plan: (raw) => planTopic(raw, defaultJsonLlm),
+    // After research: build the structured claim graph so parents + children appear immediately.
+    afterRun: async (id) => {
+      const record = await investigations.get(id);
+      const built = await buildClaims(record, {});
+      await investigationStore.setClaims(id, { claims: built.claims, links: built.links, entity: built.entity ?? record.entity });
+    },
+  });
 
   const chat = new ResearchChatService({ store: investigationStore, investigations, publish: (e) => hub.broadcast(e) });
 

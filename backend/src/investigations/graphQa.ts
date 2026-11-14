@@ -23,6 +23,7 @@ Rules:
 - found=true only if listed items directly answer the question; then name the most relevant claims and/or articles (at most 6 in total) - these get highlighted.
 - answer: a brief pointer such as "Yes - the fine levels are shown in the highlighted claim; three outlets report it." Mention if a highlighted claim is UNVERIFIED or disputed. No lists, no citations, no headings.
 - found=false: answer one sentence saying the graph does not cover it yet; claims and evidence empty.
+- A politician's or government's OWN statement that it delivered something is a claim, not proof: say "the government claims ...". Only claims marked with an outcome (FULFILLED / NOT FULFILLED / IN PROGRESS) backed by outcome reports show what actually happened; NO UPDATE means no independent report yet.
 - Be neutral: no intent, no causal claims the items do not state.`;
 
 export const GraphAnswer = z.object({
@@ -60,7 +61,8 @@ export function buildGraphListing(record: InvestigationRecord): GraphListing {
     const label = `C${i + 1}`;
     claimByLabel.set(label, { id: c.id, evidenceIds: c.evidence.map((e) => e.evidenceId) });
     const refs = c.evidence.map((e) => `${labelOf.get(e.evidenceId) ?? '?'}(${e.stance})`).join(', ');
-    return `${label} [${c.status.toUpperCase()}${c.disputed ? ', DISPUTED' : ''}${c.occurredAt ? `, first reported ${c.occurredAt.slice(0, 10)}` : ''}] ${c.statement} | evidence: ${refs}`;
+    const outcome = c.outcome ? `, OUTCOME: ${c.outcome.replace('_', ' ').toUpperCase()}` : '';
+    return `${label} [${c.status.toUpperCase()}${c.disputed ? ', DISPUTED' : ''}${outcome}${c.occurredAt ? `, first reported ${c.occurredAt.slice(0, 10)}` : ''}] ${c.statement} | evidence: ${refs}`;
   });
 
   const articleLines = [...evidenceByLabel].map(

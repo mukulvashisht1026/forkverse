@@ -8,6 +8,8 @@ export interface BranchItem {
   publishedAt?: string;
   /** Claim view: supports / contradicts / context (colours the tip). */
   stance?: 'supports' | 'contradicts' | 'context';
+  /** Politician view: outcome report (fulfilled = supports, not fulfilled = contradicts, in progress = context). */
+  outcomeReport?: boolean;
 }
 
 export interface SpineNode {
@@ -19,6 +21,10 @@ export interface SpineNode {
   pending?: boolean;
   /** Claim view: contradicting evidence exists. */
   disputed?: boolean;
+  /** Politician view: what later reports say happened. */
+  outcome?: 'fulfilled' | 'not_fulfilled' | 'in_progress' | 'no_update';
+  /** Politician view: only one source reports the claim (badge, but stays on the main line). */
+  unverified?: boolean;
 }
 
 /** Claim view: a neutral connection between two claims (by node id). */
