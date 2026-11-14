@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { ArrowLeft, ArrowUpRight, LoaderCircle, Pencil, FolderClosed, Tag } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, LoaderCircle, Pencil, FolderClosed, Tag, MoreHorizontal } from 'lucide-react';
 import type { FocusTarget, SpineNode, BranchNode } from './types/tree';
 import { useLiveTimeline } from './hooks/useLiveTimeline';
 import { TreeCanvasAdapter } from './components/investigationTree/TreeCanvasAdapter';
@@ -129,8 +129,12 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
   const [pinnedFocus, setPinnedFocus] = useState<FocusTarget | null>(null);
   const [motionOn, setMotionOn] = useState(() => !window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   const [topic, setTopic] = useState('');
-  const [browseExpanded, setBrowseExpanded] = useState(false);
-  const [showAllInvestigations, setShowAllInvestigations] = useState(false);
+  const [exampleOffset, setExampleOffset] = useState(0);
+  const [exampleHovered, setExampleHovered] = useState(false);
+  const [exampleFocused, setExampleFocused] = useState(false);
+  const [topicFocused, setTopicFocused] = useState(false);
+  const [reducedMotion] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const [visibleInvestigationCount, setVisibleInvestigationCount] = useState(2);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [investigations, setInvestigations] = useState<Investigation[]>([]);
@@ -163,6 +167,15 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
     'Investigate how central banks responded to inflation, comparing major decisions over time and tracing the evidence behind each shift.',
     'Trace changes in US tariffs and international trade policy, connecting official announcements with responses from affected trading partners.',
   ];
+  const filteredHomeInvestigations = (activeFolder === 'All investigations' ? investigations : investigations.filter((item) => folderFor(item) === activeFolder))
+    .filter((item) => !activeTag || tagsFor(item).includes(activeTag));
+  const examplePaused = exampleHovered || exampleFocused || topicFocused || creating || reducedMotion || view !== 'home';
+
+  useEffect(() => {
+    if (examplePaused) return;
+    const timer = window.setInterval(() => setExampleOffset((offset) => (offset + 1) % topicExamples.length), 9000);
+    return () => window.clearInterval(timer);
+  }, [examplePaused, topicExamples.length]);
   const loadPublicInvestigations = useCallback(async () => {
     setLibraryLoading(true);
     setLibraryError(null);
@@ -402,11 +415,13 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
             </g>
           </svg>
           <h1 id="tracewire-headline">Every story evolves. Never lose the evidence.</h1>
-          <p className="gh-lede">Connect events, claims, and original sources.</p>
+          <p className="gh-lede">Turn scattered reporting into a living investigation of connected events, claims, and original sources.</p>
           <form onSubmit={createInvestigation} className="gh-form">
-            <label className="gh-visually-hidden" htmlFor="research-topic">Research topic</label>
+            <label className="gh-topic-label" htmlFor="research-topic">Research topic</label>
             <div className="gh-research-composer">
               <textarea id="research-topic" value={topic}
+                onFocus={() => setTopicFocused(true)}
+                onBlur={() => setTopicFocused(false)}
                 onChange={(e) => { setTopic(e.target.value); setCreateError(null); }}
                 placeholder="What would you like to investigate?" rows={4} disabled={creating}
                 aria-describedby={createError ? 'topic-error' : undefined} />
@@ -418,26 +433,34 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
             </div>
             {createError && <p id="topic-error" role="alert" className="gh-error">{createError}</p>}
             {creating && <p className="gh-hint">Starting live research…</p>}
-            <button className="gh-example-link" type="button" disabled={creating}
-              onClick={() => { setTopic(topicExamples[0]); setCreateError(null); document.getElementById('research-topic')?.focus(); }}>
-              Use an example <ArrowUpRight size={13} aria-hidden="true" />
-            </button>
+            <div className={`tw-example${examplePaused ? ' is-paused' : ''}`} onMouseEnter={() => setExampleHovered(true)} onMouseLeave={() => setExampleHovered(false)} onFocusCapture={() => setExampleFocused(true)} onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setExampleFocused(false); }}>
+              <span className="gh-example-label">Try an investigation</span>
+              <button key={exampleOffset} className="tw-example-button" type="button" disabled={creating}
+                aria-label={`Fill prompt with example: ${topicExamples[exampleOffset]}`}
+                onClick={() => { setTopic(topicExamples[exampleOffset]); setCreateError(null); document.getElementById('research-topic')?.focus(); }}>
+                <span className="tw-example-text">{topicExamples[exampleOffset]}</span>
+                <ArrowUpRight size={15} aria-hidden="true" />
+              </button>
+            </div>
           </form>
         </section>
         {!libraryError && <section className="gh-existing" aria-labelledby="public-investigations-title">
-          <div className="gh-section-heading"><h2 id="public-investigations-title">Explore investigations</h2>
-            {!libraryLoading && investigations.length > 0 && <button className="gh-browse-toggle" type="button" aria-expanded={browseExpanded} aria-controls="gh-investigation-browser" onClick={() => setBrowseExpanded((expanded) => !expanded)}>{browseExpanded ? 'Hide' : `Browse · ${investigations.length}`}<span aria-hidden="true">{browseExpanded ? '−' : '+'}</span></button>}
-          </div>
-          {libraryLoading ? <p className="gh-muted">Loading…</p> : investigations.length ? browseExpanded ? <div id="gh-investigation-browser">
-            <nav className="gh-folder-nav" aria-label="Investigation folders">{graphFolders.map((folder) => <button type="button" key={folder} className={activeFolder === folder ? 'is-active' : ''} onClick={() => setActiveFolder(folder)}><FolderClosed size={14} />{folder}</button>)}</nav>
-            {activeFolder === 'All investigations' ? <div className="gh-tag-filter" aria-label="Filter by tag"><button type="button" className={!activeTag ? 'is-active' : ''} onClick={() => setActiveTag(null)}>All tags</button>{graphTags.map((tag) => <button type="button" key={tag} className={activeTag === tag ? 'is-active' : ''} onClick={() => setActiveTag(activeTag === tag ? null : tag)}><Tag size={12} />{tag}</button>)}</div> : null}
-            {(activeFolder === 'All investigations' ? investigations : investigations.filter((item) => folderFor(item) === activeFolder)).filter((item) => !activeTag || tagsFor(item).includes(activeTag)).slice(0, showAllInvestigations ? undefined : 6).map((item) => (
-              <button className="gh-investigation" key={item.id} type="button" onClick={() => void openWorkspace(item)}>
-                <span className="gh-investigation-copy"><strong>{item.title}</strong></span>
+          <div className="gh-section-heading"><h2 id="public-investigations-title">Explore investigations</h2></div>
+          <p className="gh-library-lede">Open an existing graph or browse by folder.</p>
+          {libraryLoading ? <p className="gh-muted">Loading public investigations…</p> : investigations.length ? <>
+            <nav className="gh-folder-nav" aria-label="Investigation folders">{graphFolders.map((folder) => <button type="button" key={folder} className={activeFolder === folder ? 'is-active' : ''} onClick={() => { setActiveFolder(folder); setVisibleInvestigationCount(2); }}><FolderClosed size={14} />{folder}</button>)}</nav>
+            {activeFolder === 'All investigations' ? <div className="gh-tag-filter" aria-label="Filter by tag"><button type="button" className={!activeTag ? 'is-active' : ''} onClick={() => { setActiveTag(null); setVisibleInvestigationCount(2); }}>All tags</button>{graphTags.map((tag) => <button type="button" key={tag} className={activeTag === tag ? 'is-active' : ''} onClick={() => { setActiveTag(activeTag === tag ? null : tag); setVisibleInvestigationCount(2); }}><Tag size={12} />{tag}</button>)}</div> : null}
+            {filteredHomeInvestigations.slice(0, visibleInvestigationCount).map((item) => (
+              <a className="gh-investigation" key={item.id} href={`/${encodeURIComponent(item.id)}`} onClick={(event) => {
+                if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                event.preventDefault();
+                void openWorkspace(item);
+              }}>
+                <span className="gh-investigation-copy"><strong>{item.title}</strong>{item.description && <span>{item.description}</span>}<span className="gh-item-tags">{(tagsFor(item).length ? tagsFor(item) : ['Research']).map((tag) => <i key={tag}>{tag}</i>)}</span></span>
                 <span className="gh-investigation-meta">{asDate(item.updatedAt ?? item.createdAt) ?? ''}<ArrowUpRight size={16} /></span>
-              </button>))}
-            {investigations.length > 6 && <button className="tw-view-all" type="button" aria-expanded={showAllInvestigations} onClick={() => setShowAllInvestigations((expanded) => !expanded)}>{showAllInvestigations ? 'Show fewer investigations' : 'View all investigations'}</button>}
-          </div> : null : <p className="gh-muted">No public investigations available yet.</p>}
+              </a>))}
+            {filteredHomeInvestigations.length > visibleInvestigationCount && <button className="gh-load-more" type="button" aria-label="Show more investigations" title="Show more investigations" onClick={() => setVisibleInvestigationCount((count) => count + 2)}><MoreHorizontal size={20} aria-hidden="true" /></button>}
+          </> : <p className="gh-muted">No public investigations available yet.</p>}
         </section>}
       </div>
     </main>
