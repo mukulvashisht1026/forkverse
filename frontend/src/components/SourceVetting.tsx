@@ -1,8 +1,7 @@
-import { useMemo, useState } from 'react';
-import type { FormEvent } from 'react';
-import { LoaderCircle, ShieldAlert, ShieldCheck, ShieldQuestion, X } from 'lucide-react';
+import { useMemo } from 'react';
+import { LoaderCircle, ShieldAlert, ShieldCheck, ShieldQuestion } from 'lucide-react';
 import type { BranchNode } from '../types/tree';
-import { vettingRepository, type SourceVetting, type VettingActivity } from '../services/investigations';
+import type { SourceVetting, VettingActivity } from '../services/investigations';
 
 const TECHNIQUE: Record<string, string> = {
   loaded_language: 'Loaded language', fear_or_prejudice: 'Fear / prejudice', name_calling: 'Name calling',
@@ -37,6 +36,7 @@ export function VettingCard({ vetting, onScreen, screening }: { vetting?: Source
       <div className="tw-vet-head">
         <VerdictIcon verdict={vetting.verdict} />
         <strong>{VERDICT_LABEL[vetting.verdict]}</strong>
+        {vetting.propagandaScore !== undefined && <span className={`tw-vet-score${vetting.propagandaScore > 60 ? ' is-flagged' : ''}`}>{vetting.propagandaScore > 60 ? '⚑ ' : ''}Propaganda score {vetting.propagandaScore}%</span>}
         <span className="tw-vet-meta">{vetting.depth === 'content' ? 'domain + text' : 'domain lists only'} · coverage {Math.round(vetting.coverage * 100)}%</span>
       </div>
       <ul className="tw-vet-reasons">{vetting.reasons.map((x, i) => <li key={i}>{x}</li>)}</ul>
@@ -56,111 +56,40 @@ export function VettingCard({ vetting, onScreen, screening }: { vetting?: Source
 }
 
 /**
- * Toolbar panel: screen the investigation's sources for propaganda (domain lists + verified
- * rhetoric analysis), and check any website on demand.
+ * Toolbar badge (read-only): screening runs automatically for every source the graph uses, so
+ * this only reports the state: sources screened, red-flagged ones, and live progress.
  */
-export function SourceVettingPanel({ investigationId, sources, activity, disabled }: {
-  investigationId: string;
-  /** All evidence branches of the investigation (research-runs view). */
-  sources: BranchNode[];
-  activity: VettingActivity[];
-  disabled?: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [url, setUrl] = useState('');
-  const [result, setResult] = useState<SourceVetting | null>(null);
-
+export function SourceVettingBadge({ sources, activity }: { sources: BranchNode[]; activity: VettingActivity[] }) {
   const counts = useMemo(() => {
     const seen = new Set<string>();
-    const c = { manipulative: 0, uncertain: 0, credible: 0, unchecked: 0, content: 0, total: 0 };
+    const c = { flagged: 0, manipulative: 0, uncertain: 0, credible: 0, screened: 0, total: 0 };
     for (const b of sources) {
       if (seen.has(b.id) || !b.sourceUrl) continue;
       seen.add(b.id);
       c.total += 1;
-      if (!b.vetting) c.unchecked += 1;
-      else {
-        c[b.vetting.verdict] += 1;
-        if (b.vetting.depth === 'content') c.content += 1;
-      }
+      const v = b.vetting;
+      if (!v) continue;
+      c[v.verdict] += 1;
+      if (v.depth === 'content') c.screened += 1;
+      if (v.propagandaScore !== undefined ? v.propagandaScore > 60 : v.verdict === 'manipulative') c.flagged += 1;
     }
     return c;
   }, [sources]);
-
   const last = activity.at(-1);
-  const running = last && (last.phase === 'started' || last.phase === 'checked');
-  const flagged = counts.manipulative;
-
-  const screenAll = async () => {
-    setBusy('all');
-    setError(null);
-    try {
-      const r = await vettingRepository.start(investigationId);
-      if (!r.queued) setError('Every source has already been screened.');
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not start screening.');
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const checkUrl = async (event: FormEvent) => {
-    event.preventDefault();
-    setBusy('url');
-    setError(null);
-    setResult(null);
-    try {
-      setResult(await vettingRepository.vetUrl(url.trim()));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not check this website.');
-    } finally {
-      setBusy(null);
-    }
-  };
-
+  const running = Boolean(last && (last.phase === 'started' || last.phase === 'checked'));
+  if (!counts.total && !running) return null;
+  const title = [
+    'Propaganda screening (automatic for every source used in the graph)',
+    `${counts.screened} of ${counts.total} sources screened in depth`,
+    `${counts.manipulative} manipulative · ${counts.uncertain} uncertain · ${counts.credible} credible`,
+    counts.flagged ? `${counts.flagged} red-flagged (score above 60%): hover the red flags in the graph` : 'No red flags',
+    ...(running && last ? [`Now: ${last.message}`] : []),
+  ].join('\n');
   return (
-    <span className="tw-live-wrap">
-      <button type="button" className={`tw-vet-toggle${flagged ? ' is-flagged' : ''}`} onClick={() => setOpen((v) => !v)} disabled={disabled} aria-expanded={open} title="Screen sources for propaganda and manipulation">
-        {running ? <LoaderCircle className="gh-spin" size={13} /> : flagged ? <ShieldAlert size={13} aria-hidden="true" /> : <ShieldCheck size={13} aria-hidden="true" />}
-        {flagged ? ` ${flagged} flagged` : ' Propaganda check'}
-      </button>
-      {open && <div className="tw-live-panel tw-vet-panel" role="dialog" aria-label="Propaganda check">
-        <div className="tw-live-head">
-          <strong>Propaganda check</strong>
-          <button type="button" aria-label="Close propaganda check" onClick={() => setOpen(false)}><X size={14} /></button>
-        </div>
-        <p className="tw-live-lede">Every website used to build the graph is screened automatically: its domain is checked against public lists of influence operations and state media, and its text is screened for propaganda techniques with verified quotes. Manipulative sources are pruned from claims.</p>
-
-        <span className="tw-live-section">This investigation</span>
-        <div className="tw-vet-counts">
-          <span className="v-manipulative"><ShieldAlert size={12} /> {counts.manipulative} manipulative</span>
-          <span className="v-uncertain"><ShieldQuestion size={12} /> {counts.uncertain} uncertain</span>
-          <span className="v-credible"><ShieldCheck size={12} /> {counts.credible} credible</span>
-          <span>{counts.unchecked} unlisted</span>
-        </div>
-        <p className="tw-live-hint">{counts.content} of {counts.total} sources screened in depth (page text). Domain lists apply automatically.</p>
-        {running && last?.total ? <div className="tw-vet-progress" aria-label="Screening progress"><i style={{ width: `${Math.round(((last.checked ?? 0) / last.total) * 100)}%` }} /></div> : null}
-        <button type="button" className="tw-live-find-btn tw-vet-run" onClick={() => void screenAll()} disabled={busy !== null || Boolean(running) || counts.total === 0}>
-          {busy === 'all' || running ? <><LoaderCircle className="gh-spin" size={13} /> Screening sources…</> : <><ShieldCheck size={13} /> Screen remaining sources (up to 12)</>}
-        </button>
-
-        <form className="tw-live-form" onSubmit={(e) => void checkUrl(e)}>
-          <label>Check any website
-            <input type="url" required value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://example.com/article" />
-          </label>
-          <button type="submit" className="tw-live-start" disabled={busy !== null || !/^https?:\/\/\S+$/i.test(url.trim())}>
-            {busy === 'url' ? <><LoaderCircle className="gh-spin" size={13} /> Reading and screening…</> : 'Check website'}
-          </button>
-        </form>
-        {result && <VettingCard vetting={result} />}
-
-        {error && <p className="tw-live-error" role="alert">{error}</p>}
-        {activity.length > 0 && <div className="tw-live-feed" aria-live="polite">
-          <span className="tw-live-section">Activity</span>
-          <ul>{activity.slice(-6).reverse().map((a, i) => <li key={`${a.timestamp}-${i}`} className={a.verdict ? `v-${a.verdict}` : `p-${a.phase}`}><time>{new Date(a.timestamp).toLocaleTimeString()}</time> {a.message}</li>)}</ul>
-        </div>}
-      </div>}
+    <span className={`tw-vet-badge${counts.flagged ? ' is-flagged' : ''}`} title={title} role="status" aria-label={title}>
+      {running ? <LoaderCircle className="gh-spin" size={12} aria-hidden="true" /> : counts.flagged ? <ShieldAlert size={12} aria-hidden="true" /> : <ShieldCheck size={12} aria-hidden="true" />}
+      {running && last?.total ? `Screening ${last.checked ?? 0}/${last.total}` : `${counts.screened} screened`}
+      {counts.flagged > 0 && <b>⚑ {counts.flagged} flagged</b>}
     </span>
   );
 }

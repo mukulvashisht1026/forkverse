@@ -79,7 +79,7 @@ export function claimsToSpineNodes(claims: ClaimDto[], mode: 'news' | 'politicia
     ...(politician && claim.outcome ? { outcome: claim.outcome } : {}),
     // Every article that proves the claim grows as a child branch. Politician view: articles that
     // report the claim itself are neutral; later outcome reports are coloured fulfilled / not / in progress.
-    branches: claim.evidence.map((e) => ({
+    branches: claim.evidence.map((e): BranchNode => ({
       id: e.evidenceId,
       name: e.title,
       info: `${evidenceLabel(e, politician)}: ${e.summary ? `${e.summary} ` : ''}“${e.quote}”`,
@@ -94,6 +94,20 @@ export function claimsToSpineNodes(claims: ClaimDto[], mode: 'news' | 'politicia
       stance: e.stance,
       ...(vetting.get(e.evidenceId) ? { vetting: vetting.get(e.evidenceId)! } : {}),
       seed: stableSeed(`${claim.id}:${e.evidenceId}`),
-    })),
+    })).concat((claim.prunedEvidence ?? []).map((e): BranchNode => ({
+      // Screened as manipulative: drawn red-flagged and faded, never counted for the claim's status.
+      id: e.evidenceId,
+      name: e.title,
+      info: `Pruned (manipulative source), not counted: “${e.quote}”`,
+      relation: 'Pruned · red flag',
+      sourceType: 'news' as const,
+      ...(e.publisher ? { sourceDomain: e.publisher } : {}),
+      ...(e.url ? { sourceUrl: e.url } : {}),
+      ...(e.publishedAt ? { publishedAt: e.publishedAt } : {}),
+      impactAngle: 'pruned',
+      stance: 'context' as const,
+      vetting: vetting.get(e.evidenceId) ?? { url: e.url ?? '', verdict: 'manipulative' as const, coverage: 0, reasons: ['Screened as manipulative.'], depth: 'content' as const, checkedAt: '' },
+      seed: stableSeed(`${claim.id}:pruned:${e.evidenceId}`),
+    }))),
   }));
 }

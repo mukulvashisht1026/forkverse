@@ -273,6 +273,9 @@ export interface ClaimDto {
   /** Earliest publication date among verified evidence (chronological order). */
   occurredAt?: string;
   evidence: ClaimEvidenceDto[];
+  /** Sources that also report this claim but were screened as manipulative: shown red-flagged,
+   *  never counted towards the claim's status. */
+  prunedEvidence?: ClaimEvidenceDto[];
 }
 
 export interface ClaimLinkDto {
@@ -366,6 +369,9 @@ export interface LiveSourceDto {
  *  influence operation or grounded propaganda rhetoric; uncertain: everything else (abstain). */
 export type VettingVerdictDto = 'credible' | 'uncertain' | 'manipulative';
 
+/** Sources scoring above this (0-100) are red-flagged in the graph. */
+export const PROPAGANDA_FLAG_THRESHOLD = 60;
+
 /** Listing of the source's domain in public research/government lists (backend/data/SOURCE_RATINGS.md). */
 export interface SourceRatingDto {
   domain: string;
@@ -408,6 +414,9 @@ export interface RhetoricAnalysisDto {
   techniques: RhetoricTechniqueDto[];
   /** Signs against a propaganda reading (sourcing, balance, attributed quotes...). */
   counterevidence: string[];
+  /** 0-100: how strongly the page's own text relies on propaganda techniques, after grounding
+   *  (above 60 only with a verified finding; no clear evidence stays at or below 40). */
+  score: number;
   /** Why the verdict was downgraded (ungrounded quotes, too few author passages, partial text...). */
   warnings: string[];
 }
@@ -417,6 +426,9 @@ export interface SourceVettingDto {
   verdict: VettingVerdictDto;
   /** Share of checks that produced a signal (domain listing, content analysis): 0..1. */
   coverage: number;
+  /** 0-100 propaganda score (rhetoric score; documented influence operations at least 90).
+   *  Absent when neither signal is available. Above PROPAGANDA_FLAG_THRESHOLD = red flag. */
+  propagandaScore?: number;
   /** Human-readable, attributed reasons for the verdict. */
   reasons: string[];
   rating?: SourceRatingDto;

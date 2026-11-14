@@ -852,3 +852,8 @@ button { color: inherit; }
 .tw-vet-toast.v-manipulative .tw-live-toast-tag { color: #ffb4a5; }
 .node-card .tw-vet-card { margin: 8px 0; }
 .tw-live-toast.tw-vet-toast { top: 100px; }
+.tw-vet-score { border-radius: 9px; background: rgba(176, 189, 200, .14); padding: 0 7px; color: var(--ws-secondary, #b0bdc8); font-size: 11px; font-weight: 700; }
+.tw-vet-score.is-flagged { background: rgba(229, 72, 59, .22); color: #ffb4ae; }
+.gh-graph-controls .tw-vet-badge { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; border: 1px solid var(--ws-border); border-radius: 16px; background: rgba(32, 45, 56, .88); padding: 0 11px; color: var(--ws-secondary); font-size: 12px; cursor: default; white-space: nowrap; }
+.gh-graph-controls .tw-vet-badge b { color: #ffb4ae; font-weight: 700; }
+.gh-graph-controls .tw-vet-badge.is-flagged { border-color: rgba(229, 72, 59, .65); background: rgba(52, 22, 20, .9); }

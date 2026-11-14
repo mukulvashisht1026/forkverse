@@ -49,6 +49,12 @@ export interface SourceDoc {
   vet_risk: number | null; // 0..1
   vet_coverage: number | null; // 0..1
   vet_detail: Record<string, unknown> | null; // per-signal breakdown, techniques with quotes, explanation
+  /** Propaganda score above PROPAGANDA_FLAG_THRESHOLD (red flag in the graph). */
+  vet_flagged?: boolean | null;
+  /** Investigations that used this source. */
+  investigation_ids?: string[];
+  embedding?: number[] | null;
+  embedding_text?: string;
 }
 
 /** Graph node. entity_id is the "home" entity whose tree the node belongs to. */
@@ -163,7 +169,7 @@ export interface CollectionSpec {
   validator: Document;
   indexes: IndexDescription[];
   /** Atlas Vector Search indexes. */
-  vectorFields?: { path: string; filters: string[] };
+  vectorFields?: { path: string; filters: string[]; optional?: boolean };
 }
 
 export const COLLECTIONS: Record<keyof Collections, CollectionSpec> = {
@@ -195,8 +201,15 @@ export const COLLECTIONS: Record<keyof Collections, CollectionSpec> = {
       vet_risk: unitN,
       vet_coverage: unitN,
       vet_detail: { bsonType: ['object', 'null'] },
+      vet_flagged: { bsonType: ['bool', 'null'] },
+      investigation_ids: { bsonType: 'array', items: str },
+      embedding: vecN,
+      embedding_text: str,
     }),
-    indexes: [{ key: { url: 1 }, unique: true }, { key: { domain: 1 } }, { key: { published_at: -1 } }],
+    indexes: [{ key: { url: 1 }, unique: true }, { key: { domain: 1 } }, { key: { published_at: -1 } }, { key: { investigation_ids: 1 } }],
+    // Source vetting results are embedded for semantic search (vetting/sourceIndex.ts). Optional:
+    // Atlas free tier allows 3 search indexes, so a refusal must not block boot.
+    vectorFields: { path: 'embedding', filters: ['domain', 'vet_verdict', 'vet_flagged', 'investigation_ids'], optional: true },
   },
   nodes: {
     validator: schema(['entity_id', 'kind', 'summary', 'first_seen_at', 'status', 'entities', 'sources'], {

@@ -1,6 +1,28 @@
 import { useMemo } from 'react';
 import type { BranchNode, FocusTarget as AppFocus, SpineNode as AppSpine } from '../../types/tree';
 
+const FLAG_THRESHOLD = 60; // PROPAGANDA_FLAG_THRESHOLD in contracts/investigations.ts
+const clip = (t: string, n: number) => (t.length > n ? `${t.slice(0, n - 1).trimEnd()}…` : t);
+const TECH: Record<string, string> = {
+  loaded_language: 'Loaded language', fear_or_prejudice: 'Fear / prejudice', name_calling: 'Name calling', false_dilemma: 'False dilemma',
+  causal_oversimplification: 'Oversimplification', whataboutism: 'Whataboutism', straw_man: 'Straw man', repetition: 'Repetition',
+  exaggeration_or_minimisation: 'Exaggeration', appeal_to_popularity: 'Bandwagon', appeal_to_authority: 'Appeal to authority',
+  flag_waving: 'Flag waving', slogans: 'Slogans', doubt: 'Casting doubt', dehumanization: 'Dehumanisation', smears: 'Smears', other: 'Other',
+};
+
+/** Red flag for a source whose propaganda score is above the threshold (older results: manipulative verdict). */
+export function propagandaFlag(v: BranchNode['vetting']): { score?: number; lines: string[] } | undefined {
+  if (!v) return undefined;
+  const score = v.propagandaScore;
+  if (!(score !== undefined ? score > FLAG_THRESHOLD : v.verdict === 'manipulative')) return undefined;
+  const lines = [`⚑ Propaganda score ${score !== undefined ? `${score}%` : 'high'}`];
+  for (const t of (v.rhetoric?.techniques ?? []).filter((x) => x.voice === 'author').slice(0, 2)) lines.push(`${TECH[t.technique] ?? t.technique}: “${clip(t.quote, 46)}”`);
+  if (v.rating?.kind === 'influence_operation') lines.push(clip(`Listed influence operation${v.rating.actorCountry ? ` (${v.rating.actorCountry})` : ''}`, 60));
+  else if (v.rating?.kind === 'state_media') lines.push('State-affiliated media');
+  lines.push('Pruned: not used to support claims');
+  return { ...(score !== undefined && { score }), lines };
+}
+
 /** Tip tag for a vetted source: only shown when there is something to warn about. */
 export function vetTag(v: BranchNode['vetting']): string | undefined {
   if (!v) return undefined;
@@ -54,11 +76,22 @@ export function mapTreeModels(spine: AppSpine[], liveMarks?: ReadonlyMap<string,
     ...(node.disputed && { disputed: true }), ...(node.outcome && { outcome: node.outcome }),
     // A node counts as live-updated when it, or any of its sources, was just added by a monitor.
     ...((() => { const own = liveMarks?.get(node.id); const kids = node.branches.map((b) => liveMarks?.get(b.id)); const m = own === 'fresh' || kids.includes('fresh') ? 'fresh' : own ?? kids.find(Boolean); return m ? { live: m } : {}; })()),
+    // Red flags: count and strongest score of this node's flagged sources (hover summary).
+    ...((() => {
+      const flagged = node.branches.map((b) => ({ b, f: propagandaFlag(b.vetting) })).filter((x) => x.f);
+      if (!flagged.length) return {};
+      const scores = flagged.map((x) => x.f!.score).filter((n): n is number => n !== undefined);
+      const max = scores.length ? Math.max(...scores) : undefined;
+      const lines = [`⚑ ${flagged.length} red-flagged source${flagged.length === 1 ? '' : 's'}${max !== undefined ? ` · highest ${max}%` : ''}`,
+        ...flagged.slice(0, 3).map(({ b, f }) => clip(`${f!.score !== undefined ? `${f!.score}% · ` : ''}${b.sourceDomain ?? b.name}`, 56))];
+      return { flags: { count: flagged.length, ...(max !== undefined && { max }), lines } };
+    })()),
     branches: node.branches.map((branch) => ({
       id: branch.id, name: shortLabel(branch.name), info: branch.info, seed: branch.seed, publishedAt: branch.publishedAt, ...(branch.stance && { stance: branch.stance }), ...(branch.outcomeReport && { outcomeReport: true }), ...(branch.sourceReport && { sourceReport: true }),
       ...(liveMarks?.get(branch.id) && { live: liveMarks.get(branch.id) }),
       ...(branch.vetting && { vet: branch.vetting.verdict }),
       ...(vetTag(branch.vetting) && { vetTag: vetTag(branch.vetting) }),
+      ...(propagandaFlag(branch.vetting) && { flag: propagandaFlag(branch.vetting) }),
       // Branches a live monitor just added re-grow on screen.
       isNew: Boolean(branch._animateGrowth || (branch._prog !== undefined && branch._prog < 1) || liveMarks?.get(branch.id) === 'fresh'),
     })),

@@ -13,6 +13,7 @@ const ARTICLE = (`The traitors in the capital have betrayed every honest citizen
 
 const raw = (over: Partial<RhetoricOutputT> = {}): RhetoricOutputT => ({
   verdict: 'likely_propaganda',
+  score: 75,
   genre: 'opinion',
   language: 'en',
   rationale: 'Repeated name calling and dehumanising language in the author voice.',
@@ -62,6 +63,21 @@ describe('rhetoric grounding', () => {
     expect(groundRhetoric(raw({ genre: 'satire' }), ARTICLE).verdict).toBe('uncertain');
     expect(groundRhetoric(raw({ verdict: 'no_clear_evidence', techniques: [] }), ARTICLE, true).verdict).toBe('uncertain');
     expect(groundRhetoric(raw({ verdict: 'no_clear_evidence', techniques: [], genre: 'reporting' }), ARTICLE).verdict).toBe('no_clear_evidence');
+  });
+});
+
+describe('propaganda score', () => {
+  it('agrees with the grounded verdict: > 60 only with a verified finding', () => {
+    expect(groundRhetoric(raw({ score: 75 }), ARTICLE).score).toBe(75);
+    expect(groundRhetoric(raw({ score: 40 }), ARTICLE).score).toBe(61);
+    // Downgraded (quoted speakers only): capped at 60, never flagged.
+    expect(groundRhetoric(raw({ score: 95, techniques: raw().techniques.map((t) => ({ ...t, voice: 'quoted_speaker' as const })) }), ARTICLE).score).toBe(60);
+    expect(groundRhetoric(raw({ verdict: 'no_clear_evidence', score: 70, techniques: [], genre: 'reporting' }), ARTICLE).score).toBe(40);
+  });
+  it('documented influence operations score at least 90; unknown without any signal', () => {
+    expect(domainVetting('https://049122.com/x')?.propagandaScore).toBe(90);
+    expect(domainVetting('https://apnews.com/x')?.propagandaScore).toBeUndefined();
+    expect(combineVetting('u', undefined, groundRhetoric(raw({ score: 20, verdict: 'no_clear_evidence', techniques: [], genre: 'reporting' }), ARTICLE)).propagandaScore).toBe(20);
   });
 });
 
@@ -121,6 +137,7 @@ describe('investigation integration', () => {
     await store.addEvidence('inv', 'e1', { id: 'b', title: 'B', sourceUrl: 'https://b.example/2', sourceName: 'B' });
     const frames: { type: string; payload: Record<string, unknown> }[] = [];
     const rebuildClaims = vi.fn(async () => {});
+    const indexed = vi.fn(async () => {});
     const verdicts: Record<string, SourceVettingDto['verdict']> = { 'https://a.example/1': 'manipulative', 'https://b.example/2': 'credible' };
     const service = new VettingService({
       store,
@@ -129,6 +146,7 @@ describe('investigation integration', () => {
       json: vi.fn() as never,
       rebuildClaims,
       vet: async (url) => ({ url, verdict: verdicts[url]!, coverage: 1, reasons: ['r'], depth: 'content', checkedAt: '' }),
+      index: { upsert: indexed } as never,
     });
     expect(await service.start('inv')).toEqual({ queued: 2, total: 2 });
     await expect(service.start('inv')).rejects.toMatchObject({ status: 409 });
@@ -136,6 +154,9 @@ describe('investigation integration', () => {
     const ev = (await store.get('inv'))!.events[0]!.evidence;
     expect(ev.map((e) => e.vetting?.verdict)).toEqual(['manipulative', 'credible']);
     expect(rebuildClaims).toHaveBeenCalledWith('inv');
+    // Every screened source is embedded into the sources index with its investigation.
+    expect(indexed).toHaveBeenCalledTimes(2);
+    expect(indexed).toHaveBeenCalledWith(expect.objectContaining({ url: 'https://a.example/1' }), { title: 'A', investigationId: 'inv' });
     expect(frames.filter((f) => f.type === 'investigation:vetting').map((f) => f.payload.phase)).toEqual(['started', 'checked', 'checked', 'checked', 'done']);
     // Already screened at content depth: nothing left to queue.
     expect(await service.start('inv')).toEqual({ queued: 0, total: 2 });

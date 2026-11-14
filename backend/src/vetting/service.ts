@@ -22,6 +22,7 @@ import type {
 import { MAX_ARTICLES, mapLimit, pickEvidence } from '../claims/builder.js';
 import { logger } from '../utils/logger.js';
 import { domainVetting, vetUrl, type VetDeps } from './vet.js';
+import { indexInBackground, type SourceIndex } from './sourceIndex.js';
 
 export const MAX_PER_RUN = 12;
 const CONCURRENCY = 3;
@@ -46,6 +47,8 @@ export interface VettingServiceDeps extends VetDeps {
   /** Optional: rebuild claims after a run that marked sources manipulative (prunes them). */
   rebuildClaims?: (investigationId: string) => Promise<void>;
   vet?: (url: string, title: string) => Promise<SourceVettingDto>;
+  /** Embeds every screened source into the `sources` vector index (optional). */
+  index?: SourceIndex;
 }
 
 export class VettingService {
@@ -54,8 +57,11 @@ export class VettingService {
 
   constructor(private deps: VettingServiceDeps) {}
 
-  private vetOne(url: string, title: string): Promise<SourceVettingDto> {
-    return this.deps.vet ? this.deps.vet(url, title) : vetUrl(url, this.deps, title);
+  /** Screen one page and index the result (embedding) in the background. */
+  private async vetOne(url: string, title: string, investigationId?: string): Promise<SourceVettingDto> {
+    const vetting = await (this.deps.vet ? this.deps.vet(url, title) : vetUrl(url, this.deps, title));
+    indexInBackground(this.deps.index, vetting, { title, ...(investigationId && { investigationId }) });
+    return vetting;
   }
 
   /**
@@ -79,7 +85,7 @@ export class VettingService {
         this.say(investigationId, { phase: 'started', message: `Screening ${pending.length} source${pending.length === 1 ? '' : 's'} for propaganda before building the graph…`, checked: 0, total: pending.length });
       }
       await mapLimit(pending, AUTO_CONCURRENCY, async (ev) => {
-        const vetting = await this.vetOne(ev.sourceUrl!, ev.title);
+        const vetting = await this.vetOne(ev.sourceUrl!, ev.title, investigationId);
         const revision = await store.setEvidenceVetting(investigationId, ev.id, vetting);
         checked += 1;
         if (vetting.verdict === 'manipulative') flagged += 1;
@@ -101,7 +107,7 @@ export class VettingService {
     if (!items.length) return out;
     let checked = 0;
     await mapLimit(items, AUTO_CONCURRENCY, async ({ url, title }) => {
-      const vetting = await this.vetOne(url, title);
+      const vetting = await this.vetOne(url, title, investigationId);
       out.set(url, vetting);
       checked += 1;
       this.say(investigationId, { phase: 'checked', verdict: vetting.verdict, checked, total: items.length, message: `Corroborating source ${title.slice(0, 60)}: ${vetting.verdict}` });
@@ -153,7 +159,7 @@ export class VettingService {
     this.say(investigationId, { phase: 'started', message: `Screening ${batch.length} source${batch.length === 1 ? '' : 's'} for propaganda techniques…`, checked: 0, total: batch.length });
     try {
       await mapLimit(batch, CONCURRENCY, async (ev) => {
-        const vetting = await this.vetOne(ev.sourceUrl!, ev.title);
+        const vetting = await this.vetOne(ev.sourceUrl!, ev.title, investigationId);
         const revision = await store.setEvidenceVetting(investigationId, ev.id, vetting);
         checked += 1;
         if (vetting.verdict === 'manipulative') flagged += 1;

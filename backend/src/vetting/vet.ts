@@ -77,11 +77,15 @@ export function combineVetting(url: string, rating: SourceRatingDto | undefined,
   const verdict: SourceVettingDto['verdict'] = manipulative ? 'manipulative' : positive && !caution ? 'credible' : 'uncertain';
   // Two checks: domain listing (counts when the domain is listed) and content (counts when it produced a verdict).
   const coverage = ((rating ? 1 : 0) + (rhetoric && rhetoric.verdict !== 'uncertain' ? 1 : 0)) / 2;
+  // Propaganda score: the grounded rhetoric score; a documented influence operation is at least 90.
+  const influenceOp = rating?.kind === 'influence_operation';
+  const propagandaScore = rhetoric ? (influenceOp ? Math.max(rhetoric.score, 90) : rhetoric.score) : influenceOp ? 90 : undefined;
 
   return {
     url,
     verdict,
     coverage,
+    ...(propagandaScore !== undefined && { propagandaScore }),
     reasons,
     ...(rating && { rating }),
     ...(rhetoric && { rhetoric }),

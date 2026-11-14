@@ -24,6 +24,8 @@ import { findLiveSources } from './monitors/liveSources.js';
 import { MonitorService } from './monitors/service.js';
 import { VettingService, withSourceRatings } from './vetting/service.js';
 import { cachedScraper } from './vetting/scrapeCache.js';
+import { SourceIndex } from './vetting/sourceIndex.js';
+import { getEmbeddings } from './db/vectorStore.js';
 import { contextDevScraper } from './proof/articles.js';
 import { MemoryInvestigationStore, MongoInvestigationStore, type InvestigationStore } from './investigations/store.js';
 import { closeContextMcp } from './agent/tools/contextMcp.js';
@@ -187,6 +189,8 @@ async function main() {
     scrape: scraper,
     json: defaultJsonLlm,
     rebuildClaims: (id) => rebuildClaims(id),
+    // Screened sources are embedded into `sources` (vector_index) for semantic search.
+    ...(!config.TIMELINE_MOCK && config.EMBEDDING_API_KEY && { index: new SourceIndex(col.sources, (text) => getEmbeddings().embedQuery(text)) }),
   });
 
   const chat = new ResearchChatService({

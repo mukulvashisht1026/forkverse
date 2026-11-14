@@ -37,3 +37,20 @@ test('tree canvas adapter carries source vetting: verdict class and warning tag'
   assert.deepEqual(b.map((x) => [x.vet, x.vetTag]), [['manipulative', 'MANIPULATIVE'], ['uncertain', 'STATE MEDIA'], ['credible', undefined], [undefined, undefined]]);
   assert.equal(vetTag(undefined), undefined);
 });
+
+test('red flags: sources above 60% propaganda score are flagged, nodes summarise them', async () => {
+  const { propagandaFlag } = await import('./investigationTree/TreeCanvasAdapter');
+  const base = { url: 'u', coverage: 1, reasons: [], depth: 'content' as const, checkedAt: '' };
+  const hot = { ...base, verdict: 'manipulative' as const, propagandaScore: 82, rhetoric: { verdict: 'likely_propaganda' as const, modelVerdict: 'likely_propaganda' as const, genre: 'opinion' as const, language: 'en', rationale: '', counterevidence: [], warnings: [], score: 82, techniques: [{ technique: 'name_calling' as const, quote: 'these parasites', explanation: '', voice: 'author' as const }] } };
+  assert.equal(propagandaFlag({ ...base, verdict: 'uncertain', propagandaScore: 60 }), undefined);
+  assert.deepEqual(propagandaFlag(hot)?.lines.slice(0, 2), ['⚑ Propaganda score 82%', 'Name calling: “these parasites”']);
+  // Older results without a score: manipulative still flags.
+  assert.equal(propagandaFlag({ ...base, verdict: 'manipulative' })?.lines[0], '⚑ Propaganda score high');
+  const spine = [{ id: 'n', name: 'N', info: '', branches: [
+    { id: 'a', name: 'A', info: '', seed: 1, sourceDomain: 'spoof.example', vetting: hot },
+    { id: 'b', name: 'B', info: '', seed: 2, vetting: { ...base, verdict: 'credible' as const, propagandaScore: 10 } },
+  ] }] as unknown as SpineNode[];
+  const [node] = mapTreeModels(spine);
+  assert.deepEqual(node.flags, { count: 1, max: 82, lines: ['⚑ 1 red-flagged source · highest 82%', '82% · spoof.example'] });
+  assert.equal(node.branches[1].flag, undefined);
+});

@@ -77,6 +77,8 @@ describe('buildClaimGraph (automatic screening)', () => {
     const spoof = rec.events.flatMap((e) => e.evidence).find((e) => e.sourceUrl === corroborating.url);
     expect(spoof?.vetting?.verdict).toBe('manipulative');
     expect(rec.claims![0]!.evidence.map((e) => e.evidenceId)).toEqual(['b']);
+    // ...but kept on the claim as a red-flagged, non-counting source.
+    expect(rec.claims![0]!.prunedEvidence?.map((e) => e.url)).toEqual([corroborating.url]);
     expect(r).toMatchObject({ screened: 3, pruned: 2, corroborationAdded: 1 });
     expect(rec.events[0]!.evidence.map((e) => e.vetting?.verdict)).toEqual(['manipulative', 'credible']);
     expect(frames.some((f) => f.type === 'investigation:vetting' && f.payload.phase === 'done')).toBe(true);

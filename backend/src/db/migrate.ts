@@ -22,7 +22,12 @@ export async function migrate(): Promise<void> {
     }
     const coll = db.collection(name);
     if (spec.indexes.length) await coll.createIndexes(spec.indexes);
-    if (spec.vectorFields) await ensureVectorIndex(coll, vectorIndexDefinition(spec.vectorFields, config.EMBEDDING_DIM));
+    if (spec.vectorFields?.optional) {
+      // Nice-to-have index (e.g. sources): log and continue if Atlas refuses it (index limits).
+      await ensureVectorIndex(coll, vectorIndexDefinition(spec.vectorFields, config.EMBEDDING_DIM)).catch((err) =>
+        logger.warn({ err, collection: name }, 'optional vector search index not created; semantic search on it is disabled'),
+      );
+    } else if (spec.vectorFields) await ensureVectorIndex(coll, vectorIndexDefinition(spec.vectorFields, config.EMBEDDING_DIM));
   }
 }
 

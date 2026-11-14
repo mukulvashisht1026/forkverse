@@ -53,6 +53,31 @@ const EDGE_MIN_SPEED = 260;
 const EDGE_MAX_SPEED = 1100;
 const EDGE_PAD = 90;
 
+/** Small waving red flag (pole at x, base at y). */
+function RedFlag({ x, y, size = 1 }: { x: number; y: number; size?: number }) {
+  return (
+    <g className="red-flag" transform={`translate(${x} ${y}) scale(${size})`} aria-hidden="true">
+      <line className="red-flag-pole" x1={0} y1={0} x2={0} y2={-17} />
+      <path className="red-flag-cloth" d="M0.6 -17 C4 -18.6 7 -15.4 11 -16.6 L11 -9.6 C7 -8.4 4 -11.6 0.6 -10 Z" />
+    </g>
+  );
+}
+
+/** Hover card drawn in the canvas (world units, counter-scaled so text stays readable). */
+function FlagTooltip({ lines, x, y, scale = 1, anchor = 'start' }: { lines: string[]; x: number; y: number; scale?: number; anchor?: 'start' | 'end' }) {
+  const width = Math.min(330, Math.max(...lines.map((l) => l.length)) * 5.9 + 18);
+  const height = lines.length * 14 + 10;
+  const left = anchor === 'end' ? -width : 0;
+  return (
+    <g className="flag-tooltip" transform={`translate(${x} ${y}) scale(${scale})`} pointerEvents="none">
+      <rect x={left} y={-height} width={width} height={height} rx={6} />
+      {lines.map((l, i) => (
+        <text key={i} className={i === 0 ? 'flag-tooltip-title' : 'flag-tooltip-line'} x={left + 9} y={-height + 16 + i * 14}>{l}</text>
+      ))}
+    </g>
+  );
+}
+
 interface TreeCanvasProps {
   spine: SpineNode[];
   selectedIndex: number;
@@ -328,6 +353,8 @@ function BranchView({
           strokeWidth={2.6}
         />
         <circle className="fill-transparent" r={22} />
+        {branch.flag && <RedFlag x={6} y={-9} />}
+        {branch.flag && isTipHot && <FlagTooltip lines={branch.flag.lines} x={14} y={-18} scale={1 / geometry.depthScale} />}
         {branch.vetTag && (
           <g className="vet-tip" aria-hidden="true">
             {branch.vet === 'manipulative' && <circle className="vet-tip-ring" r={12} />}
@@ -947,6 +974,12 @@ export function TreeCanvas({
                   </g>
                 )}
                 {node.disputed && <circle className="disputed-ring" cx={cx} cy={0} r={27} fill="none" />}
+                {node.flags && (
+                  <g className="node-flags">
+                    <RedFlag x={cx + 22} y={-14} size={1.2} />
+                    {node.flags.count > 1 && <text className="node-flag-count" x={cx + 38} y={-26}>{node.flags.count}</text>}
+                  </g>
+                )}
                 {(node.pending || node.unverified) && <text className="pending-badge" x={cx} y={42} textAnchor="middle">UNVERIFIED</text>}
                 {node.outcome && (
                   <text className={`outcome-badge outcome-${node.outcome}`} x={cx} y={node.pending || node.unverified ? 55 : 42} textAnchor="middle">
@@ -1150,6 +1183,8 @@ export function TreeCanvas({
                       : node.name}
                   </text>
                 </g>
+                {/* Drawn last so the hover card sits above this node's branches */}
+                {node.flags && isNodeHot && <FlagTooltip lines={node.flags.lines} x={cx + 30} y={-36} />}
               </g>
             );
           }

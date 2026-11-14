@@ -107,3 +107,15 @@
 .itl-tree .vet-tag{fill:#e8b84f;font-size:8px;font-weight:800;letter-spacing:.12em;paint-order:stroke;stroke:#02040a;stroke-width:3px}
 .itl-tree .branch.vet-manipulative .vet-tag{fill:#ff8a73}
 .itl-tree .branch.vet-credible .tip-core{stroke:#6fcf97}
+/* ---- Red flags: propaganda score above 60% (hover for details) ---- */
+.itl-tree .red-flag{pointer-events:none}
+.itl-tree .red-flag-pole{stroke:#ffd2ce;stroke-width:1.4;stroke-linecap:round}
+.itl-tree .red-flag-cloth{fill:#e5483b;stroke:#ff9a8f;stroke-width:.6;transform-box:fill-box;transform-origin:left center;animation:itl-flag-wave 1.6s ease-in-out infinite}
+.itl-tree .branch:has(.red-flag) .tip-core{stroke:#e5483b;filter:drop-shadow(0 0 6px rgba(229,72,59,.75))}
+.itl-tree .node-flag-count{fill:#ffb4ae;font-size:10px;font-weight:800;paint-order:stroke;stroke:#02040a;stroke-width:3px}
+.itl-tree .flag-tooltip{animation:itl-tooltip-in .16s ease-out}
+.itl-tree .flag-tooltip rect{fill:rgba(28,14,14,.96);stroke:#e5483b;stroke-width:1}
+.itl-tree .flag-tooltip-title{fill:#ffb4ae;font-size:11px;font-weight:800;letter-spacing:.03em}
+.itl-tree .flag-tooltip-line{fill:#e6edf3;font-size:10px}
+@keyframes itl-flag-wave{0%,100%{transform:skewY(0deg) scaleX(1)}50%{transform:skewY(-6deg) scaleX(.9)}}
+@keyframes itl-tooltip-in{from{opacity:0}to{opacity:1}}

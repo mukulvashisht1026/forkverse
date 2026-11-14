@@ -17,6 +17,8 @@ export interface BranchItem {
   vet?: 'credible' | 'uncertain' | 'manipulative';
   /** Short vetting tag shown at the tip, e.g. "MANIPULATIVE", "STATE MEDIA". */
   vetTag?: string;
+  /** Red flag: propaganda score above the threshold. Lines are shown in the hover tooltip. */
+  flag?: { score?: number; lines: string[] };
 }
 
 export interface SpineNode {
@@ -34,6 +36,8 @@ export interface SpineNode {
   unverified?: boolean;
   /** Added by a live monitor: fresh = just now (pulse), recent = in the last minutes (badge). */
   live?: 'fresh' | 'recent';
+  /** Red-flagged sources under this node (propaganda score above the threshold). */
+  flags?: { count: number; max?: number; lines: string[] };
 }
 
 /** Claim view: a neutral connection between two claims (by node id). */

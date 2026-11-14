@@ -29,6 +29,7 @@ const GENRES = ['reporting', 'opinion', 'satire', 'advertising', 'landing_page',
 
 export const RhetoricOutput = z.object({
   verdict: z.enum(VERDICTS).catch('uncertain'),
+  score: z.coerce.number().min(0).max(100).catch(0).default(0),
   genre: z.enum(GENRES).catch('other'),
   language: z.string().default('unknown'),
   rationale: z.string().default(''),
@@ -65,8 +66,11 @@ Verdicts:
 - "uncertain": too little text, unclear attribution, non-article page, or you cannot tell.
 
 Every "quote" must be a short (under 30 words) VERBATIM substring of the supplied text, including punctuation.
+"score" (0-100): how strongly the page's OWN text relies on propaganda techniques: 0-20 neutral reporting,
+21-40 some persuasive or emotive language, 41-60 notable one-sided framing, 61-80 systematic manipulative rhetoric,
+81-100 pervasive propaganda (dehumanisation, fabricated enemies, calls to action built on fear). Quoted speakers do not raise it.
 Return JSON only:
-{"verdict":"likely_propaganda|no_clear_evidence|uncertain","genre":"reporting|opinion|satire|advertising|landing_page|other",
+{"verdict":"likely_propaganda|no_clear_evidence|uncertain","score":<0-100>,"genre":"reporting|opinion|satire|advertising|landing_page|other",
  "language":"<ISO code>","rationale":"<2-3 neutral sentences>",
  "techniques":[{"technique":"<id>","quote":"<verbatim>","explanation":"<why>","voice":"author|quoted_speaker|unclear"}],
  "counterevidence":["<signs against a propaganda reading, e.g. named sources, opposing views quoted, corrections>"]}`;
@@ -88,6 +92,9 @@ export function groundRhetoric(raw: RhetoricOutputT, text: string, partial = fal
   if (partial) warnings.push('Only part of the page text was analysed.');
   if (['satire', 'advertising', 'landing_page', 'other'].includes(raw.genre)) warnings.push(`Genre "${raw.genre}" is not assessed as news content.`);
   if (warnings.length) verdict = 'uncertain';
+  // The score must agree with the grounded verdict: a red flag (> 60) needs a verified finding.
+  const rawScore = Math.round(Math.min(100, Math.max(0, raw.score)));
+  const score = verdict === 'likely_propaganda' ? Math.max(rawScore, 61) : verdict === 'no_clear_evidence' ? Math.min(rawScore, 40) : Math.min(rawScore, 60);
   return {
     verdict,
     modelVerdict: raw.verdict,
@@ -96,6 +103,7 @@ export function groundRhetoric(raw: RhetoricOutputT, text: string, partial = fal
     rationale: raw.rationale,
     techniques,
     counterevidence: raw.counterevidence.slice(0, 6),
+    score,
     warnings,
   };
 }

@@ -46,8 +46,9 @@ export function pruneClaims(record: Pick<InvestigationRecord, 'mode'>, claims: C
     const evidence = c.evidence.filter((e) => !manipulative.has(e.evidenceId));
     if (evidence.length === c.evidence.length) return [c];
     if (!evidence.length) return []; // nothing independent left to show
+    const pruned = [...(c.prunedEvidence ?? []), ...c.evidence.filter((e) => manipulative.has(e.evidenceId))];
     const sourceEvidence = politician ? evidence.filter((e) => e.role !== 'outcome') : evidence;
-    return [{ ...c, evidence, ...decideStatus(sourceEvidence.length ? sourceEvidence : evidence), ...(politician && { outcome: outcomeOf(c, evidence) }) }];
+    return [{ ...c, evidence, prunedEvidence: pruned, ...decideStatus(sourceEvidence.length ? sourceEvidence : evidence), ...(politician && { outcome: outcomeOf(c, evidence) }) }];
   });
 }
 
