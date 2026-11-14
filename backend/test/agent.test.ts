@@ -28,7 +28,7 @@ class ScriptedChatModel extends BaseChatModel {
 describe('agent graph', () => {
   it('runs a tool call, then answers, and keeps history per thread_id', async () => {
     const model = new ScriptedChatModel([
-      new AIMessage({ content: '', tool_calls: [{ id: 'c1', name: 'search_nodes', args: { query: 'merger' } }] }),
+      new AIMessage({ content: '', tool_calls: [{ id: 'c1', name: 'get_source', args: { url: 'https://example.com' } }] }),
       new AIMessage('No evidence available yet.'),
       new AIMessage('Second turn reply.'),
       new AIMessage('Hello.'),

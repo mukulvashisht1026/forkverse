@@ -60,6 +60,7 @@ export interface NodeDoc {
   first_seen_at: Date;
   status: NodeStatus;
   embedding: number[] | null;
+  embedding_text?: string; // text that was embedded (vector store textKey)
   /** A node can involve several entities (person + company + stock). */
   entities: { entity_id: string; role: string }[]; // role: actor, target, affected, mentioned, involved
   sources: { source_id: string; quote: string }[];
@@ -75,6 +76,7 @@ export interface EdgeDoc {
   description: string; // one natural-language sentence, embedded
   evidence_quote: string | null;
   embedding: number[] | null;
+  embedding_text?: string; // text that was embedded (vector store textKey)
   created_at: Date;
 }
 
@@ -150,7 +152,7 @@ function schema(required: string[], properties: Record<string, Document>): Docum
 export interface CollectionSpec {
   validator: Document;
   indexes: IndexDescription[];
-  /** Atlas Search vector indexes (served by mongot in the atlas-local image). */
+  /** Atlas Vector Search indexes. */
   vectorFields?: { path: string; filters: string[] };
 }
 
@@ -196,6 +198,7 @@ export const COLLECTIONS: Record<keyof Collections, CollectionSpec> = {
       first_seen_at: date,
       status: enumOf(NODE_STATUSES),
       embedding: vecN,
+      embedding_text: str,
       entities: {
         bsonType: 'array',
         items: { bsonType: 'object', required: ['entity_id', 'role'], properties: { entity_id: str, role: str } },
@@ -223,6 +226,7 @@ export const COLLECTIONS: Record<keyof Collections, CollectionSpec> = {
         description: str,
         evidence_quote: strN,
         embedding: vecN,
+        embedding_text: str,
         created_at: date,
       }),
       $expr: { $ne: ['$from_id', '$to_id'] },
@@ -269,7 +273,7 @@ export const COLLECTIONS: Record<keyof Collections, CollectionSpec> = {
   },
 };
 
-export const VECTOR_INDEX_NAME = 'embedding_vector';
+export const VECTOR_INDEX_NAME = 'vector_index';
 
 export function vectorIndexDefinition(spec: NonNullable<CollectionSpec['vectorFields']>, dim: number): Document {
   return {
