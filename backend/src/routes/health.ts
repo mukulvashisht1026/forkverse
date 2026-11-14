@@ -1,13 +1,13 @@
-import type { FastifyInstance } from 'fastify';
-import { pool } from '../db/pool.js';
+import { Router } from 'express';
+import { db } from '../db/client.js';
 
-export async function healthRoutes(app: FastifyInstance) {
-  app.get('/health', async (_req, reply) => {
-    try {
-      await pool.query('SELECT 1');
-      return { ok: true, db: 'up' };
-    } catch {
-      return reply.code(503).send({ ok: false, db: 'down' });
-    }
-  });
-}
+export const healthRouter = Router();
+
+healthRouter.get('/health', async (_req, res) => {
+  try {
+    await db.command({ ping: 1 });
+    res.json({ ok: true, db: 'up' });
+  } catch {
+    res.status(503).json({ ok: false, db: 'down' });
+  }
+});

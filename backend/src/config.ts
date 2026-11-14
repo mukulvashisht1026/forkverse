@@ -1,7 +1,8 @@
 import { z } from 'zod';
 
 const EnvSchema = z.object({
-  DATABASE_URL: z.string().url(),
+  MONGODB_URI: z.string().regex(/^mongodb(\+srv)?:\/\//, 'must be a mongodb:// or mongodb+srv:// URI'),
+  MONGODB_DB: z.string().default('forkverse'),
   PORT: z.coerce.number().int().default(3000),
   LOG_LEVEL: z.string().default('info'),
   PUBLIC_BASE_URL: z.string().default('http://localhost:3000'),

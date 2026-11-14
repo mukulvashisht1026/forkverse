@@ -1,18 +1,17 @@
 services:
   db:
-    image: pgvector/pgvector:pg16
+    # Single-node replica set with mongot: supports transactions and $vectorSearch.
+    image: mongodb/mongodb-atlas-local:8
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-forkverse}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
-      POSTGRES_DB: ${POSTGRES_DB:-forkverse}
+      MONGODB_INITDB_ROOT_USERNAME: ${MONGO_USER:-forkverse}
+      MONGODB_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-change-me}
     ports:
-      - "5432:5432"
+      - "27017:27017"
     volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-forkverse}"]
-      interval: 5s
-      retries: 10
+      - mongodata:/data/db
+      - mongoconfig:/data/configdb
+      - mongot:/data/mongot
+    # The image ships its own HEALTHCHECK.
 
   backend:
     build: ./backend
@@ -20,7 +19,7 @@ services:
       - path: .env
         required: false
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-forkverse}:${POSTGRES_PASSWORD:-change-me}@db:5432/${POSTGRES_DB:-forkverse}
+      MONGODB_URI: mongodb://${MONGO_USER:-forkverse}:${MONGO_PASSWORD:-change-me}@db:27017/?directConnection=true&authSource=admin
     depends_on:
       db:
         condition: service_healthy
@@ -35,4 +34,6 @@ services:
       - "8080:80"
 
 volumes:
-  pgdata:
+  mongodata:
+  mongoconfig:
+  mongot:

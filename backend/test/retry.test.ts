@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { HttpError, createLimiter, parseRetryAfter, withRetry } from '../src/utils/retry.js';
 import { registrableDomain } from '../src/clients/rdap.js';
-import { renderMigration } from '../src/db/migrate.js';
+import { COLLECTIONS, vectorIndexDefinition } from '../src/db/schema.js';
 
 describe('retry utils', () => {
   it('parses Retry-After seconds', () => {
@@ -36,7 +36,9 @@ describe('misc', () => {
     expect(registrableDomain('www.news.bbc.co.uk')).toBe('bbc.co.uk');
     expect(registrableDomain('edition.cnn.com')).toBe('cnn.com');
   });
-  it('renderMigration substitutes dim', () => {
-    expect(renderMigration('vector(${EMBEDDING_DIM})', 768)).toBe('vector(768)');
+  it('vector index definition uses configured dim', () => {
+    const def = vectorIndexDefinition(COLLECTIONS.nodes.vectorFields!, 768);
+    expect(def.fields[0]).toEqual({ type: 'vector', path: 'embedding', numDimensions: 768, similarity: 'cosine' });
+    expect(def.fields.slice(1).map((f: { path: string }) => f.path)).toContain('entity_id');
   });
 });
