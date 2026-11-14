@@ -22,6 +22,7 @@ import {
   computeSpineLayout,
   tickLabel,
 } from '../utils/treeMath';
+import { zoomViewAtWheel } from '../utils/wheelZoom';
 
 /** Claim view: y of the dashed lane holding pending (unverified) claims. */
 const UNVERIFIED_LANE_Y = 290;
@@ -623,25 +624,20 @@ export function TreeCanvas({
   useEffect(() => {
     const svg = svgRef.current;
     if (!svg) return;
-    const handleWheel = (e: WheelEvent) => {
+    // Listen on the canvas surface, not just the SVG: branch hit targets are overlay
+    // elements, and wheel events over them do not reach the SVG.
+    const surface = svg.parentElement ?? svg;
+    const handleWheel: EventListener = (event) => {
+      const e = event as WheelEvent;
       e.preventDefault();
       const rect = svg.getBoundingClientRect();
-      const px = e.clientX - rect.left;
-      const py = e.clientY - rect.top;
       const v = viewRef.current;
-      const nextK = Math.max(
-        0.14,
-        Math.min(3, v.k * Math.exp(-e.deltaY * 0.0015))
-      );
-      const scale = nextK / v.k;
-      v.x = px - (px - v.x) * scale;
-      v.y = py - (py - v.y) * scale;
-      v.k = nextK;
+      Object.assign(v, zoomViewAtWheel(v, e.deltaY, { x: e.clientX, y: e.clientY }, rect));
       goalRef.current = null;
       applyViewToDom();
     };
-    svg.addEventListener('wheel', handleWheel, { passive: false });
-    return () => svg.removeEventListener('wheel', handleWheel);
+    surface.addEventListener('wheel', handleWheel, { passive: false });
+    return () => surface.removeEventListener('wheel', handleWheel);
   }, []);
 
   const totalSpineWidth = layout.end;
