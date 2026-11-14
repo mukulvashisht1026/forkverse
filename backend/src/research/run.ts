@@ -20,7 +20,7 @@ import type { RealtimeHub } from '../realtime/hub.js';
 import type { TimelineStore } from '../timeline/store.js';
 import type { SpineNode } from '../timeline/types.js';
 import { logger } from '../utils/logger.js';
-import { articleBranchId, articleToBranch, extractArticles, isRelevant, queryTerms } from './articles.js';
+import { type Article, articleBranchId, articleToBranch, extractArticles, isRelevant, queryTerms } from './articles.js';
 
 export const RESEARCH_TOOL_NAMES = ['context_get-news-search', 'context_web-search'];
 export const MAX_ARTICLES = 25;
@@ -75,6 +75,62 @@ export function createResearchGraph() {
 
 const now = () => new Date().toISOString();
 
+export interface CollectRequest {
+  query: string;
+  /** Extra guidance for the agent; does not affect the relevance filter. */
+  context?: string;
+  /** Graph to run instead of the real research agent (tests). */
+  graph?: ReturnType<typeof createAgentGraph>;
+  /** Article ids (articleBranchId) already present, so they are not reported again. */
+  skipIds?: Iterable<string>;
+}
+
+/**
+ * Run the research agent and report each new, relevant article as it is found.
+ * Articles come only from raw tool output; capped per tool result and in total.
+ * Returns how many articles were reported and the agent's closing summary.
+ */
+export async function collectArticles(
+  { query, context, graph, skipIds = [] }: CollectRequest,
+  onArticle: (article: Article, n: number) => Promise<void>,
+): Promise<{ articles: number; summary: string }> {
+  const known = new Set(skipIds);
+  const terms = queryTerms(query);
+  let added = 0;
+  let summary = '';
+  const prompt = context?.trim() ? `Find articles about: ${query}\nContext: ${context.trim()}` : `Find articles about: ${query}`;
+  const stream = await (graph ?? createResearchGraph()).stream(
+    { messages: [new HumanMessage(prompt)] },
+    { configurable: { thread_id: randomUUID() }, recursionLimit: RECURSION_LIMIT, streamMode: 'updates' },
+  );
+
+  for await (const update of stream as AsyncIterable<Record<string, { messages?: BaseMessage[] }>>) {
+    for (const [step, value] of Object.entries(update)) {
+      for (const msg of value?.messages ?? []) {
+        if (step === 'tools') {
+          const tool = (msg as { name?: string }).name ?? 'unknown';
+          const text = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
+          let fromThisResult = 0;
+          for (const article of extractArticles(text, tool)) {
+            if (added >= MAX_ARTICLES || fromThisResult >= MAX_PER_RESULT) break;
+            if (!isRelevant(article, terms)) continue;
+            const id = articleBranchId(article.url);
+            if (known.has(id)) continue;
+            known.add(id);
+            added += 1;
+            fromThisResult += 1;
+            await onArticle(article, added);
+          }
+        } else if (step === 'agent' && msg.getType() === 'ai') {
+          const text = typeof msg.content === 'string' ? msg.content : '';
+          if (text.trim()) summary = text.trim();
+        }
+      }
+    }
+  }
+  return { articles: added, summary };
+}
+
 export async function runResearch({ query, nodeId }: ResearchRequest, deps: ResearchDeps): Promise<ResearchResult> {
   const { store, hub } = deps;
 
@@ -109,47 +165,19 @@ export async function runResearch({ query, nodeId }: ResearchRequest, deps: Rese
     });
   }
 
-  // 2. Run the agent and stream articles out of each tool result.
-  const known = new Set(node.branches.map((b) => b.id));
-  const terms = queryTerms(query);
-  let added = 0;
-  let summary = '';
-  const graph = deps.graph ?? createResearchGraph();
-  const stream = await graph.stream(
-    { messages: [new HumanMessage(`Find articles about: ${query}`)] },
-    { configurable: { thread_id: randomUUID() }, recursionLimit: RECURSION_LIMIT, streamMode: 'updates' },
+  // 2. Run the agent and stream articles onto the node as they are found.
+  const { articles: added, summary } = await collectArticles(
+    { query, graph: deps.graph, skipIds: node.branches.map((b) => b.id) },
+    async (article, n) => {
+      const res = await store.addBranch(node.id, articleToBranch(article));
+      hub.broadcast({
+        type: 'branch:created',
+        payload: { nodeId: node.id, branch: res.branch, version: res.version },
+        message: `Article ${n}: ${article.title}`,
+        timestamp: now(),
+      });
+    },
   );
-
-  for await (const update of stream as AsyncIterable<Record<string, { messages?: BaseMessage[] }>>) {
-    for (const [step, value] of Object.entries(update)) {
-      for (const msg of value?.messages ?? []) {
-        if (step === 'tools') {
-          const tool = (msg as { name?: string }).name ?? 'unknown';
-          const text = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
-          let fromThisResult = 0;
-          for (const article of extractArticles(text, tool)) {
-            if (added >= MAX_ARTICLES || fromThisResult >= MAX_PER_RESULT) break;
-            if (!isRelevant(article, terms)) continue;
-            const id = articleBranchId(article.url);
-            if (known.has(id)) continue;
-            known.add(id);
-            const res = await store.addBranch(node.id, articleToBranch(article));
-            added += 1;
-            fromThisResult += 1;
-            hub.broadcast({
-              type: 'branch:created',
-              payload: { nodeId: node.id, branch: res.branch, version: res.version },
-              message: `Article ${added}: ${article.title}`,
-              timestamp: now(),
-            });
-          }
-        } else if (step === 'agent' && msg.getType() === 'ai') {
-          const text = typeof msg.content === 'string' ? msg.content : '';
-          if (text.trim()) summary = text.trim();
-        }
-      }
-    }
-  }
 
   // 3. Summary on the node + final status.
   if (summary) {

@@ -20,6 +20,8 @@ export const col = {
   locks: db.collection<Collections['locks']>('locks'),
   timelineNodes: db.collection<Collections['timeline_nodes']>('timeline_nodes'),
   timelineMeta: db.collection<Collections['timeline_meta']>('timeline_meta'),
+  investigations: db.collection<Collections['investigations']>('investigations'),
+  researchRuns: db.collection<Collections['research_runs']>('research_runs'),
 } as const;
 
 export const newId = (): string => randomUUID();

@@ -2,6 +2,7 @@
  * Timeline (Signal Spine) wire types. Mirrors frontend/src/types/tree.ts and the contract in
  * frontend/README.md: keep both in sync when either changes.
  */
+import type { InvestigationUpdatedEvent } from '../investigations/types.js';
 
 export type StockDirection = 'up' | 'down' | 'mixed';
 export type BranchSourceType = 'social' | 'news' | 'market' | 'policy' | 'manual';
@@ -105,4 +106,5 @@ export type WebSocketServerEvent =
       timestamp: string;
     }
   | { type: 'system:message'; payload?: Record<string, unknown>; message: string; timestamp: string }
-  | { type: 'pong'; timestamp: string };
+  | { type: 'pong'; timestamp: string }
+  | InvestigationUpdatedEvent;

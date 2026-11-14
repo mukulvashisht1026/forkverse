@@ -4,7 +4,7 @@ Audience: frontend/backend developers and coding assistants working on Ghostline
 
 ## Status and scope
 
-This is a **versioned-in-repository TypeScript contract proposal**, not an implemented API or database schema. DTOs live in `contracts/investigations.ts`; frontend ports and view models live in `frontend/src/services/investigations.ts`; the Canvas adapter lives in `frontend/src/services/investigationGraphAdapter.ts`.
+This is a versioned-in-repository TypeScript contract. The backend implements it (see "Implemented backend API"); the frontend adapter is not wired yet. DTOs live in `contracts/investigations.ts`; frontend ports and view models live in `frontend/src/services/investigations.ts`; the Canvas adapter lives in `frontend/src/services/investigationGraphAdapter.ts`.
 
 The frontend server currently exposes one process-local global timeline. It is not durable and has no investigation ID, public library, investigation-specific graph, creation, extension, or scoped WebSocket events. Do not wire the global timeline or `/api/scrape-event` / `/api/prompt` as persistent investigation operations. Do not add fake records or claim these flows work end-to-end.
 
@@ -15,6 +15,32 @@ The frontend server currently exposes one process-local global timeline. It is n
 - **Event**: chronological item within an investigation.
 - **Evidence**: source-backed item, optionally associated with an event.
 - **Chat message**: conversational UI data, not evidence unless a research operation returns a persisted evidence DTO.
+
+## Implemented backend API (main)
+
+The backend now implements this contract (`backend/src/investigations/`, `backend/src/routes/investigations.ts`). Routes are served under `/api` (and without the prefix):
+
+| Method and path | Response |
+|---|---|
+| `GET /api/investigations?visibility=public&limit=20&cursor=…` | `PublicInvestigationsResponseDto`, newest first, with an opaque `nextCursor` |
+| `POST /api/investigations` `{topic, context?}` | `202 CreateInvestigationResponseDto`. The run starts `queued` and executes in the background |
+| `GET /api/investigations/:id` | `InvestigationDto` |
+| `GET /api/investigations/:id/graph` | `InvestigationGraphDto` |
+| `POST /api/investigations/:id/runs` `{topic, context?}` | `202 ExtendInvestigationResponseDto` (graph = snapshot at request time). `409 run_in_progress` while a run is active |
+| `GET /api/investigations/:id/runs` | `{ items: ResearchRunDto[] }`, newest first |
+| `GET /api/investigations/:id/runs/:runId` | `ResearchRunDto` (poll until `succeeded` / `failed`) |
+
+Errors are `ApiErrorDto`: `invalid_topic` / `invalid_request` (400), `investigation_not_found` / `run_not_found` (404), `run_in_progress` (409), and `requestId` is set.
+
+Behaviour:
+- Each run appends one event (title = run topic) and attaches every article found as evidence. Title, URL, source and date come only from search tool output. The agent's closing summary becomes `event.summary`. Earlier events and evidence are never removed, and articles already present are skipped.
+- Every graph change increments `revision` and `updatedAt`.
+- Realtime: `/ws` sends `{ type: "investigation:updated", payload: { investigationId, revision, run, evidence? }, timestamp }` for each change. It is broadcast to all clients, so filter by `investigationId` and ignore revisions older than the current one. After reconnecting, re-fetch the graph.
+- No authentication yet: every investigation is created `public`, and only `visibility=public` can be listed.
+- Runs in flight when the server restarts are marked `failed` (`run_interrupted`).
+- Storage: MongoDB `investigations` (graph embedded) and `research_runs`, or in memory when `TIMELINE_MOCK=true`.
+
+The frontend adapter (`frontend/src/services/investigations.ts`) still throws `CapabilityUnavailableError` until it is switched to these routes.
 
 ## DTOs
 

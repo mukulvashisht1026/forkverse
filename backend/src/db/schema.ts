@@ -1,4 +1,5 @@
 import type { Document, IndexDescription } from 'mongodb';
+import type { InvestigationDoc, ResearchRunDoc } from '../investigations/store.js';
 import type { TimelineMetaDoc, TimelineNodeDoc } from '../timeline/store.js';
 
 /**
@@ -134,6 +135,9 @@ export interface Collections {
   /** Frontend "Signal Spine" timeline: one doc per spine node, branches embedded. */
   timeline_nodes: TimelineNodeDoc;
   timeline_meta: TimelineMetaDoc;
+  /** Ghostline investigations (graph embedded) and their research runs. */
+  investigations: InvestigationDoc;
+  research_runs: ResearchRunDoc;
 }
 
 // ---- validators -------------------------------------------------------------
@@ -295,6 +299,45 @@ export const COLLECTIONS: Record<keyof Collections, CollectionSpec> = {
   timeline_meta: {
     validator: schema(['version', 'updatedAt'], { version: { bsonType: ['int', 'long', 'double'] }, updatedAt: str }),
     indexes: [],
+  },
+  investigations: {
+    validator: schema(['title', 'topic', 'visibility', 'status', 'createdAt', 'updatedAt', 'revision', 'events'], {
+      title: str,
+      topic: str,
+      description: str,
+      visibility: enumOf(['public', 'private']),
+      status: enumOf(['active', 'archived']),
+      createdAt: str,
+      updatedAt: str,
+      revision: { bsonType: ['int', 'long', 'double'], minimum: 1 },
+      events: {
+        bsonType: 'array',
+        items: {
+          bsonType: 'object',
+          required: ['id', 'title', 'evidence'],
+          properties: {
+            id: str,
+            title: str,
+            evidence: {
+              bsonType: 'array',
+              items: { bsonType: 'object', required: ['id', 'title'], properties: { id: str, title: str, sourceUrl: str } },
+            },
+          },
+        },
+      },
+    }),
+    // Public library listing: newest first, keyset on (updatedAt, _id).
+    indexes: [{ key: { visibility: 1, status: 1, updatedAt: -1, _id: -1 } }],
+  },
+  research_runs: {
+    validator: schema(['investigationId', 'status', 'startedAt'], {
+      investigationId: str,
+      status: enumOf(['queued', 'running', 'succeeded', 'failed']),
+      startedAt: str,
+      completedAt: str,
+      error: { bsonType: 'object', required: ['code', 'message'] },
+    }),
+    indexes: [{ key: { investigationId: 1, startedAt: -1 } }, { key: { status: 1 } }],
   },
 };
 

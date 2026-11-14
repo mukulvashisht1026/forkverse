@@ -11,7 +11,10 @@ import { RealtimeHub } from './realtime/hub.js';
 import { chatRouter } from './routes/chat.js';
 import { healthRouter } from './routes/health.js';
 import { helloRouter } from './routes/hello.js';
+import { investigationsRouter } from './routes/investigations.js';
 import { timelineRouter } from './routes/timeline.js';
+import { InvestigationService } from './investigations/service.js';
+import { MemoryInvestigationStore, MongoInvestigationStore, type InvestigationStore } from './investigations/store.js';
 import { closeContextMcp } from './agent/tools/contextMcp.js';
 import { initTools } from './agent/tools/index.js';
 import { seedMockTimeline, startMockFeed } from './timeline/mock.js';
@@ -23,12 +26,20 @@ export interface ServerDeps {
   hub: RealtimeHub;
   /** Allowed cross-origin browser origins; defaults to CORS_ORIGINS. */
   corsOrigins?: string[];
+  /** Investigation API; routes are mounted only when provided. */
+  investigations?: InvestigationService;
 }
 
-export function buildServer({ store, hub, corsOrigins = config.CORS_ORIGINS }: ServerDeps) {
+export function buildServer({ store, hub, investigations, corsOrigins = config.CORS_ORIGINS }: ServerDeps) {
   const app = express();
   app.disable('x-powered-by');
-  app.use(pinoHttp({ logger }));
+  // Never log credentials (browsers send cookies for every app on localhost).
+  app.use(
+    pinoHttp({
+      logger,
+      redact: ['req.headers.cookie', 'req.headers.authorization', 'res.headers["set-cookie"]'],
+    }),
+  );
   if (corsOrigins.length) app.use(cors({ origin: corsOrigins }));
   app.use(express.json({ limit: '1mb' }));
 
@@ -37,6 +48,7 @@ export function buildServer({ store, hub, corsOrigins = config.CORS_ORIGINS }: S
   api.use(helloRouter);
   api.use(chatRouter);
   api.use(timelineRouter({ store, hub }));
+  if (investigations) api.use(investigationsRouter(investigations));
 
   // Caddy and the Vite dev proxy strip `/api`; `/api/*` is also served for clients that
   // point VITE_API_BASE_URL straight at the backend.
@@ -87,7 +99,19 @@ async function main() {
     : new MongoTimelineStore(col.timelineNodes, col.timelineMeta);
   if (config.TIMELINE_MOCK) await seedMockTimeline(store);
   const hub = new RealtimeHub(store);
-  const server = createHttpServer({ store, hub });
+
+  const investigationStore: InvestigationStore = config.TIMELINE_MOCK
+    ? new MemoryInvestigationStore()
+    : new MongoInvestigationStore(col.investigations, col.researchRuns);
+  // Runs cannot survive a restart: record any that were in flight as failed. Runs in the
+  // background so startup never waits on the database.
+  void investigationStore
+    .failStaleRuns('Server restarted while the run was in progress.')
+    .then((stale) => stale && logger.warn({ stale }, 'marked interrupted research runs as failed'))
+    .catch((err) => logger.error({ err }, 'could not clean up stale research runs'));
+  const investigations = new InvestigationService({ store: investigationStore, publish: (e) => hub.broadcast(e) });
+
+  const server = createHttpServer({ store, hub, investigations });
   server.listen(config.PORT, '0.0.0.0', () => {
     logger.info({ port: config.PORT, mockTimeline: config.TIMELINE_MOCK }, 'server listening (HTTP + WebSocket /ws)');
   });
