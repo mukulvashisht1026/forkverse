@@ -284,6 +284,7 @@ button { color: inherit; }
 .gh-error { color: #a83232; }
 .gh-graph-controls button { background: rgba(255,255,255,.94); }
 .gh-graph-controls button:hover { border-color: #aab9b2; background: #f2f4f2; }
+.gh-graph-controls .gh-what-changed { border-color: #d3bd60; color: #594900; }
 .gh-detail { border-color: #d2dad6; background: rgba(255,255,255,.97); }
 .gh-detail-head { color: #247c78; }
 .gh-detail-description { color: #394542; }
@@ -309,10 +310,10 @@ button { color: inherit; }
 .gh-workspace .itl-tree { background: radial-gradient(ellipse 78% 64% at 50% 56%, #ffffff, #f6f8f6 62%, #eef2ef); }
 .gh-workspace .itl-tree .main-label, .gh-workspace .itl-tree .tip-label { fill: #26312e; color: #26312e; stroke: #fafaf8; }
 .gh-workspace .itl-tree .tip-group.on .tip-core { fill: #247c78; }
-.gh-workspace .node-card { border-color: #d2dad6; background: rgba(255,255,255,.98); }
-.gh-workspace .node-card-header { border-bottom-color: #e3e8e5; }
-.gh-workspace .node-card-title { color: #171c1b; }
-.gh-workspace .node-card-description { color: #394542; }
+.node-card-workspace { border-color: #d2dad6; background: rgba(255,255,255,.98); }
+.node-card-workspace .node-card-header { border-bottom-color: #e3e8e5; }
+.node-card-workspace .node-card-title { color: #171c1b; }
+.node-card-workspace .node-card-description { color: #394542; }
 @media (max-width: 760px) {
   .gh-title-edit-button { opacity: 1; }
   .gh-workspace-title { padding-left: 8px; }
@@ -599,14 +600,8 @@ button { color: inherit; }
 }
 
 @keyframes node-card-enter {
-  from {
-    opacity: 0;
-    transform: scale(0.92) translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 /* Homepage focus: one primary task, with examples and browsing deliberately secondary. */
@@ -674,6 +669,8 @@ button { color: inherit; }
 .node-card-header:active {
   cursor: grabbing;
 }
+.node-card-header { touch-action: none; user-select: none; }
+.node-card { max-width: min(320px, calc(100vw - 16px)); }
 
 .node-card-title-row {
   display: flex;
@@ -782,6 +779,28 @@ button { color: inherit; }
 
 .node-card-drag-handle:active {
   cursor: grabbing;
+}
+
+/* Workspace uses a full graph canvas with the complete Research panel floating above it. */
+.gh-workspace-body { position: relative; display: block; overflow: hidden; }
+.gh-workspace-body > .gh-graph { position: absolute; inset: 0; z-index: 0; }
+.gh-chat-window {
+  position: absolute; z-index: 8; display: flex; width: min(352px, calc(100% - 24px)); height: min(680px, calc(100% - 24px));
+  min-height: 0; flex-direction: column; overflow: hidden; border: 1px solid var(--ws-border); border-radius: 9px;
+  background: var(--ws-panel); box-shadow: 0 12px 32px rgba(20, 30, 26, .18); pointer-events: auto;
+}
+.gh-chat-window-handle {
+  display: flex; min-height: 35px; flex: 0 0 35px; align-items: center; gap: 8px; border-bottom: 1px solid var(--ws-border);
+  background: var(--ws-panel-raised); padding: 0 11px; color: var(--ws-text); cursor: grab; touch-action: none; user-select: none;
+}
+.gh-chat-window-handle:active { cursor: grabbing; }
+.gh-chat-window-handle > span:nth-of-type(1) { font-size: 12px; font-weight: 600; }
+.gh-chat-window-hint { margin-left: auto; color: var(--ws-muted); font-size: 10px; }
+.gh-chat-window-body { display: flex; min-width: 0; min-height: 0; flex: 1 1 auto; flex-direction: column; overflow: hidden; }
+.gh-chat-window-body > .gh-chat-column { display: flex; min-width: 0; min-height: 0; flex: 1 1 auto; flex-direction: column; overflow: hidden; border: 0; background: var(--ws-panel); }
+@media (max-width: 760px) {
+  .gh-chat-window { width: min(352px, calc(100% - 24px)); height: min(680px, calc(100% - 24px)); }
+  .gh-chat-window-hint { display: none; }
 }
 
 /* Responsive adjustments */
