@@ -14,7 +14,7 @@ interface Props {
   onContinue: () => void;
   isContinuing: boolean;
   /** Evidence/event ids to highlight (cited by the current answer); null = no highlight. */
-  highlight?: { evidenceIds: ReadonlySet<string>; eventIds: ReadonlySet<string> } | null;
+  highlight?: { evidenceIds: ReadonlySet<string>; eventIds: ReadonlySet<string>; roles?: ReadonlyMap<string, string> } | null;
 }
 
 /** Canvas labels only: long article titles are truncated (the detail panel keeps the full title). */

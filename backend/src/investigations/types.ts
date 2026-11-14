@@ -109,7 +109,7 @@ export interface InvestigationUpdatedEvent {
 // ---- research chat (POST /investigations/:id/research, GET …/messages) ----------------------
 
 export type ChatMessageRole = 'user' | 'assistant';
-export type ResearchActionDto = 'answer_question' | 'extend_graph';
+export type ResearchActionDto = 'answer_question' | 'extend_graph' | 'verify_sources';
 
 export interface SourceCitationDto {
   id: string;
@@ -130,6 +130,7 @@ export interface ChatMessageDto {
   sources: SourceCitationDto[];
   createdAt: IsoDateTime;
   runId?: ResearchRunId;
+  proof?: ProofReportDto;
 }
 
 export interface ChatPageDto {
@@ -143,6 +144,7 @@ export interface ResearchRequestDto {
   action: ResearchActionDto;
   message: string;
   conversationId?: string;
+  eventId?: string;
 }
 
 export type ResearchStreamEventDto =
@@ -150,6 +152,7 @@ export type ResearchStreamEventDto =
   | { type: 'token'; text: string }
   | { type: 'sources'; sources: SourceCitationDto[] }
   | { type: 'graph_updated'; graph: InvestigationGraphDto }
+  | { type: 'proof'; report: ProofReportDto }
   | { type: 'message_complete'; message: ChatMessageDto }
   | { type: 'error'; error: ApiErrorDto };
 
@@ -161,6 +164,44 @@ export interface InvestigationHighlightEvent {
     evidenceIds: string[];
     eventIds: string[];
     final: boolean;
+    roles?: Record<string, ProofRoleDto>;
   };
   timestamp: IsoDateTime;
+}
+
+// ---- proof engine (action verify_sources) ------------------------------------------------
+
+/** How an article relates to the others in a proof run (drives graph colouring). */
+export type ProofRoleDto = 'consensus' | 'angle' | 'dispute' | 'unreadable';
+
+export interface ProofSourceDto {
+  id: string; // S1..Sn, same labels as the [[source:Sn]] citations
+  evidenceId: string;
+  title: string;
+  url: string;
+  publisher?: string;
+  readable: boolean;
+  error?: string;
+  role: ProofRoleDto;
+}
+
+export interface ProofQuoteDto {
+  source: string; // S label
+  quote: string; // verbatim, verified against the scraped article text
+}
+
+export interface ProofReportDto {
+  investigationId: string;
+  eventId: string;
+  eventTitle: string;
+  sources: ProofSourceDto[];
+  /** Corroborator: facts supported by at least two outlets, with verified quotes. */
+  consensus: { fact: string; support: ProofQuoteDto[] }[];
+  /** Skeptic: how each outlet frames the story. */
+  angles: { source: string; angle: string; quote?: string }[];
+  /** Skeptic: details only one outlet reports. */
+  unique: { source: string; detail: string; quote: string }[];
+  /** Skeptic: points where outlets disagree. */
+  disputes: { point: string; positions: { source: string; position: string; quote: string }[] }[];
+  stats: { articles: number; readable: number; quotesVerified: number; quotesRejected: number };
 }

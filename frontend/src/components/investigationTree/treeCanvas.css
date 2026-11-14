@@ -7,3 +7,9 @@
 .itl-tree .citing .branch.cited .tip-core{fill:#d1bd91;stroke:#f5f2e8;filter:drop-shadow(0 0 7px #d1bd91)}
 .itl-tree .citing .branch.cited .tip-label{opacity:1}
 @media(prefers-reduced-motion:reduce){.itl-tree .branch{transition:none}}
+/* Proof engine roles (verify_sources): colour each compared article by its role. */
+.itl-tree .citing .branch.cited.role-consensus .tip-core{fill:#4dafb8;stroke:#e6f7f8;filter:drop-shadow(0 0 7px #4dafb8)}
+.itl-tree .citing .branch.cited.role-angle .tip-core{fill:#d1bd91;stroke:#f5f2e8;filter:drop-shadow(0 0 7px #d1bd91)}
+.itl-tree .citing .branch.cited.role-dispute .tip-core{fill:#ff8a73;stroke:#ffe3dc;filter:drop-shadow(0 0 7px #ff8a73)}
+.itl-tree .citing .branch.cited.role-unreadable{opacity:.4}
+.itl-tree .citing .branch.cited.role-unreadable .tip-core{fill:#3a4652;stroke:#8b9baa;filter:none}

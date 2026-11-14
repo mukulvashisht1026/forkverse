@@ -31,7 +31,12 @@ interface TreeCanvasProps {
   onContinue: () => void;
   isContinuing: boolean;
   /** Evidence/event ids cited by the current answer: these stay lit, everything else dims. */
-  highlight?: { evidenceIds: ReadonlySet<string>; eventIds: ReadonlySet<string> } | null;
+  highlight?: {
+    evidenceIds: ReadonlySet<string>;
+    eventIds: ReadonlySet<string>;
+    /** Proof engine roles per evidence id: colours the lit branches. */
+    roles?: ReadonlyMap<string, string>;
+  } | null;
 }
 
 interface BranchViewProps {
@@ -43,6 +48,7 @@ interface BranchViewProps {
   isGroupFocused: boolean;
   isTipHot: boolean;
   isCited: boolean;
+  role?: string;
   isPaused: boolean;
   dragMovedRef: React.RefObject<boolean>;
   onSelectNode: (index: number) => void;
@@ -59,6 +65,7 @@ function BranchView({
   isGroupFocused,
   isTipHot,
   isCited,
+  role,
   isPaused,
   dragMovedRef,
   onSelectNode,
@@ -154,7 +161,7 @@ function BranchView({
   const targetFocus: FocusTarget = { spineIndex, branchIndex };
 
   return (
-    <g className={`branch ${isCited ? 'cited' : ''}`} transform={`translate(${geometry.points[0].x} ${geometry.points[0].y}) scale(${geometry.depthScale}) translate(${-geometry.points[0].x} ${-geometry.points[0].y})`}>
+    <g className={`branch ${isCited ? 'cited' : ''} ${role ? `role-${role}` : ''}`} transform={`translate(${geometry.points[0].x} ${geometry.points[0].y}) scale(${geometry.depthScale}) translate(${-geometry.points[0].x} ${-geometry.points[0].y})`}>
       {/* Living-Tree mist stipple + neural-scan tangent filaments & micro-dendrites */}
       <g ref={mistGroupRef} style={{ transition: 'opacity 0.35s ease' }}>
         {geometry.filaments.map((strand, idx) => (
@@ -690,6 +697,7 @@ export function TreeCanvas({
                       isGroupOn && focusTarget?.branchIndex === branchIdx
                     }
                     isCited={isCiting && highlight!.evidenceIds.has(branch.id)}
+                    role={isCiting ? highlight!.roles?.get(branch.id) : undefined}
                     isPaused={isPaused}
                     dragMovedRef={dragMovedRef}
                     onSelectNode={onSelectNode}

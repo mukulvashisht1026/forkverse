@@ -1,17 +1,30 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ChatMessageDto, ResearchActionDto, ResearchStreamEventDto, SourceCitationDto } from '../../../contracts/investigations';
+import type { ChatMessageDto, ProofReportDto, ProofRoleDto, ResearchActionDto, ResearchStreamEventDto, SourceCitationDto } from '../../../contracts/investigations';
 import { getConversation, renderSafeMarkdown, runResearchAction, safeSourceUrl } from '../services/research';
 
 interface Props {
   investigationId: string; disabled?: boolean; historyAvailable?: boolean;
   onGraphUpdated: (graph: ResearchStreamEventDto & { type: 'graph_updated' }) => void;
   /** Highlight the graph evidence an answer cited ("Show in graph"). */
-  onShowSources?: (evidenceIds: string[], eventIds: string[]) => void;
+  onShowSources?: (evidenceIds: string[], eventIds: string[], roles?: Record<string, ProofRoleDto>) => void;
+  /** Graph event targeted by "Verify sources" (the selected event in the graph). */
+  selectedEvent?: { id: string; title: string } | null;
+}
+
+const ROLE_LABEL: Record<ProofRoleDto, string> = { consensus: 'Shared facts', angle: 'Own angle', dispute: 'Disputed', unreadable: 'Unreadable' };
+
+function ProofCard({ report, onShow }: { report: ProofReportDto; onShow?: () => void }) {
+  const counts = report.sources.reduce<Record<string, number>>((acc, s) => ({ ...acc, [s.role]: (acc[s.role] ?? 0) + 1 }), {});
+  return <div className="gh-proof-card">
+    <div className="gh-proof-head"><span>Proof · {report.eventTitle}</span><span>{report.stats.readable}/{report.stats.articles} read · {report.stats.quotesVerified} quotes verified</span></div>
+    <div className="gh-proof-roles">{(['consensus', 'angle', 'dispute', 'unreadable'] as ProofRoleDto[]).filter((r) => counts[r]).map((r) => <span key={r} className={`gh-proof-role role-${r}`}><i />{ROLE_LABEL[r]} · {counts[r]}</span>)}</div>
+    {onShow && <button type="button" className="gh-show-in-graph" onClick={onShow}>Show roles in graph</button>}
+  </div>;
 }
 type Message = ChatMessageDto & { pending?: boolean; interrupted?: boolean };
 const localId = () => `local-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-export function ResearchChat({ investigationId, disabled, historyAvailable = true, onGraphUpdated, onShowSources }: Props) {
+export function ResearchChat({ investigationId, disabled, historyAvailable = true, onGraphUpdated, onShowSources, selectedEvent }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState('');
   const [action, setAction] = useState<ResearchActionDto>('answer_question');
@@ -77,7 +90,10 @@ export function ResearchChat({ investigationId, disabled, historyAvailable = tru
   }, [investigationId, loadHistory]);
 
   const submit = async (event: React.FormEvent) => {
-    event.preventDefault(); const prompt = draft.trim();
+    event.preventDefault();
+    const verifying = action === 'verify_sources';
+    if (verifying && !selectedEvent) { setSendError('Select an event in the graph to verify its sources.'); return; }
+    const prompt = draft.trim() || (verifying && selectedEvent ? `Verify the sources for “${selectedEvent.title}”.` : '');
     if (!historyAvailable) { setSendError('Research chat is not available for this temporary timeline context.'); return; }
     if (!prompt || sending || loadingHistory || disabled) return;
     const id = investigationId; const epoch = generation.current; const controller = new AbortController();
@@ -88,10 +104,11 @@ export function ResearchChat({ investigationId, disabled, historyAvailable = tru
     const isCurrent = () => !controller.signal.aborted && currentId.current === id && generation.current === epoch;
     const update = (fn: (items: Message[]) => Message[]) => { if (isCurrent()) setMessages(fn); };
     try {
-      await runResearchAction({ investigationId: id, action, message: prompt }, controller.signal, (event) => {
+      await runResearchAction({ investigationId: id, action, message: verifying ? draft.trim() : prompt, ...(verifying && selectedEvent && { eventId: selectedEvent.id }) }, controller.signal, (event) => {
         if (!isCurrent()) return;
         if (event.type === 'token') update((items) => items.map((item) => item.id === assistantId ? { ...item, content: item.content + event.text } : item));
         else if (event.type === 'sources') update((items) => items.map((item) => item.id === assistantId ? { ...item, sources: event.sources } : item));
+        else if (event.type === 'proof') update((items) => items.map((item) => item.id === assistantId ? { ...item, proof: event.report } : item));
         else if (event.type === 'graph_updated') { if (event.graph.investigationId === id) onGraphUpdated(event); }
         else if (event.type === 'message_complete' && event.message.investigationId === id) update((items) => items.map((item) => item.id === assistantId ? { ...event.message, pending: false } : item.id === userMessage.id ? { ...item, pending: false } : item));
       });
@@ -141,10 +158,15 @@ export function ResearchChat({ investigationId, disabled, historyAvailable = tru
           if (block.type === 'code') return <pre key={index}><code>{block.text}</code></pre>;
           return <p key={index}>{children}</p>;
         })}</div>
-        {message.pending && <span className="gh-muted">{message.content ? 'Generating…' : 'Researching…'}</span>}
+        {message.pending && message.role === 'assistant' && <span className="gh-muted">{message.content ? 'Generating…' : 'Researching…'}</span>}
         {message.interrupted && <span className="gh-muted">Response interrupted.</span>}
         {message.sources.length > 0 && <div className="gh-chat-sources"><span className="gh-chat-sources-label">Sources</span>{message.sources.map((source) => { const href = safeSourceUrl(source.url); return href ? <a key={source.id} href={href} target="_blank" rel="noopener noreferrer" className="gh-chat-source" title={source.title}><b>{source.id.replace(/^S/i, '')}</b>{source.publisher ?? source.title}</a> : null; })}</div>}
-        {onShowSources && !message.pending && message.sources.some((source) => source.evidenceId) && <button type="button" className="gh-show-in-graph" onClick={() => onShowSources(
+        {message.proof && !message.pending && <ProofCard report={message.proof} onShow={onShowSources && (() => onShowSources(
+          message.proof!.sources.map((source) => source.evidenceId),
+          [message.proof!.eventId],
+          Object.fromEntries(message.proof!.sources.map((source) => [source.evidenceId, source.role])),
+        ))} />}
+        {onShowSources && !message.pending && !message.proof && message.sources.some((source) => source.evidenceId) && <button type="button" className="gh-show-in-graph" onClick={() => onShowSources(
           message.sources.flatMap((source) => source.evidenceId ? [source.evidenceId] : []),
           [...new Set(message.sources.flatMap((source) => source.eventId ? [source.eventId] : []))],
         )}>Show {message.sources.filter((source) => source.evidenceId).length} cited in graph</button>}
@@ -154,10 +176,11 @@ export function ResearchChat({ investigationId, disabled, historyAvailable = tru
     {sending && <button type="button" onClick={() => requestRef.current?.abort()}>Stop response</button>}
     <form className="gh-composer" onSubmit={submit}>
       <div className="gh-composer-row"><label htmlFor="research-action">Action</label><select id="research-action" value={action} onChange={(event) => setAction(event.target.value as ResearchActionDto)} disabled={sending || loadingHistory || disabled}>
-        <option value="answer_question">Answer question</option><option value="extend_graph">Extend evidence graph</option>
+        <option value="answer_question">Answer question</option><option value="extend_graph">Extend evidence graph</option><option value="verify_sources">Verify sources (2 agents)</option>
       </select></div>
-      <textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={action === 'answer_question' ? 'Ask about this investigation…' : 'What should the evidence graph explore next?'} rows={3} disabled={sending || loadingHistory || disabled} aria-label="Research prompt" />
-      <button type="submit" className="gh-primary" disabled={sending || disabled || !draft.trim()}>{sending ? 'Researching…' : action === 'answer_question' ? 'Ask question' : 'Extend graph'}</button>
+      {action === 'verify_sources' && <p className="gh-composer-hint">{selectedEvent ? <>A Corroborator and a Skeptic compare the articles under <strong>{selectedEvent.title}</strong>. Select another event in the graph to change it.</> : 'Select an event in the graph to verify its sources.'}</p>}
+      <textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={action === 'answer_question' ? 'Ask about this investigation…' : action === 'verify_sources' ? 'Optional: what should the agents focus on?' : 'What should the evidence graph explore next?'} rows={3} disabled={sending || loadingHistory || disabled} aria-label="Research prompt" />
+      <button type="submit" className="gh-primary" disabled={sending || disabled || (action === 'verify_sources' ? !selectedEvent : !draft.trim())}>{sending ? 'Researching…' : action === 'answer_question' ? 'Ask question' : action === 'verify_sources' ? 'Verify sources' : 'Extend graph'}</button>
     </form>
   </aside>;
 }

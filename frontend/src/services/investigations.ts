@@ -154,6 +154,17 @@ export interface InvestigationHighlight {
   eventIds: ReadonlySet<string>;
   /** True once the answer is complete (final cited set). Empty sets clear the highlight. */
   final: boolean;
+  /** Proof engine (verify_sources): role per evidenceId, used to colour the graph. */
+  roles?: ReadonlyMap<string, ProofRole>;
+}
+
+export type ProofRole = 'consensus' | 'angle' | 'dispute' | 'unreadable';
+const PROOF_ROLES: ReadonlySet<string> = new Set(['consensus', 'angle', 'dispute', 'unreadable']);
+
+export function rolesFrom(value: unknown): ReadonlyMap<string, ProofRole> | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const entries = Object.entries(value as Record<string, unknown>).filter((e): e is [string, ProofRole] => typeof e[1] === 'string' && PROOF_ROLES.has(e[1]));
+  return entries.length ? new Map(entries) : undefined;
 }
 
 export interface InvestigationUpdate {
@@ -205,6 +216,7 @@ export function watchInvestigation(
           evidenceIds?: unknown;
           eventIds?: unknown;
           final?: boolean;
+          roles?: unknown;
         };
       };
       try {
@@ -216,7 +228,8 @@ export function watchInvestigation(
       if (!p || p.investigationId !== investigationId) return;
       if (frame.type === 'investigation:highlight') {
         const ids = (v: unknown) => new Set(Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
-        handlers.onHighlight?.({ messageId: String(p.messageId ?? ''), evidenceIds: ids(p.evidenceIds), eventIds: ids(p.eventIds), final: Boolean(p.final) });
+        const roles = rolesFrom(p.roles);
+        handlers.onHighlight?.({ messageId: String(p.messageId ?? ''), evidenceIds: ids(p.evidenceIds), eventIds: ids(p.eventIds), final: Boolean(p.final), ...(roles && { roles }) });
         return;
       }
       if (frame.type !== 'investigation:updated') return;

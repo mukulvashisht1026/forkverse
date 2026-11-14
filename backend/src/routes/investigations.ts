@@ -12,7 +12,9 @@
  * GET  /investigations/:id/messages?cursor=…                 -> ChatPageDto (newest page, oldest-first)
  * POST /investigations/:id/research   ResearchRequestDto    -> text/event-stream of ResearchStreamEventDto
  *      action answer_question: RAG answer over the investigation graph, cited [[source:Sn]];
- *      action extend_graph: research run + graph_updated. Cited/added evidence is highlighted
+ *      action extend_graph: research run + graph_updated;
+ *      action verify_sources (+eventId): proof engine (Corroborator + Skeptic) over one event's
+ *      articles, emits `proof` with roles per article. Cited/added/compared evidence is highlighted
  *      on /ws via `investigation:highlight`.
  *
  * Runs execute in the background. Progress arrives on /ws as `investigation:updated`
@@ -35,9 +37,10 @@ const RunBody = z.object({
 
 const ResearchBody = z.object({
   investigationId: z.string(),
-  action: z.enum(['answer_question', 'extend_graph']),
+  action: z.enum(['answer_question', 'extend_graph', 'verify_sources']),
   message: z.string(),
   conversationId: z.string().optional(),
+  eventId: z.string().optional(),
 });
 
 const SSE_KEEPALIVE_MS = 15_000;
@@ -102,7 +105,7 @@ export function investigationsRouter(service: InvestigationService, chat?: Resea
         throw new InvestigationError(400, 'investigation_mismatch', 'Body investigationId does not match the URL.');
       }
       // Validate before streaming so failures are ordinary JSON errors with a status code.
-      const { record, message } = await chat.prepare(id, body.action, body.message);
+      const { record, message, event } = await chat.prepare(id, body.action, body.message, body.eventId);
 
       res.status(200).set({
         'Content-Type': 'text/event-stream; charset=utf-8',
@@ -122,7 +125,7 @@ export function investigationsRouter(service: InvestigationService, chat?: Resea
         if (!res.writableEnded) res.write(': keepalive\n\n');
       }, SSE_KEEPALIVE_MS);
       try {
-        await chat.run(record, body.action, message, send, abort.signal);
+        await chat.run(record, body.action, message, send, abort.signal, event);
       } catch (err) {
         if (!abort.signal.aborted) {
           logger.error({ err, investigationId: id, action: body.action }, 'research chat failed');

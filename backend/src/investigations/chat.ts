@@ -19,6 +19,10 @@ import { randomUUID } from 'node:crypto';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { AIMessage, HumanMessage, SystemMessage, type BaseMessage } from '@langchain/core/messages';
 import { createChatModel } from '../agent/model.js';
+import type { Scraper } from '../proof/articles.js';
+import { selectArticles } from '../proof/articles.js';
+import type { JsonLlm } from '../proof/agents.js';
+import { runProof } from '../proof/engine.js';
 import { queryTerms } from '../research/articles.js';
 import { logger } from '../utils/logger.js';
 import { InvestigationError, toGraphDto, type InvestigationService } from './service.js';
@@ -29,6 +33,8 @@ import type {
   InvestigationEvidenceDto,
   InvestigationHighlightEvent,
   InvestigationRecord,
+  ProofReportDto,
+  ProofRoleDto,
   ResearchActionDto,
   ResearchStreamEventDto,
   SourceCitationDto,
@@ -149,6 +155,17 @@ export interface ChatServiceDeps {
   publish: (event: InvestigationHighlightEvent) => void;
   /** Chat model; defaults to the configured LLM. Injected in tests. */
   model?: BaseChatModel;
+  /** Proof engine overrides (tests): article scraper and JSON agent LLM. */
+  proof?: { scrape?: Scraper; json?: JsonLlm };
+}
+
+interface TurnResult {
+  content: string;
+  sources: RetrievedSource[];
+  runId?: string;
+  proof?: ProofReportDto;
+  /** evidenceId -> role, for verify_sources highlights. */
+  roles?: Record<string, ProofRoleDto>;
 }
 
 type Emit = (event: ResearchStreamEventDto) => void;
@@ -167,8 +184,24 @@ export class ResearchChatService {
   }
 
   /** Validate before the SSE response starts, so errors can be plain JSON with a status. */
-  async prepare(investigationId: string, action: ResearchActionDto, message: string): Promise<{ record: InvestigationRecord; message: string }> {
+  async prepare(
+    investigationId: string,
+    action: ResearchActionDto,
+    message: string,
+    eventId?: string,
+  ): Promise<{ record: InvestigationRecord; message: string; event?: InvestigationEventDto }> {
     const record = await this.deps.investigations.get(investigationId);
+    if (action === 'verify_sources') {
+      const event = eventId
+        ? record.events.find((e) => e.id === eventId)
+        : [...record.events].sort((a, b) => b.evidence.length - a.evidence.length)[0];
+      if (!event) throw new InvestigationError(eventId ? 404 : 400, eventId ? 'event_not_found' : 'no_events', eventId ? `Event "${eventId}" was not found in this investigation.` : 'This investigation has no events to verify yet.');
+      if (selectArticles(event).length < 2) {
+        throw new InvestigationError(400, 'not_enough_sources', 'Verification needs articles from at least two different outlets in this event.');
+      }
+      const focus = (message ?? '').trim().slice(0, MAX_QUESTION);
+      return { record, message: focus || `Verify the sources for “${event.title}”.`, event };
+    }
     const clean = (message ?? '').trim();
     if (!clean) throw new InvestigationError(400, 'invalid_message', 'Message is required.');
     if (clean.length > MAX_QUESTION) throw new InvestigationError(400, 'invalid_message', `Message must be at most ${MAX_QUESTION} characters.`);
@@ -179,7 +212,7 @@ export class ResearchChatService {
     return { record, message: clean };
   }
 
-  private highlight(investigationId: string, messageId: string, sources: RetrievedSource[], final: boolean) {
+  private highlight(investigationId: string, messageId: string, sources: RetrievedSource[], final: boolean, roles?: Record<string, ProofRoleDto>) {
     this.deps.publish({
       type: 'investigation:highlight',
       payload: {
@@ -188,6 +221,7 @@ export class ResearchChatService {
         evidenceIds: sources.map((s) => s.evidence.id),
         eventIds: [...new Set(sources.map((s) => s.event.id))],
         final,
+        ...(roles && { roles }),
       },
       timestamp: new Date().toISOString(),
     });
@@ -199,6 +233,7 @@ export class ResearchChatService {
     message: string,
     emit: Emit,
     signal?: AbortSignal,
+    event?: InvestigationEventDto,
   ): Promise<void> {
     const now = () => new Date().toISOString();
     await this.deps.store.addMessage({ id: randomUUID(), investigationId: record.id, role: 'user', content: message, sources: [], createdAt: now() });
@@ -206,10 +241,12 @@ export class ResearchChatService {
     emit({ type: 'message_start', messageId, investigationId: record.id });
     this.highlight(record.id, messageId, [], false); // clear any previous highlight
 
-    const result =
+    const result: TurnResult =
       action === 'extend_graph'
         ? await this.extend(record, message, emit)
-        : await this.answer(record, message, messageId, emit, signal);
+        : action === 'verify_sources'
+          ? await this.verify(record, event!, message, messageId, emit, signal)
+          : await this.answer(record, message, messageId, emit, signal);
 
     const assistant: ChatMessageDto = {
       id: messageId,
@@ -219,11 +256,53 @@ export class ResearchChatService {
       sources: result.sources.map(toCitation),
       createdAt: now(),
       ...(result.runId && { runId: result.runId }),
+      ...(result.proof && { proof: result.proof }),
     };
+    if (result.proof) emit({ type: 'proof', report: result.proof });
     emit({ type: 'sources', sources: assistant.sources });
     await this.deps.store.addMessage(assistant);
     emit({ type: 'message_complete', message: assistant });
-    this.highlight(record.id, messageId, result.sources, true);
+    this.highlight(record.id, messageId, result.sources, true, result.roles);
+  }
+
+  /** verify_sources: Corroborator + Skeptic proof run over one event's articles. */
+  private async verify(
+    record: InvestigationRecord,
+    event: InvestigationEventDto,
+    message: string,
+    messageId: string,
+    emit: Emit,
+    signal?: AbortSignal,
+  ): Promise<TurnResult> {
+    const focus = message.startsWith('Verify the sources for “') ? undefined : message;
+    const asSources = (labels: { label: string; evidence: InvestigationEvidenceDto }[]) =>
+      labels.map((a) => ({ label: a.label, evidence: a.evidence, event, score: 0 }));
+    const run = await runProof(
+      {
+        investigationId: record.id,
+        event,
+        focus,
+        signal,
+        token: (text) => emit({ type: 'token', text }),
+        onArticles: (articles, roles) =>
+          this.highlight(
+            record.id,
+            messageId,
+            asSources(articles),
+            false,
+            roles && Object.fromEntries(articles.map((a) => [a.evidence.id, roles.get(a.label) ?? 'angle'])),
+          ),
+      },
+      { model: (this.model ??= createChatModel()), scrape: this.deps.proof?.scrape, json: this.deps.proof?.json },
+    );
+    const sources = asSources(run.articles);
+    const known = new Set(sources.map((s) => s.label));
+    return {
+      content: stripUnknownCitations(run.content, known),
+      sources,
+      proof: run.report,
+      roles: Object.fromEntries(run.articles.map((a) => [a.evidence.id, run.roles.get(a.label) ?? 'angle'])),
+    };
   }
 
   private async answer(
@@ -232,7 +311,7 @@ export class ResearchChatService {
     messageId: string,
     emit: Emit,
     signal?: AbortSignal,
-  ): Promise<{ content: string; sources: RetrievedSource[]; runId?: string }> {
+  ): Promise<TurnResult> {
     const retrieved = retrieveSources(record, question);
     if (!retrieved.length) {
       const content =
@@ -282,7 +361,7 @@ export class ResearchChatService {
     record: InvestigationRecord,
     topic: string,
     emit: Emit,
-  ): Promise<{ content: string; sources: RetrievedSource[]; runId?: string }> {
+  ): Promise<TurnResult> {
     emit({ type: 'token', text: `Researching “${topic}” and adding new evidence to the graph…\n\n` });
     const { run } = await this.deps.investigations.extend(record.id, { topic });
     await this.deps.investigations.running.get(run.id);
