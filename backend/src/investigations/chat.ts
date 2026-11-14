@@ -1,26 +1,28 @@
 /**
- * Research chat over an investigation's evidence graph (RAG).
+ * Research chat - graph first. The graph on the right is the answer; the chat stays short and
+ * points at it.
  *
- * answer_question:
- *   1. Retrieve: load the investigation graph from the DB and rank its evidence against the
- *      question (lexical scoring over title, excerpt, publisher and the parent event). Top
- *      MAX_SOURCES become numbered sources S1..Sn.
- *   2. Generate: the chat model answers ONLY from those sources, cites with [[source:Sn]]
- *      (the format ResearchChat renders), and ends with a cited "Conclusions" section.
- *   3. Highlight: while tokens stream, every newly cited source is broadcast on /ws as
- *      `investigation:highlight` (evidence + event ids) so the graph lights up the cited
- *      branches and dims the rest; a final frame carries exactly the cited set (e.g. 5 of 10).
- *   4. Persist the user and assistant messages (citations carry evidenceId/eventId).
- *
- * extend_graph: runs a research run on the investigation, emits `graph_updated`, and
- * highlights the newly added evidence.
+ * answer_question: the question is checked against what is CURRENTLY in the investigation graph
+ *   (graphQa.ts: claims with status + articles). The model returns JSON naming the claims/articles
+ *   that answer it; those are highlighted (SSE `highlight` for the asking client + /ws
+ *   `investigation:highlight` for every viewer) and the chat shows a one-or-two sentence pointer.
+ *   If the graph does not cover it, the chat just says so.
+ * extend_graph: research run; new evidence is added and highlighted; one-line chat result.
+ * verify_sources: proof engine; graph colours articles by role; chat shows the verdict only
+ *   (the full comparison lives in the proof card).
+ * build_claims: claim timeline; one-line chat result.
  */
 import { randomUUID } from 'node:crypto';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
-import { AIMessage, HumanMessage, SystemMessage, type BaseMessage } from '@langchain/core/messages';
 import { createChatModel } from '../agent/model.js';
-import { queryTerms } from '../research/articles.js';
+import { buildClaims, pickEvidence } from '../claims/builder.js';
+import { corroborateClaims, storeCorroboration } from '../claims/corroborate.js';
+import type { Scraper } from '../proof/articles.js';
+import { selectArticles } from '../proof/articles.js';
+import { defaultJsonLlm, type JsonLlm } from '../proof/agents.js';
+import { runProof } from '../proof/engine.js';
 import { logger } from '../utils/logger.js';
+import { buildGraphListing, GRAPH_QA_PROMPT, GraphAnswer, resolveAnswer } from './graphQa.js';
 import { InvestigationError, toGraphDto, type InvestigationService } from './service.js';
 import type { InvestigationStore } from './store.js';
 import type {
@@ -29,92 +31,22 @@ import type {
   InvestigationEvidenceDto,
   InvestigationHighlightEvent,
   InvestigationRecord,
+  ProofReportDto,
+  ProofRoleDto,
   ResearchActionDto,
   ResearchStreamEventDto,
   SourceCitationDto,
 } from './types.js';
 
-export const MAX_SOURCES = 10;
-const HISTORY_MESSAGES = 6;
+const HISTORY_MESSAGES = 4;
 const MAX_QUESTION = 2000;
-const CITATION = /\[\[source:(S\d{1,2})\]\]/g;
-
-export const ANSWER_PROMPT = `You are Ghostline's research analyst. You answer questions about one investigation using ONLY the numbered sources provided (articles collected into the investigation's evidence graph).
-
-Rules:
-- Every factual sentence must cite its source(s) inline with the exact format [[source:S1]] (one marker per source, e.g. "... [[source:S2]] [[source:S5]]"). Never cite a source that does not support the sentence.
-- Use only the sources. If they do not answer the question, say so plainly and state what is missing.
-- Be neutral: report what sources say, attribute claims ("According to ..."), do not infer anyone's intent or motives.
-- Do not claim one thing caused another unless a source explicitly says so; otherwise describe sequence ("followed", "was later").
-- Where sources disagree, present both sides with citations.
-- For markets or companies: no trading advice, never imply a story moved a price, and end with "Not financial advice."
-
-Format (Markdown):
-1. A direct answer in 1-3 short paragraphs.
-2. "### Conclusions" with 2-4 bullet points: what the evidence supports, each cited, plus one bullet on uncertainty or gaps if relevant.
-Keep it concise. Do not list sources at the end; the citations are enough.`;
+const SEE_GRAPH = 'See the graph on the right.';
 
 export interface RetrievedSource {
   label: string; // S1..Sn
   evidence: InvestigationEvidenceDto;
   event: InvestigationEventDto;
   score: number;
-}
-
-/** Rank evidence by lexical relevance to the question; if nothing matches (broad question), cover events instead. */
-export function retrieveSources(record: InvestigationRecord, question: string, k = MAX_SOURCES): RetrievedSource[] {
-  const items = record.events.flatMap((event) => event.evidence.map((evidence) => ({ event, evidence })));
-  if (!items.length) return [];
-  const terms = queryTerms(question);
-  const text = (s?: string) => (s ?? '').toLowerCase().normalize('NFKD');
-  const count = (hay: string, t: string) => (t ? hay.split(t).length - 1 : 0);
-  const df = new Map(
-    terms.map((t) => [
-      t,
-      items.filter(({ evidence, event }) => text(`${evidence.title} ${evidence.excerpt} ${event.title}`).includes(t)).length,
-    ]),
-  );
-  const scored = items.map(({ event, evidence }, idx) => {
-    const title = text(evidence.title);
-    const body = text(`${evidence.excerpt ?? ''} ${evidence.sourceName ?? ''}`);
-    const ctx = text(`${event.title} ${event.summary ?? ''}`);
-    let score = 0;
-    for (const t of terms) {
-      const idf = Math.log(1 + items.length / (1 + (df.get(t) ?? 0)));
-      score += (3 * count(title, t) + count(body, t) + 0.5 * count(ctx, t)) * idf;
-    }
-    return { event, evidence, score, idx };
-  });
-
-  const matched = scored.filter((s) => s.score > 0).sort((a, b) => b.score - a.score || a.idx - b.idx);
-  let picked = matched.slice(0, k);
-  if (picked.length === 0) {
-    // Broad question ("summarize", "what are the conclusions"): cover events round-robin, newest first.
-    const byEvent = [...record.events].reverse().map((e) => scored.filter((s) => s.event.id === e.id));
-    const fill: typeof scored = [];
-    for (let round = 0; fill.length < Math.min(k, 8) && byEvent.some((list) => list[round]); round++) {
-      for (const list of byEvent) if (list[round] && fill.length < Math.min(k, 8)) fill.push(list[round]!);
-    }
-    const seen = new Set(picked.map((p) => p.evidence.id));
-    picked = [...picked, ...fill.filter((f) => !seen.has(f.evidence.id))].slice(0, k);
-  }
-  return picked.map((p, i) => ({ label: `S${i + 1}`, evidence: p.evidence, event: p.event, score: p.score }));
-}
-
-export function buildContext(record: InvestigationRecord, sources: RetrievedSource[]): string {
-  const events = record.events
-    .map((e) => `- ${e.title}${e.summary ? `: ${e.summary.slice(0, 300)}` : ''} (${e.evidence.length} articles)`)
-    .join('\n');
-  const list = sources
-    .map(({ label, evidence: ev, event }) =>
-      [
-        `[${label}] ${ev.title}`,
-        `Publisher: ${ev.sourceName ?? 'unknown'}${ev.publishedAt ? ` | Published: ${ev.publishedAt.slice(0, 10)}` : ''} | Graph event: ${event.title}`,
-        ev.excerpt ? `Excerpt: ${ev.excerpt.slice(0, 600)}` : 'Excerpt: (none; title only)',
-      ].join('\n'),
-    )
-    .join('\n\n');
-  return `Investigation: ${record.title}\nTopic: ${record.topic}\n\nEvents in the evidence graph:\n${events}\n\nSources:\n${list}`;
 }
 
 export function toCitation(s: RetrievedSource): SourceCitationDto {
@@ -130,25 +62,40 @@ export function toCitation(s: RetrievedSource): SourceCitationDto {
   };
 }
 
-/** Labels cited in text, in order of first appearance, restricted to known labels. */
-export function citedLabels(text: string, known: Set<string>): string[] {
-  const out: string[] = [];
-  for (const m of text.matchAll(CITATION)) if (known.has(m[1]!) && !out.includes(m[1]!)) out.push(m[1]!);
-  return out;
-}
-
 /** Remove citation markers that do not refer to a provided source. */
 export function stripUnknownCitations(text: string, known: Set<string>): string {
   // Also drop the whitespace before a removed marker, so "fines [[source:S12]]." becomes "fines.".
   return text.replace(/[ \t]*\[\[source:(S\d{1,2})\]\]/g, (m, label: string) => (known.has(label) ? m : ''));
 }
 
+/** The "### Verdict" section of a proof synthesis (first paragraph as fallback). */
+export function verdictOf(markdown: string): string {
+  const m = /###\s*Verdict\s*\n+([\s\S]*?)(?=\n###|\n\n_Coverage|$)/i.exec(markdown);
+  const text = (m?.[1] ?? markdown.split(/\n\n/)[0] ?? '').trim();
+  return text.replace(/\s*\[\[source:S\d{1,2}\]\]/g, '').trim();
+}
+
 export interface ChatServiceDeps {
   store: InvestigationStore;
   investigations: InvestigationService;
   publish: (event: InvestigationHighlightEvent) => void;
-  /** Chat model; defaults to the configured LLM. Injected in tests. */
+  /** Chat model (proof synthesis); defaults to the configured LLM. Injected in tests. */
   model?: BaseChatModel;
+  /** Overrides (tests): article scraper and JSON LLM (graph Q&A, proof agents, claims). */
+  proof?: { scrape?: Scraper; json?: JsonLlm };
+}
+
+interface TurnResult {
+  content: string;
+  sources: RetrievedSource[];
+  runId?: string;
+  proof?: ProofReportDto;
+  /** evidenceId -> role, for verify_sources highlights. */
+  roles?: Record<string, ProofRoleDto>;
+  /** Graph node ids (claims or events) to highlight in addition to the sources' events. */
+  nodeIds?: string[];
+  /** Do not highlight anything (e.g. after rebuilding claims, or nothing found). */
+  noHighlight?: boolean;
 }
 
 type Emit = (event: ResearchStreamEventDto) => void;
@@ -160,6 +107,10 @@ export class ResearchChatService {
     this.model = deps.model;
   }
 
+  private get json(): JsonLlm {
+    return this.deps.proof?.json ?? defaultJsonLlm;
+  }
+
   async history(investigationId: string, cursor?: string) {
     await this.deps.investigations.get(investigationId);
     const page = await this.deps.store.listMessages(investigationId, { limit: 30, cursor });
@@ -167,8 +118,30 @@ export class ResearchChatService {
   }
 
   /** Validate before the SSE response starts, so errors can be plain JSON with a status. */
-  async prepare(investigationId: string, action: ResearchActionDto, message: string): Promise<{ record: InvestigationRecord; message: string }> {
+  async prepare(
+    investigationId: string,
+    action: ResearchActionDto,
+    message: string,
+    eventId?: string,
+  ): Promise<{ record: InvestigationRecord; message: string; event?: InvestigationEventDto }> {
     const record = await this.deps.investigations.get(investigationId);
+    if (action === 'verify_sources') {
+      const event = eventId
+        ? record.events.find((e) => e.id === eventId)
+        : [...record.events].sort((a, b) => b.evidence.length - a.evidence.length)[0];
+      if (!event) throw new InvestigationError(eventId ? 404 : 400, eventId ? 'event_not_found' : 'no_events', eventId ? `Event "${eventId}" was not found in this investigation.` : 'This investigation has no events to verify yet.');
+      if (selectArticles(event).length < 2) {
+        throw new InvestigationError(400, 'not_enough_sources', 'Verification needs articles from at least two different outlets in this event.');
+      }
+      const focus = (message ?? '').trim().slice(0, MAX_QUESTION);
+      return { record, message: focus || `Verify the sources for “${event.title}”.`, event };
+    }
+    if (action === 'build_claims') {
+      if (pickEvidence(record).length < 2) {
+        throw new InvestigationError(400, 'not_enough_sources', 'Building claims needs at least two articles in this investigation.');
+      }
+      return { record, message: (message ?? '').trim() || `Build the claim timeline for “${record.title}”.` };
+    }
     const clean = (message ?? '').trim();
     if (!clean) throw new InvestigationError(400, 'invalid_message', 'Message is required.');
     if (clean.length > MAX_QUESTION) throw new InvestigationError(400, 'invalid_message', `Message must be at most ${MAX_QUESTION} characters.`);
@@ -179,15 +152,23 @@ export class ResearchChatService {
     return { record, message: clean };
   }
 
-  private highlight(investigationId: string, messageId: string, sources: RetrievedSource[], final: boolean) {
+  private highlight(
+    investigationId: string,
+    messageId: string,
+    sources: RetrievedSource[],
+    final: boolean,
+    roles?: Record<string, ProofRoleDto>,
+    nodeIds: string[] = [],
+  ) {
     this.deps.publish({
       type: 'investigation:highlight',
       payload: {
         investigationId,
         messageId,
         evidenceIds: sources.map((s) => s.evidence.id),
-        eventIds: [...new Set(sources.map((s) => s.event.id))],
+        eventIds: [...new Set([...nodeIds, ...sources.map((s) => s.event.id)])],
         final,
+        ...(roles && { roles }),
       },
       timestamp: new Date().toISOString(),
     });
@@ -199,6 +180,7 @@ export class ResearchChatService {
     message: string,
     emit: Emit,
     signal?: AbortSignal,
+    event?: InvestigationEventDto,
   ): Promise<void> {
     const now = () => new Date().toISOString();
     await this.deps.store.addMessage({ id: randomUUID(), investigationId: record.id, role: 'user', content: message, sources: [], createdAt: now() });
@@ -206,10 +188,14 @@ export class ResearchChatService {
     emit({ type: 'message_start', messageId, investigationId: record.id });
     this.highlight(record.id, messageId, [], false); // clear any previous highlight
 
-    const result =
+    const result: TurnResult =
       action === 'extend_graph'
         ? await this.extend(record, message, emit)
-        : await this.answer(record, message, messageId, emit, signal);
+        : action === 'verify_sources'
+          ? await this.verify(record, event!, message, messageId, emit, signal)
+          : action === 'build_claims'
+            ? await this.claims(record, emit)
+            : await this.answer(record, message, emit);
 
     const assistant: ChatMessageDto = {
       id: messageId,
@@ -219,71 +205,140 @@ export class ResearchChatService {
       sources: result.sources.map(toCitation),
       createdAt: now(),
       ...(result.runId && { runId: result.runId }),
+      ...(result.proof && { proof: result.proof }),
     };
+    const lit = result.noHighlight ? [] : result.sources;
+    const nodeIds = result.noHighlight ? [] : (result.nodeIds ?? []);
+    if (result.proof) emit({ type: 'proof', report: result.proof });
     emit({ type: 'sources', sources: assistant.sources });
+    // Tell the asking client exactly what to light up (other viewers get the /ws frame below).
+    emit({
+      type: 'highlight',
+      evidenceIds: lit.map((s) => s.evidence.id),
+      nodeIds: [...new Set([...nodeIds, ...lit.map((s) => s.event.id)])],
+      ...(result.roles && { roles: result.roles }),
+    });
     await this.deps.store.addMessage(assistant);
     emit({ type: 'message_complete', message: assistant });
-    this.highlight(record.id, messageId, result.sources, true);
+    this.highlight(record.id, messageId, lit, true, result.roles, nodeIds);
   }
 
-  private async answer(
+  /** answer_question: point at the graph items that answer the question, or say it is not there. */
+  private async answer(record: InvestigationRecord, question: string, emit: Emit): Promise<TurnResult> {
+    const listing = buildGraphListing(record);
+    if (!listing.hasContent) {
+      // Nothing to point at yet: research the investigation's topic now instead of asking the user to.
+      const active = await this.deps.store.activeRun(record.id);
+      if (active) {
+        return { content: 'Research for this topic is still running; the graph will fill in on the right as articles arrive.', sources: [], noHighlight: true };
+      }
+      const result = await this.extend(record, record.topic, emit);
+      const updated = await this.deps.investigations.get(record.id);
+      const established = (updated.claims ?? []).filter((c) => c.status === 'established').length;
+      const claims = updated.claims?.length ?? 0;
+      return {
+        ...result,
+        content: result.sources.length
+          ? `The graph was empty, so I researched “${record.topic}”: ${result.sources.length} articles, ${claims} claims (${established} established). ${SEE_GRAPH}`
+          : `I researched “${record.topic}” but found no relevant articles yet. Try rephrasing the topic.`,
+      };
+    }
+    const past = (await this.deps.store.listMessages(record.id, { limit: HISTORY_MESSAGES + 1 })).items.slice(0, -1);
+    const conversation = past.length
+      ? `Recent conversation:\n${past.slice(-HISTORY_MESSAGES).map((m) => `${m.role}: ${m.content.slice(0, 300)}`).join('\n')}\n\n`
+      : '';
+    const out = await this.json(GraphAnswer, [
+      { role: 'system', content: GRAPH_QA_PROMPT },
+      { role: 'user', content: `${listing.text}\n\n${conversation}Question: ${question}` },
+    ]);
+    const resolved = resolveAnswer(out, listing);
+    logger.info({ investigationId: record.id, found: resolved.found, claims: resolved.claimIds.length, evidence: resolved.evidence.length }, 'graph question answered');
+
+    if (!resolved.found) {
+      return {
+        content: `${resolved.answer || 'That is not in the graph yet.'} Use **Extend evidence graph** to research it.`,
+        sources: [],
+        noHighlight: true,
+      };
+    }
+    const sources = resolved.evidence.map((e, i) => ({ label: `S${i + 1}`, evidence: e.evidence, event: e.event, score: 0 }));
+    const count = resolved.claimIds.length + (resolved.claimIds.length ? 0 : sources.length);
+    const what = resolved.claimIds.length ? `${resolved.claimIds.length} claim${resolved.claimIds.length === 1 ? '' : 's'}` : `${count} article${count === 1 ? '' : 's'}`;
+    return {
+      content: `${resolved.answer}${outcomeCaveat(record, resolved.claimIds)}\n\n→ Highlighted ${what} on the graph.`,
+      sources,
+      nodeIds: resolved.claimIds,
+    };
+  }
+
+  /** build_claims: turn the investigation's evidence into a chronological, evidence-backed claim timeline. */
+  private async claims(record: InvestigationRecord, emit: Emit): Promise<TurnResult> {
+    const built = await buildClaims(record, {
+      scrape: this.deps.proof?.scrape,
+      json: this.deps.proof?.json,
+      token: (text) => emit({ type: 'token', text }),
+    });
+    emit({ type: 'token', text: '- Looking for more independent sources per claim…\n' });
+    const corroborated = await corroborateClaims(record, built.claims, { ...(this.deps.proof?.json && { json: this.deps.proof.json }) });
+    await storeCorroboration(this.deps.store, record.id, corroborated.added);
+    built.claims = corroborated.claims;
+    await this.deps.store.setClaims(record.id, { claims: built.claims, links: built.links, entity: built.entity });
+    const updated = await this.deps.investigations.get(record.id);
+    emit({ type: 'graph_updated', graph: toGraphDto(updated) });
+    const { stats } = built;
+    const established = built.claims.filter((c) => c.status === 'established').length;
+    const multi = built.claims.filter((c) => new Set(c.evidence.map((e) => (e.publisher ?? e.url ?? '').toLowerCase())).size > 1).length;
+    const content =
+      `Claim timeline ready: **${established} established**, ${built.claims.length - established} unverified, ${multi} with 2+ independent sources (${corroborated.added.length} added by corroboration), ${built.links.length} connection${built.links.length === 1 ? '' : 's'} ` +
+      `(from ${stats.articles} articles). ${SEE_GRAPH}`;
+    return { content, sources: [], noHighlight: true };
+  }
+
+  /** verify_sources: Corroborator + Skeptic proof run over one event's articles. */
+  private async verify(
     record: InvestigationRecord,
-    question: string,
+    event: InvestigationEventDto,
+    message: string,
     messageId: string,
     emit: Emit,
     signal?: AbortSignal,
-  ): Promise<{ content: string; sources: RetrievedSource[]; runId?: string }> {
-    const retrieved = retrieveSources(record, question);
-    if (!retrieved.length) {
-      const content =
-        "This investigation has no evidence in its graph yet, so I can't answer from it. Use **Extend evidence graph** to collect articles first.";
-      emit({ type: 'token', text: content });
-      return { content, sources: [] };
-    }
-    const byLabel = new Map(retrieved.map((s) => [s.label, s]));
-    const known = new Set(byLabel.keys());
-
-    const past = (await this.deps.store.listMessages(record.id, { limit: HISTORY_MESSAGES + 1 })).items.slice(0, -1); // drop the question just stored
-    const history: BaseMessage[] = past
-      .slice(-HISTORY_MESSAGES)
-      .map((m) => (m.role === 'user' ? new HumanMessage(m.content.slice(0, 1500)) : new AIMessage(m.content.slice(0, 1500))));
-
-    const model = (this.model ??= createChatModel());
-    const stream = await model.stream(
-      [
-        new SystemMessage(ANSWER_PROMPT),
-        new SystemMessage(buildContext(record, retrieved)),
-        ...history,
-        new HumanMessage(question),
-      ],
-      { signal },
+  ): Promise<TurnResult> {
+    const focus = message.startsWith('Verify the sources for “') ? undefined : message;
+    const asSources = (labels: { label: string; evidence: InvestigationEvidenceDto }[]) =>
+      labels.map((a) => ({ label: a.label, evidence: a.evidence, event, score: 0 }));
+    const run = await runProof(
+      {
+        investigationId: record.id,
+        event,
+        focus,
+        signal,
+        streamSynthesis: false,
+        token: (text) => emit({ type: 'token', text }),
+        onArticles: (articles, roles) =>
+          this.highlight(
+            record.id,
+            messageId,
+            asSources(articles),
+            false,
+            roles && Object.fromEntries(articles.map((a) => [a.evidence.id, roles.get(a.label) ?? 'angle'])),
+          ),
+      },
+      { model: (this.model ??= createChatModel()), scrape: this.deps.proof?.scrape, json: this.deps.proof?.json },
     );
-
-    let text = '';
-    let cited: string[] = [];
-    for await (const chunk of stream) {
-      const piece = typeof chunk.content === 'string' ? chunk.content : '';
-      if (!piece) continue;
-      text += piece;
-      emit({ type: 'token', text: piece });
-      const now = citedLabels(text, known);
-      if (now.length > cited.length) {
-        cited = now;
-        this.highlight(record.id, messageId, cited.map((l) => byLabel.get(l)!), false);
-      }
-    }
-    const content = stripUnknownCitations(text, known).trim();
-    const sources = citedLabels(content, known).map((l) => byLabel.get(l)!);
-    logger.info({ investigationId: record.id, retrieved: retrieved.length, cited: sources.length }, 'research chat answered');
-    return { content, sources };
+    const sources = asSources(run.articles);
+    const known = new Set(sources.map((s) => s.label));
+    const full = stripUnknownCitations(run.content, known);
+    const report: ProofReportDto = { ...run.report, summary: full };
+    return {
+      content: `${verdictOf(full)}\n\n→ The graph colours each article: shared facts, own angle, disputed. Full comparison in the proof card.`,
+      sources,
+      proof: report,
+      roles: Object.fromEntries(run.articles.map((a) => [a.evidence.id, run.roles.get(a.label) ?? 'angle'])),
+    };
   }
 
-  private async extend(
-    record: InvestigationRecord,
-    topic: string,
-    emit: Emit,
-  ): Promise<{ content: string; sources: RetrievedSource[]; runId?: string }> {
-    emit({ type: 'token', text: `Researching “${topic}” and adding new evidence to the graph…\n\n` });
+  private async extend(record: InvestigationRecord, topic: string, emit: Emit): Promise<TurnResult> {
+    emit({ type: 'token', text: `Researching “${topic}”…` });
     const { run } = await this.deps.investigations.extend(record.id, { topic });
     await this.deps.investigations.running.get(run.id);
     const finished = await this.deps.store.getRun(record.id, run.id);
@@ -294,14 +349,18 @@ export class ResearchChatService {
     emit({ type: 'graph_updated', graph: toGraphDto(updated) });
 
     const event = updated.events.find((e) => e.id === `evt-${run.id}`);
-    const added = (event?.evidence ?? []).slice(0, 8).map((evidence, i) => ({ label: `S${i + 1}`, evidence, event: event!, score: 0 }));
-    const total = event?.evidence.length ?? 0;
-    const lines = added.map((s) => `- ${s.evidence.title} [[source:${s.label}]]`).join('\n');
-    const content = total
-      ? `Added ${total} new article${total === 1 ? '' : 's'} under “${topic}” (highlighted in the graph):\n\n${lines}` +
-        (event?.summary ? `\n\n**Research agent summary** (not independently verified): ${event.summary}` : '')
+    const added = (event?.evidence ?? []).map((evidence, i) => ({ label: `S${i + 1}`, evidence, event: event!, score: 0 }));
+    const content = added.length
+      ? `Added ${added.length} new article${added.length === 1 ? '' : 's'} about “${topic}” (highlighted) and updated the claim timeline. ${SEE_GRAPH}`
       : `No new relevant articles were found for “${topic}”.`;
-    emit({ type: 'token', text: content });
-    return { content: `Researching “${topic}”…\n\n${content}`, sources: added, runId: run.id };
+    return { content, sources: added, runId: run.id, ...(!added.length && { noHighlight: true }) };
   }
+}
+
+/** Politician view: never let a "yes, delivered" stand on the politician's own word alone. */
+export function outcomeCaveat(record: InvestigationRecord, claimIds: string[]): string {
+  if (record.mode !== 'politician' || !claimIds.length) return '';
+  const lit = (record.claims ?? []).filter((c) => claimIds.includes(c.id));
+  if (!lit.length || lit.some((c) => c.outcome && c.outcome !== 'no_update')) return '';
+  return ' _Note: these are the politician’s/government’s own statements; no independent outcome report is in the graph yet._';
 }

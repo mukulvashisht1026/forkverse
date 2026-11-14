@@ -38,6 +38,14 @@ export interface BranchNode {
   _prog?: number;
   /** Set to true only for new live events; renderer clears after growth finishes. */
   _animateGrowth?: boolean;
+  /** Claim view: how this article relates to its claim. */
+  stance?: 'supports' | 'contradicts' | 'context';
+  /** Politician view: this article reports an outcome (fulfilled / not / in progress). */
+  outcomeReport?: boolean;
+  /** Politician view: this article reports the claim itself (neutral colour). */
+  sourceReport?: boolean;
+  /** Claim view: short relation label, e.g. "Supports", "Reports the claim", "Not fulfilled". */
+  relation?: string;
 }
 
 export type ScrapeEngine =
@@ -66,6 +74,12 @@ export interface SpineNode {
   /** Set only when this event ID arrives after the initial graph snapshot. */
   _animateGrowth?: boolean;
   branches: BranchNode[];
+  /** Claim view: established claims sit on the main timeline, pending ones on the unverified lane. */
+  claimStatus?: 'established' | 'pending';
+  /** Claim view: contradicting evidence exists. */
+  disputed?: boolean;
+  /** Politician view: what later reports say happened to the claim. */
+  outcome?: 'fulfilled' | 'not_fulfilled' | 'in_progress' | 'no_update';
 }
 
 export interface FocusTarget {

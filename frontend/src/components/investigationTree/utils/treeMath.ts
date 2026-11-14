@@ -10,6 +10,59 @@ import {
 } from '../types/tree';
 
 export const SPINE_GAP = 340;
+/** Timeline layout: articles sprout from the line after their event, one origin every ORIGIN_STEP px. */
+export const ORIGIN_STEP = 26;
+/** Space between an event node and its first article origin. */
+export const SEGMENT_PAD = 64;
+/** Room after the last origin so its forward-leaning branch (and the next node's label) stay clear. */
+const SEGMENT_TAIL = 210;
+
+export interface SpineLayout {
+  /** x of each event node on the line. */
+  nodeX: number[];
+  /** x of the first article origin of each event. */
+  originStart: number[];
+  /** x where the drawn line should end (after the last event's articles). */
+  end: number;
+}
+
+/** Event nodes spaced so each one's articles fit along the line between it and the next node. */
+export function computeSpineLayout(branchCounts: number[], minGap = SPINE_GAP): SpineLayout {
+  const nodeX: number[] = [];
+  const originStart: number[] = [];
+  let x = 0;
+  for (let i = 0; i < branchCounts.length; i++) {
+    nodeX.push(x);
+    originStart.push(x + SEGMENT_PAD);
+    const n = branchCounts[i] ?? 0;
+    const segment = n ? SEGMENT_PAD + (n - 1) * ORIGIN_STEP + SEGMENT_TAIL : 0;
+    x += Math.max(minGap, segment);
+  }
+  const last = branchCounts.length - 1;
+  const lastSegment = last >= 0 && branchCounts[last] ? SEGMENT_PAD + (branchCounts[last]! - 1) * ORIGIN_STEP + 40 : 0;
+  return { nodeX, originStart, end: last >= 0 ? nodeX[last]! + lastSegment : 0 };
+}
+
+/**
+ * Chronological rank per branch (original index -> position on the line): dated items sorted by
+ * date ascending, undated items after them in their original order.
+ */
+export function branchOrder(dates: Array<string | undefined>): number[] {
+  const keyed = dates.map((d, i) => ({ i, t: d ? Date.parse(d) : NaN }));
+  const dated = keyed.filter((k) => Number.isFinite(k.t)).sort((a, b) => a.t - b.t || a.i - b.i);
+  const undated = keyed.filter((k) => !Number.isFinite(k.t));
+  const rank = new Array<number>(dates.length);
+  [...dated, ...undated].forEach((k, pos) => { rank[k.i] = pos; });
+  return rank;
+}
+
+/** Short date label for a timeline tick, e.g. "3 Feb 25"; null when the date is missing/invalid. */
+export function tickLabel(date?: string): string | null {
+  if (!date) return null;
+  const t = new Date(date);
+  if (Number.isNaN(t.getTime())) return null;
+  return t.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit', timeZone: 'UTC' });
+}
 
 /** Fixed-camera projection for the tree's shallow, deterministic world depth. */
 export function projectTreePoint(x: number, y: number, z: number): Point2D {
@@ -160,12 +213,16 @@ export function generateBranchGeometry(
   dir: 1 | -1,
   pairIndex: number,
   seed: number,
-  accentColor: string
+  accentColor: string,
+  /** Timeline layout: x on the line where this branch sprouts (instead of fanning out of the node). */
+  originX?: number
 ): BranchGeometry {
+  const onLine = originX !== undefined;
+  if (onLine) return timelineBranchGeometry(originX, dir, pairIndex, seed, accentColor);
   const r = createRng(seed);
   const T = {
-    ang0: Math.max(0.75, 1.15 - pairIndex * 0.15 + (r() - 0.5) * 0.3),
-    len: 190 + pairIndex * 45 + r() * 80,
+    ang0: onLine ? 1.12 + (r() - 0.5) * 0.4 : Math.max(0.75, 1.15 - pairIndex * 0.15 + (r() - 0.5) * 0.3),
+    len: onLine ? 150 + r() * 90 : 190 + pairIndex * 45 + r() * 80,
     a1: 0.035 + r() * 0.05,
     f1: 0.05 + r() * 0.05,
     p1: r() * 6.28,
@@ -175,9 +232,9 @@ export function generateBranchGeometry(
     pull: 0.015 + r() * 0.03,
   };
 
-  const xLimit = cx + SPINE_GAP * 0.62;
-  let x = cx + 8;
-  let y = 29 * dir;
+  const xLimit = onLine ? originX + 140 : cx + SPINE_GAP * 0.62;
+  let x = onLine ? originX : cx + 8;
+  let y = onLine ? 4 * dir : 29 * dir;
   let ang = dir * T.ang0;
   let dist = 0;
 
@@ -236,7 +293,7 @@ export function generateBranchGeometry(
   }
 
   const filaments = generateBranchFilaments(
-    cx,
+    onLine ? originX : cx,
     points,
     dir,
     seed,
@@ -255,6 +312,66 @@ export function generateBranchGeometry(
   };
 }
 
+/** Branch lengths cycle through these tiers per side so neighbouring tips sit at different heights. */
+export const TIMELINE_TIERS = [92, 150, 208];
+
+/**
+ * Timeline branch: the SAME curve for every article (steep start easing forward), only translated
+ * to its origin, mirrored below the line, and cut at a tier length. Translated copies of one
+ * x-monotone curve never intersect, so branches cannot cross; tiers separate neighbouring tips.
+ */
+export function timelineBranchGeometry(
+  originX: number,
+  dir: 1 | -1,
+  sideIndex: number,
+  seed: number,
+  accentColor: string
+): BranchGeometry {
+  const r = createRng(seed);
+  const len = TIMELINE_TIERS[sideIndex % TIMELINE_TIERS.length]!;
+  const step = 6;
+  const count = Math.max(4, Math.round(len / step));
+  const a0 = 1.32; // ~76 degrees from the line
+  const a1 = 0.95; // eases to ~54 degrees
+  let x = originX;
+  let y = 3 * dir;
+  const points: Point2D[] = [{ x, y }];
+  for (let s = 0; s < count; s++) {
+    const t = s / count;
+    const ang = a0 + (a1 - a0) * t;
+    x += Math.cos(ang) * step;
+    y += Math.sin(ang) * step * dir;
+    points.push({ x: Number(x.toFixed(2)), y: Number(y.toFixed(2)) });
+  }
+
+  // Light stipple along the stem only (kept sparse so the line area stays clean).
+  const mistParticles: ParticleDot[] = [];
+  const mistCount = Math.min(14, Math.round(points.length * 0.6));
+  for (let i = 0; i < mistCount; i++) {
+    const idx = Math.min(points.length - 1, 2 + Math.floor(r() * (points.length - 2)));
+    const pt = points[idx]!;
+    const progress = idx / (points.length - 1);
+    mistParticles.push({
+      x: Number((pt.x + (r() - 0.5) * 5).toFixed(1)),
+      y: Number((pt.y + (r() - 0.5) * 5).toFixed(1)),
+      r: Number((0.5 + r() * 0.8).toFixed(2)),
+      color: r() < 0.6 ? accentColor : LIVING_PARTICLE_PALETTE[(r() * LIVING_PARTICLE_PALETTE.length) | 0],
+      opacity: Number(((0.18 + r() * 0.3) * (1 - progress * 0.3)).toFixed(2)),
+    });
+  }
+
+  return {
+    pathD: smoothSvgPath(points),
+    approxLength: len,
+    tip: points[points.length - 1]!,
+    dir,
+    depthScale: 1,
+    points,
+    mistParticles,
+    filaments: [],
+  };
+}
+
 /**
  * Generates symmetrical rhythmic waveform envelope ticks and inter-node harmonic arcs
  * along the main spine axis, evoking the brain-scan knowledge-graph silhouette.
@@ -262,29 +379,33 @@ export function generateBranchGeometry(
 export function generateSpineSynapses(
   branchCounts: number[],
   gap = SPINE_GAP,
-  seed = 313
+  seed = 313,
+  /** Actual node positions (timeline layout); defaults to i * gap. */
+  nodeX?: number[]
 ): { ticks: WaveformTick[]; arcs: SynapseArc[] } {
   const r = createRng(seed);
   const ticks: WaveformTick[] = [];
   const arcs: SynapseArc[] = [];
   const n = branchCounts.length;
   if (n === 0) return { ticks, arcs };
+  const pos = (i: number) => nodeX?.[i] ?? i * gap;
 
   const startX = -88;
-  const endX = (n - 1) * gap + 112;
+  const endX = pos(n - 1) + 112;
   const step = 11;
 
   for (let x = startX; x <= endX; x += step) {
     // Influence envelope swells smoothly around each main node according to its branch count
     let envelope = 4;
     for (let i = 0; i < n; i++) {
-      const cx = i * gap;
+      const cx = pos(i);
       const dist = Math.abs(x - cx);
       const weight = 14 + Math.min(3, branchCounts[i]) * 5.5;
       envelope += weight * Math.exp(-(dist * dist) / (2 * 56 * 56));
     }
     const jitter = 0.72 + r() * 0.52;
-    const halfHeight = Number((envelope * jitter).toFixed(1));
+    // Timeline mode: keep the waveform close to the line so it does not tangle with branch stems.
+    const halfHeight = Number((nodeX ? Math.min(7, envelope * jitter * 0.25) : envelope * jitter).toFixed(1));
     const isTeal = r() < 0.42;
 
     ticks.push({
@@ -296,9 +417,10 @@ export function generateSpineSynapses(
   }
 
   // Inter-node harmonic synaptic arcs bridging adjacent nodes above and below the spine
-  for (let i = 0; i < n - 1; i++) {
-    const x1 = i * gap;
-    const x2 = (i + 1) * gap;
+  // (skipped in timeline mode: they cut across the article branches).
+  for (let i = 0; i < (nodeX ? 0 : n - 1); i++) {
+    const x1 = pos(i);
+    const x2 = pos(i + 1);
     const midX = (x1 + x2) / 2;
     const accent = NODE_ACCENTS[i % NODE_ACCENTS.length];
 
@@ -372,10 +494,12 @@ export function generateLensParticles(
 export function generateGroundParticles(
   spineCount: number,
   gap = SPINE_GAP,
-  seed = 7
+  seed = 7,
+  /** Drawn line length (timeline layout); defaults to (count - 1) * gap. */
+  spineWidth?: number
 ): ParticleDot[] {
   const r = createRng(seed);
-  const width = Math.max(1, spineCount - 1) * gap + 320;
+  const width = (spineWidth ?? Math.max(1, spineCount - 1) * gap) + 320;
   const startX = -150;
   const dots: ParticleDot[] = [];
 
