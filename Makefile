@@ -1,10 +1,7 @@
-.PHONY: install db up down prod migrate dev test typecheck eval logs
+.PHONY: install up down prod migrate dev test typecheck eval logs
 
 install:
 	cd backend && npm install
-
-db:
-	docker compose up -d db
 
 up:
 	docker compose up -d --build

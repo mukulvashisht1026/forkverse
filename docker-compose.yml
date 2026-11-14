@@ -1,28 +1,10 @@
 services:
-  db:
-    # Single-node replica set with mongot: supports transactions and $vectorSearch.
-    image: mongodb/mongodb-atlas-local:8
-    environment:
-      MONGODB_INITDB_ROOT_USERNAME: ${MONGO_USER:-forkverse}
-      MONGODB_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-change-me}
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongodata:/data/db
-      - mongoconfig:/data/configdb
-      - mongot:/data/mongot
-    # The image ships its own HEALTHCHECK.
-
   backend:
     build: ./backend
+    # MONGODB_URI (MongoDB Atlas) and other settings come from .env.
     env_file:
       - path: .env
-        required: false
-    environment:
-      MONGODB_URI: mongodb://${MONGO_USER:-forkverse}:${MONGO_PASSWORD:-change-me}@db:27017/?directConnection=true&authSource=admin
-    depends_on:
-      db:
-        condition: service_healthy
+        required: true
     ports:
       - "3000:3000"
 
@@ -32,8 +14,3 @@ services:
       - backend
     ports:
       - "8080:80"
-
-volumes:
-  mongodata:
-  mongoconfig:
-  mongot:

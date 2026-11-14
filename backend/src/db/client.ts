@@ -18,13 +18,15 @@ export const col = {
   monitors: db.collection<Collections['monitors']>('monitors'),
   evalRuns: db.collection<Collections['eval_runs']>('eval_runs'),
   locks: db.collection<Collections['locks']>('locks'),
+  timelineNodes: db.collection<Collections['timeline_nodes']>('timeline_nodes'),
+  timelineMeta: db.collection<Collections['timeline_meta']>('timeline_meta'),
 } as const;
 
 export const newId = (): string => randomUUID();
 
 /**
  * Run fn inside a multi-document transaction; aborts on throw. Pass `session` to every
- * operation inside fn. Requires a replica set (the atlas-local image is a single-node one).
+ * operation inside fn. Requires a replica set (every Atlas cluster is one).
  */
 export async function withTransaction<T>(fn: (session: ClientSession) => Promise<T>): Promise<T> {
   const session = mongo.startSession();
