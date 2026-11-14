@@ -1,0 +1,6 @@
+{
+  "name": "Signal Spine",
+  "description": "Live web and social media impact tree map powered by Context.dev scraping, visualizing declarations along a spine with branching web evidence and center impact cards.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

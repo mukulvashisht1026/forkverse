@@ -1,0 +1,88 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+  --bg1: #0b1736;
+  --bg2: #02040a;
+  --ink: #eef2fb;
+  --muted: #8e9bb8;
+  --glass: rgba(5, 9, 20, 0.8);
+  --edge: rgba(255, 255, 255, 0.14);
+  --ember: #ff9a4d;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  color: var(--ink);
+  font-family: "Hanken Grotesk", system-ui, -apple-system, sans-serif;
+  font-weight: 300;
+  font-size: 15px;
+  line-height: 1.55;
+  background: radial-gradient(ellipse at 50% 60%, var(--bg1), var(--bg2) 75%);
+  -webkit-font-smoothing: antialiased;
+}
+
+.font-mono-tabular {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.spine-nav-item {
+  position: relative;
+  transition: color 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.spine-nav-item.is-selected::before {
+  content: "";
+  position: absolute;
+  left: -32px;
+  top: 5px;
+  width: 6px;
+  height: 20px;
+  background: #ffffff;
+}
+
+@media (max-width: 640px) {
+  .spine-nav-item.is-selected::before {
+    left: -20px;
+  }
+}
+
+@keyframes focusCardEnter {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -48%);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%);
+  }
+}
+
+.focus-card-surface {
+  background: rgba(5, 10, 22, 0.94);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 18px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.78);
+  transform: translate(-50%, -50%);
+  animation: focusCardEnter 150ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.glass-panel-surface {
+  background: rgba(6, 11, 24, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--edge);
+  border-radius: 14px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65);
+}
