@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { ArrowLeft, ArrowUpRight, LoaderCircle, Pencil, Tag, MoreHorizontal } from 'lucide-react';
-import type { FocusTarget, SpineNode, BranchNode } from './types/tree';
+import type { FocusTarget, SpineNode } from './types/tree';
 import { useLiveTimeline } from './hooks/useLiveTimeline';
 import { TreeCanvasAdapter } from './components/investigationTree/TreeCanvasAdapter';
 import './components/investigationTree/treeCanvas.css';
@@ -19,7 +19,6 @@ import { mapInvestigationGraphDto, type ClaimLink, type InvestigationGraph } fro
 const PENDING_SHOWN = 8;
 import { NodeCard } from './components/NodeCard';
 import { DraggableChatPanel } from './components/DraggableChatPanel';
-import { SPINE_GAP, generateBranchGeometry } from './components/investigationTree/utils/treeMath';
 import { closeNodeCard, keepExistingNodeCard, nodeCardId, openNodeCard, shouldDismissNodeCardPointer, type ActiveNodeCard } from './utils/nodeCardState';
 import { animateGraphAdditions, findGraphAdditions, isNewerGraphRevision, type GraphAdditions } from './utils/graphAdditions';
 
@@ -212,7 +211,7 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
     // Politician view: every claim is on the main tracker line, so nothing is collapsed.
     const politician = graph.mode === 'politician';
     const nodes = graph.claimNodes.filter((n) => politician || n.claimStatus !== 'pending' || shown.has(n.id));
-    setClaimGraph({ nodes, links: links.filter((l) => nodes.some((n) => n.id === l.from) && nodes.some((n) => n.id === l.to)), hiddenPending: politician ? 0 : pending.length - shown.size, ...(graph.entity ? { entity: graph.entity } : {}), ...(graph.mode ? { mode: graph.mode } : {}) });
+    setClaimGraph((previous) => ({ nodes: animateGraphAdditions(previous?.nodes ?? null, nodes), links: links.filter((l) => nodes.some((n) => n.id === l.from) && nodes.some((n) => n.id === l.to)), hiddenPending: politician ? 0 : pending.length - shown.size, ...(graph.entity ? { entity: graph.entity } : {}), ...(graph.mode ? { mode: graph.mode } : {}) }));
   };
   const activeNodes = showClaims ? claimGraph!.nodes : workspaceNodes ?? [];
   const [viewTransform, setViewTransform] = useState({ k: 1, x: 0, y: 0 });
@@ -299,7 +298,7 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
 
   useEffect(() => {
     if (!pinnedFocus) return;
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') setPinnedFocus(null); };
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') { setPinnedFocus(null); setActiveNodeCard(null); } };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [pinnedFocus]);
@@ -311,6 +310,10 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
       if (!current || (pinnedFocus.j !== undefined && !current.branches[pinnedFocus.j])) setPinnedFocus(null);
     }
   }, [activeNodes, pinnedFocus, selectedIndex]);
+
+  useEffect(() => {
+    setActiveNodeCard((card) => keepExistingNodeCard(card, new Set(activeNodes.map((node) => node.id)), new Set(activeNodes.flatMap((node) => node.branches.map((branch) => branch.id)))));
+  }, [activeNodes]);
 
   const saveTitle = async () => {
     if (!selectedInvestigation) return;
@@ -348,9 +351,6 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
     const animatedNodes = animateGraphAdditions(sameInvestigation ? previous.nodes : null, nodes);
     graphSnapshotRef.current = { investigationId, revision, nodes: animatedNodes };
     setWorkspaceNodes(animatedNodes);
-    setActiveNodeCard((card) => keepExistingNodeCard(card, new Set(animatedNodes.map((node) => node.id)), new Set(animatedNodes.flatMap((node) => node.branches.map((branch) => branch.id)))));
-    const liveCardIds = new Set(animatedNodes.flatMap((node) => [`event:${node.id}`, ...node.branches.map((branch) => `evidence:${branch.id}`)]));
-    for (const id of cardOffsets.current.keys()) if (!liveCardIds.has(id)) cardOffsets.current.delete(id);
     setWhatChanged(additions.events.length || additions.evidence.length ? { revision, additions } : null);
     return true;
   }, []);
@@ -375,6 +375,7 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
       return changed ? next : nodes;
     };
     setWorkspaceNodes((nodes) => nodes ? complete(nodes) : nodes);
+    setClaimGraph((graph) => graph ? { ...graph, nodes: complete(graph.nodes) } : graph);
     const snapshot = graphSnapshotRef.current;
     if (snapshot) graphSnapshotRef.current = { ...snapshot, nodes: complete(snapshot.nodes) };
   }, []);
@@ -504,17 +505,10 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
       const evidence = target.j === undefined ? undefined : node.branches[target.j];
       if (target.j !== undefined && !evidence) return;
       const card = { eventId: node.id, ...(evidence ? { evidenceId: evidence.id } : {}) };
-      if (!showClaims) setActiveNodeCard((active) => openNodeCard(active, card));
+      setActiveNodeCard((active) => openNodeCard(active, card));
     }
-  }, [activeNodes, navigateToTarget, showClaims]);
+  }, [activeNodes, navigateToTarget]);
   const activeFocus = hoverFocus ?? pinnedFocus;
-  const focusNode: SpineNode | undefined = pinnedFocus ? activeNodes[pinnedFocus.i] : undefined;
-  const focusBranch: BranchNode | undefined = pinnedFocus?.j !== undefined ? focusNode?.branches[pinnedFocus.j] : undefined;
-  const focusTitle = focusBranch?.name ?? focusNode?.name;
-  const focusDescription = focusBranch?.info ?? focusNode?.info;
-  const sourceUrl = focusBranch?.sourceUrl ?? focusNode?.sourceUrl;
-  const sourceName = focusBranch?.sourceDomain ?? (sourceUrl ? safeHostname(sourceUrl) : undefined);
-  const focusDate = asDate(focusBranch?.publishedAt ?? focusNode?.timestamp);
 
   const applyResearchGraph = useCallback((event: { type: 'graph_updated'; graph: InvestigationGraphDto }) => {
     if (!selectedInvestigation || event.graph.investigationId !== selectedInvestigation.id) return;
@@ -660,6 +654,10 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
       <header className="gh-topbar">
         <button className="gh-back" onClick={returnHome} aria-label="Back to investigations"><ArrowLeft size={16} /><span className="gh-topbar-brand">TRACEWIRE</span></button>
         <div className="gh-title-edit">{editingTitle ? <input autoFocus maxLength={120} value={titleDraft} aria-label="Graph title" onChange={(event) => setTitleDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); } if (event.key === 'Escape') { setTitleDraft(selectedInvestigation?.title ?? ''); event.currentTarget.blur(); } }} onBlur={() => void saveTitle()} /> : <><span className="gh-workspace-title" title={selectedInvestigation?.title}>{claimGraph?.entity && <><span className="gh-entity">{claimGraph.entity}</span><span className="gh-crumb-sep">›</span></>}{selectedInvestigation?.title ?? 'Investigation'}</span><button type="button" className="gh-title-edit-button" aria-label="Edit graph title" onClick={() => { setTitleDraft(selectedInvestigation?.title ?? ''); setEditingTitle(true); }}><Pencil size={14} /></button></>}</div>
+        {claimGraph && <div className="gh-graph-mode" role="group" aria-label="Graph view">
+          <button type="button" className={showClaims ? 'on' : ''} aria-pressed={showClaims} onClick={() => { setGraphMode('claims'); setSelectedIndex(0); setPinnedFocus(null); setActiveNodeCard(null); setWorkspaceFitSignal((v) => v + 1); }}>Claims</button>
+          <button type="button" className={!showClaims ? 'on' : ''} aria-pressed={!showClaims} onClick={() => { setGraphMode('runs'); setSelectedIndex(0); setPinnedFocus(null); setActiveNodeCard(null); setWorkspaceFitSignal((v) => v + 1); }}>Research runs</button>
+        </div>}
       </header>
       <div className="gh-workspace-body" ref={workspaceBodyRef}>
         <DraggableChatPanel workspaceRef={workspaceBodyRef}>
@@ -677,21 +675,20 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
             onHoverTarget={setHoverFocus} onSelectTarget={focusTarget} onClearPin={() => setPinnedFocus(null)}
             onContinue={() => void continueGraph()} isContinuing={continuing} highlight={highlight}
             liveMarks={liveMarks} links={showClaims ? claimGraph?.links : undefined}
-            laneNote={showClaims && claimGraph?.hiddenPending ? `+${claimGraph.hiddenPending} more unverified (listed in the chat)` : undefined}
+            laneNote={undefined}
             onViewChange={setViewTransform} onCanvasReady={setCanvasElement} onGrowthComplete={completeGraphGrowth}
           />}
-          <div className="gh-graph-label">
-            {showClaims
-              ? <>CLAIM TIMELINE <span>{activeNodes.filter((n) => n.claimStatus === 'established').length} established · {activeNodes.filter((n) => n.claimStatus === 'pending').length + (claimGraph?.hiddenPending ?? 0)} unverified · {claimGraph?.links.length ?? 0} links</span></>
-              : <>EVIDENCE GRAPH <span>{activeNodes.length} {activeNodes.length === 1 ? 'research run' : 'research runs'}</span></>}
-            {liveMarks.size > 0 && <span className="tw-live-count"><i className="tw-live-dot" aria-hidden="true" />{liveMarks.size} added by live tracking</span>}
-          </div>
-          {claimGraph && <div className="gh-graph-mode" role="group" aria-label="Graph view">
-            <button type="button" className={showClaims ? 'on' : ''} aria-pressed={showClaims} onClick={() => { setGraphMode('claims'); setSelectedIndex(0); setPinnedFocus(null); setActiveNodeCard(null); setWorkspaceFitSignal((v) => v + 1); }}>Claims</button>
-            <button type="button" className={!showClaims ? 'on' : ''} aria-pressed={!showClaims} onClick={() => { setGraphMode('runs'); setSelectedIndex(0); setPinnedFocus(null); setWorkspaceFitSignal((v) => v + 1); }}>Research runs</button>
-          </div>}
-          {showClaims && !highlight?.roles && claimGraph?.mode === 'politician' && <div className="gh-claim-legend" aria-label="Claim legend"><span className="lg-source"><i />reports the claim</span><span className="lg-fulfilled"><i />fulfilled</span><span className="lg-contradicts"><i />not fulfilled</span><span className="lg-supports"><i />in progress</span><span className="lg-context"><i />no coloured branch = no follow-up yet</span><span className="lg-context"><i />UNVERIFIED badge = one source so far</span></div>}
-          {showClaims && !highlight?.roles && claimGraph?.mode !== 'politician' && <div className="gh-claim-legend" aria-label="Claim legend"><span className="lg-supports"><i />supports</span><span className="lg-contradicts"><i />contradicts</span><span className="lg-context"><i />context</span><span className="lg-pending"><i />unverified lane</span><span className="lg-link"><i />links: solid = stated, dashed = inferred / sequence</span></div>}
+          {showClaims && !highlight?.roles && <details className="gh-claim-legend">
+            <summary>Legend &amp; timeline</summary>
+            <p>{activeNodes.filter((n) => n.claimStatus === 'established').length} established · {activeNodes.filter((n) => n.claimStatus === 'pending').length + (claimGraph?.hiddenPending ?? 0)} unverified · {claimGraph?.links.length ?? 0} links</p>
+            <div aria-label="Claim legend">{claimGraph?.mode === 'politician' ? <>
+              <span className="lg-source"><i />Reports the claim</span><span className="lg-fulfilled"><i />Fulfilled</span><span className="lg-contradicts"><i />Not fulfilled</span><span className="lg-supports"><i />In progress</span><span className="lg-context"><i />No follow-up yet</span>
+            </> : <>
+              <span className="lg-supports"><i />Supports</span><span className="lg-contradicts"><i />Contradicts</span><span className="lg-context"><i />Context</span><span className="lg-pending"><i />Unverified lane</span>
+            </>}</div>
+            <p>{claimGraph?.mode === 'politician' ? 'Unverified: one source so far. ' : 'The lower lane contains claims awaiting corroboration. '}Solid links are stated; dashed links are inferred or sequential. Select a claim to inspect its sources.</p>
+            {liveMarks.size > 0 && <p>{liveMarks.size} items added by live tracking</p>}
+          </details>}
           <div className="gh-graph-controls">
             {selectedInvestigation && !temporaryTimelineContext && !mockMode && <LiveMonitor key={selectedInvestigation.id} investigationId={selectedInvestigation.id} topic={selectedInvestigation.title} activity={monitorActivity} disabled={workspaceLoading || Boolean(workspaceError)} onMonitorsChange={setTrackedMonitors} />}
             {whatChanged && !showClaims && <button type="button" className="gh-what-changed" onClick={focusWhatChanged} title={`New since graph revision ${whatChanged.revision}`}>What changed · {whatChanged.additions.events.length + whatChanged.additions.evidence.length}</button>}
@@ -706,18 +703,8 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
           {workspaceLoading && <div className="gh-graph-state">Loading investigation graph…</div>}
           {workspaceError && <div className="gh-graph-state"><p>{workspaceError}</p><button onClick={() => selectedInvestigation && void openWorkspace(selectedInvestigation)}>Retry</button></div>}
           {!workspaceLoading && !workspaceError && workspaceNodes?.length === 0 && <div className="gh-graph-state">{researchRunning ? 'Researching… evidence will appear here as it is found.' : 'This investigation has no evidence yet.'}</div>}
-          {showClaims && pinnedFocus && focusTitle && <article className="gh-detail" aria-label="Selected claim or evidence">
-            <div className="gh-detail-head"><span>{focusBranch ? 'Evidence' : focusNode?.claimStatus === 'pending' ? 'Unverified claim' : 'Claim'}</span><button aria-label="Close evidence details" onClick={() => setPinnedFocus(null)}>Close</button></div>
-            <h3>{focusTitle}</h3>
-            {focusDate && <p className="gh-detail-date">{focusDate}</p>}
-            {focusDescription && <p className="gh-detail-description">{focusDescription}</p>}
-            {(focusBranch?.sourceType || sourceName) && <p className="gh-source-label">{sourceName ?? focusBranch?.sourceType}</p>}
-            {sourceUrl && <a href={sourceUrl} target="_blank" rel="noopener noreferrer">Open original source <ArrowUpRight size={14} /></a>}
-            {focusBranch && focusNode && <button type="button" className="gh-detail-back" onClick={() => setPinnedFocus({ i: pinnedFocus.i })}>← Claim: {focusNode.name}</button>}
-            {!focusBranch && focusNode && <div className="gh-detail-children"><p className="gh-detail-sub">{focusNode.branches.length ? `${focusNode.branches.length} source${focusNode.branches.length === 1 ? '' : 's'} (child nodes)` : 'No sources attached yet.'}</p><ul>{focusNode.branches.map((b, j) => <li key={b.id}><button type="button" className={`rel-${b.outcomeReport ? 'outcome' : b.sourceReport ? 'source' : 'evidence'} stance-${b.stance ?? 'context'}`} onClick={() => setPinnedFocus({ i: pinnedFocus.i, j })}><span className="gh-rel">{b.relation ?? b.stance}</span><strong>{b.name}</strong><span className="gh-detail-meta">{[b.sourceDomain, asDate(b.publishedAt)].filter(Boolean).join(' · ')}</span></button></li>)}</ul></div>}
-          </article>}
           {workspaceNodes && !showClaims && <SpineNav spine={activeNodes} selectedIndex={selectedIndex} onHoverNode={setHoverFocus} onSelectNode={(index) => focusTarget({ i: index })} />}
-          {workspaceNodes && !showClaims && activeNodeCard && (() => {
+          {workspaceNodes && activeNodeCard && (() => {
             const cardInfo = activeNodeCard;
             const cardId = nodeCardId(cardInfo);
             const spineIdx = activeNodes.findIndex((item) => item.id === cardInfo.eventId);
@@ -727,10 +714,15 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
             const branchIndex = cardInfo.evidenceId ? node.branches.findIndex((item) => item.id === cardInfo.evidenceId) : -1;
             if (isBranch && branchIndex < 0) return null;
             const targetNode = isBranch && branchIndex >= 0 ? node.branches[branchIndex] : node;
-            const worldPos = isBranch && branchIndex >= 0 ? generateBranchGeometry(spineIdx * SPINE_GAP, branchIndex % 2 ? 1 : -1, Math.floor(branchIndex / 2), node.branches[branchIndex].seed, '#75c4c8').tip : { x: spineIdx * SPINE_GAP, y: 0 };
-            const savedOffset = cardOffsets.current.get(cardId);
+            const anchorId = isBranch ? `evidence:${node.id}:${targetNode.id}` : `event:${node.id}`;
+            const positionKey = `${graphMode}:${anchorId}`;
+            const savedOffset = cardOffsets.current.get(positionKey);
             const nodeRef = { current: canvasElement };
-            return <NodeCard key={`card-${cardId}`} node={targetNode} isBranch={isBranch} worldPos={worldPos} view={viewTransform} svgRef={nodeRef} workspaceRef={workspaceBodyRef} offset={savedOffset} revision={cardRevision} onClose={() => setActiveNodeCard((active) => closeNodeCard(active, cardId))} onDragEnd={(_id, offset) => { cardOffsets.current.set(cardId, offset); setCardRevision((n) => n + 1); }} cardKey={cardId} />;
+            return <NodeCard key={positionKey} node={targetNode} isBranch={isBranch} anchorId={anchorId} view={viewTransform} svgRef={nodeRef} workspaceRef={workspaceBodyRef} offset={savedOffset} revision={cardRevision} onClose={() => setActiveNodeCard((active) => closeNodeCard(active, cardId))} onDragEnd={(_id, offset) => { cardOffsets.current.set(positionKey, offset); setCardRevision((n) => n + 1); }} cardKey={cardId} label={showClaims ? (isBranch ? 'Evidence' : node.claimStatus === 'pending' ? 'Unverified claim' : 'Claim') : undefined}>
+              {showClaims && (isBranch
+                ? <button type="button" className="node-card-back" onClick={() => focusTarget({ i: spineIdx })}>← Claim: {node.name}</button>
+                : <section className="node-card-sources" aria-label="Claim sources"><h4>{node.branches.length ? `${node.branches.length} source${node.branches.length === 1 ? '' : 's'}` : 'No sources attached yet'}</h4><ul>{node.branches.map((b, j) => <li key={b.id}><button type="button" onClick={() => focusTarget({ i: spineIdx, j })}><span className="node-card-relation">{b.relation ?? b.stance}</span><strong>{b.name}</strong><span className="node-card-source-meta">{[b.sourceDomain, asDate(b.publishedAt)].filter(Boolean).join(' · ')}</span></button></li>)}</ul></section>)}
+            </NodeCard>;
           })()}
         </section>
       </div>
