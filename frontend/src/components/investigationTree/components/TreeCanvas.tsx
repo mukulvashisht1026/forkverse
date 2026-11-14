@@ -348,7 +348,7 @@ export function TreeCanvas({
   );
 
   const spineGeometries = useMemo(() => {
-    return spine.map((node, spineIdx) => {
+    const result = spine.map((node, spineIdx) => {
       const cx = layout.nodeX[spineIdx] ?? spineIdx * SPINE_GAP;
       const accent = NODE_ACCENTS[spineIdx % NODE_ACCENTS.length];
       const lensParticles = generateLensParticles(spineIdx * 53 + 11, 14.5, 42);
@@ -361,12 +361,25 @@ export function TreeCanvas({
         const dir: 1 | -1 = pos % 2 ? 1 : -1;
         return {
           branch: b,
-          tick: { x: originX, dir, label: tickLabel(b.publishedAt) },
+          tick: { x: originX, dir, label: tickLabel(b.publishedAt), show: false },
           geometry: generateBranchGeometry(cx, dir, Math.floor(pos / 2), b.seed, accent, originX),
         };
       });
       return { node, cx, accent, lensParticles, branches };
     });
+    // Date labels: one row below the line, only where the date changes and there is room.
+    const MIN_LABEL_GAP = 56;
+    let lastX = -Infinity;
+    let lastLabel: string | null = null;
+    const ticks = result.flatMap((g) => g.branches.map((b) => b.tick)).sort((a, b) => a.x - b.x);
+    for (const t of ticks) {
+      // Below-line labels only under upward branches, so no stem passes through the text.
+      if (!t.label || t.dir > 0 || t.label === lastLabel || t.x - lastX < MIN_LABEL_GAP) continue;
+      t.show = true;
+      lastX = t.x;
+      lastLabel = t.label;
+    }
+    return result;
   }, [spine, layout]);
 
   const applyViewToDom = () => {
@@ -694,14 +707,17 @@ export function TreeCanvas({
                   isSelected ? 'sel' : ''
                 } ${isNodeCited ? 'cited' : ''}`}
               >
-                {/* Date ticks: where each article meets the timeline (label on the side opposite its branch) */}
+                {/* Date ticks: where each article meets the timeline; sparse labels in one row below the line */}
                 {branches.map(({ branch, tick }) => (
                   <g key={`tick-${branch.id}`} className="date-tick" aria-hidden="true">
-                    <line x1={tick.x} x2={tick.x} y1={-5} y2={5} stroke="#d1bd91" strokeWidth={1} opacity={0.55} />
-                    {tick.label && (
-                      <text className="date-tick-label" x={tick.x} y={tick.dir < 0 ? 17 : -9} textAnchor="middle">
-                        {tick.label}
-                      </text>
+                    <line x1={tick.x} x2={tick.x} y1={-3} y2={3} stroke="#d1bd91" strokeWidth={1} opacity={0.35} />
+                    {tick.show && (
+                      <>
+                        <line x1={tick.x} x2={tick.x} y1={3} y2={10} stroke="#d1bd91" strokeWidth={1} opacity={0.35} />
+                        <text className="date-tick-label" x={tick.x} y={21} textAnchor="middle">
+                          {tick.label}
+                        </text>
+                      </>
                     )}
                   </g>
                 ))}

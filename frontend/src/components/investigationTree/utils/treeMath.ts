@@ -14,8 +14,8 @@ export const SPINE_GAP = 340;
 export const ORIGIN_STEP = 26;
 /** Space between an event node and its first article origin. */
 export const SEGMENT_PAD = 64;
-/** Room after the last origin so its forward-leaning branch clears the next event node. */
-const SEGMENT_TAIL = 120;
+/** Room after the last origin so its forward-leaning branch (and the next node's label) stay clear. */
+const SEGMENT_TAIL = 210;
 
 export interface SpineLayout {
   /** x of each event node on the line. */
@@ -217,8 +217,9 @@ export function generateBranchGeometry(
   /** Timeline layout: x on the line where this branch sprouts (instead of fanning out of the node). */
   originX?: number
 ): BranchGeometry {
-  const r = createRng(seed);
   const onLine = originX !== undefined;
+  if (onLine) return timelineBranchGeometry(originX, dir, pairIndex, seed, accentColor);
+  const r = createRng(seed);
   const T = {
     ang0: onLine ? 1.12 + (r() - 0.5) * 0.4 : Math.max(0.75, 1.15 - pairIndex * 0.15 + (r() - 0.5) * 0.3),
     len: onLine ? 150 + r() * 90 : 190 + pairIndex * 45 + r() * 80,
@@ -311,6 +312,66 @@ export function generateBranchGeometry(
   };
 }
 
+/** Branch lengths cycle through these tiers per side so neighbouring tips sit at different heights. */
+export const TIMELINE_TIERS = [92, 150, 208];
+
+/**
+ * Timeline branch: the SAME curve for every article (steep start easing forward), only translated
+ * to its origin, mirrored below the line, and cut at a tier length. Translated copies of one
+ * x-monotone curve never intersect, so branches cannot cross; tiers separate neighbouring tips.
+ */
+export function timelineBranchGeometry(
+  originX: number,
+  dir: 1 | -1,
+  sideIndex: number,
+  seed: number,
+  accentColor: string
+): BranchGeometry {
+  const r = createRng(seed);
+  const len = TIMELINE_TIERS[sideIndex % TIMELINE_TIERS.length]!;
+  const step = 6;
+  const count = Math.max(4, Math.round(len / step));
+  const a0 = 1.32; // ~76 degrees from the line
+  const a1 = 0.95; // eases to ~54 degrees
+  let x = originX;
+  let y = 3 * dir;
+  const points: Point2D[] = [{ x, y }];
+  for (let s = 0; s < count; s++) {
+    const t = s / count;
+    const ang = a0 + (a1 - a0) * t;
+    x += Math.cos(ang) * step;
+    y += Math.sin(ang) * step * dir;
+    points.push({ x: Number(x.toFixed(2)), y: Number(y.toFixed(2)) });
+  }
+
+  // Light stipple along the stem only (kept sparse so the line area stays clean).
+  const mistParticles: ParticleDot[] = [];
+  const mistCount = Math.min(14, Math.round(points.length * 0.6));
+  for (let i = 0; i < mistCount; i++) {
+    const idx = Math.min(points.length - 1, 2 + Math.floor(r() * (points.length - 2)));
+    const pt = points[idx]!;
+    const progress = idx / (points.length - 1);
+    mistParticles.push({
+      x: Number((pt.x + (r() - 0.5) * 5).toFixed(1)),
+      y: Number((pt.y + (r() - 0.5) * 5).toFixed(1)),
+      r: Number((0.5 + r() * 0.8).toFixed(2)),
+      color: r() < 0.6 ? accentColor : LIVING_PARTICLE_PALETTE[(r() * LIVING_PARTICLE_PALETTE.length) | 0],
+      opacity: Number(((0.18 + r() * 0.3) * (1 - progress * 0.3)).toFixed(2)),
+    });
+  }
+
+  return {
+    pathD: smoothSvgPath(points),
+    approxLength: len,
+    tip: points[points.length - 1]!,
+    dir,
+    depthScale: 1,
+    points,
+    mistParticles,
+    filaments: [],
+  };
+}
+
 /**
  * Generates symmetrical rhythmic waveform envelope ticks and inter-node harmonic arcs
  * along the main spine axis, evoking the brain-scan knowledge-graph silhouette.
@@ -343,7 +404,8 @@ export function generateSpineSynapses(
       envelope += weight * Math.exp(-(dist * dist) / (2 * 56 * 56));
     }
     const jitter = 0.72 + r() * 0.52;
-    const halfHeight = Number((envelope * jitter).toFixed(1));
+    // Timeline mode: keep the waveform close to the line so it does not tangle with branch stems.
+    const halfHeight = Number((nodeX ? Math.min(7, envelope * jitter * 0.25) : envelope * jitter).toFixed(1));
     const isTeal = r() < 0.42;
 
     ticks.push({
@@ -355,7 +417,8 @@ export function generateSpineSynapses(
   }
 
   // Inter-node harmonic synaptic arcs bridging adjacent nodes above and below the spine
-  for (let i = 0; i < n - 1; i++) {
+  // (skipped in timeline mode: they cut across the article branches).
+  for (let i = 0; i < (nodeX ? 0 : n - 1); i++) {
     const x1 = pos(i);
     const x2 = pos(i + 1);
     const midX = (x1 + x2) / 2;
