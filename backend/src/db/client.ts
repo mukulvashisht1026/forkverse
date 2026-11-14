@@ -18,6 +18,8 @@ export const col = {
   monitors: db.collection<Collections['monitors']>('monitors'),
   evalRuns: db.collection<Collections['eval_runs']>('eval_runs'),
   locks: db.collection<Collections['locks']>('locks'),
+  timelineNodes: db.collection<Collections['timeline_nodes']>('timeline_nodes'),
+  timelineMeta: db.collection<Collections['timeline_meta']>('timeline_meta'),
 } as const;
 
 export const newId = (): string => randomUUID();

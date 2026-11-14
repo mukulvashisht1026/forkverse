@@ -1,4 +1,5 @@
 import type { Document, IndexDescription } from 'mongodb';
+import type { TimelineMetaDoc, TimelineNodeDoc } from '../timeline/store.js';
 
 /**
  * Collection shapes, validators and indexes. Applied idempotently by db/migrate.ts.
@@ -130,6 +131,9 @@ export interface Collections {
   monitors: MonitorDoc;
   eval_runs: EvalRunDoc;
   locks: LockDoc;
+  /** Frontend "Signal Spine" timeline: one doc per spine node, branches embedded. */
+  timeline_nodes: TimelineNodeDoc;
+  timeline_meta: TimelineMetaDoc;
 }
 
 // ---- validators -------------------------------------------------------------
@@ -270,6 +274,27 @@ export const COLLECTIONS: Record<keyof Collections, CollectionSpec> = {
     validator: schema(['owner', 'expires_at'], { owner: str, expires_at: date }),
     // Backstop cleanup for crashed holders; withEntityLock also takes over expired leases itself.
     indexes: [{ key: { expires_at: 1 }, expireAfterSeconds: 0 }],
+  },
+  timeline_nodes: {
+    validator: schema(['name', 'declaration', 'info', 'platform', 'stockImpact', 'publicAppeal', 'scrapeEngine', 'branches', 'created_at'], {
+      name: str,
+      declaration: str,
+      info: str,
+      platform: str,
+      stockImpact: { bsonType: 'object', required: ['summary', 'tickers'] },
+      publicAppeal: { bsonType: 'object' },
+      scrapeEngine: enumOf(['exa', 'context.dev', 'gemini-search', 'seed', 'manual']),
+      branches: {
+        bsonType: 'array',
+        items: { bsonType: 'object', required: ['id', 'name', 'info', 'sourceType', 'seed'] },
+      },
+      created_at: date,
+    }),
+    indexes: [{ key: { created_at: 1 } }],
+  },
+  timeline_meta: {
+    validator: schema(['version', 'updatedAt'], { version: { bsonType: ['int', 'long', 'double'] }, updatedAt: str }),
+    indexes: [],
   },
 };
 

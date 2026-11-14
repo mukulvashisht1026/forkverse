@@ -20,6 +20,10 @@ const EnvSchema = z.object({
   EMBEDDING_MODEL: z.string().default(''),
   EMBEDDING_DIM: z.coerce.number().int().positive().default(1536),
   EMBEDDING_SERVICE_URL: z.string().default('http://embedder:8000'),
+
+  // Demo timeline (in-memory, no MongoDB needed) streamed to the frontend over /ws.
+  TIMELINE_MOCK: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
+  TIMELINE_MOCK_INTERVAL_MS: z.coerce.number().int().min(250).default(4000),
   // OpenAIEmbeddings (LangChain) used by the MongoDB vector store. Point the base URL at any
   // OpenAI-compatible /embeddings endpoint, e.g. https://ai.mongodb.com/v1 for MongoDB's models.
   EMBEDDING_BASE_URL: z.string().default(''),
