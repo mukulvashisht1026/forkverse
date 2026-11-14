@@ -45,13 +45,16 @@ export function mapTreeModels(spine: AppSpine[], liveMarks?: ReadonlyMap<string,
     ...(node.claimStatus === 'pending' && (node.outcome ? { unverified: true } : { pending: true })),
     ...(node.disputed && { disputed: true }), ...(node.outcome && { outcome: node.outcome }),
     // A node counts as live-updated when it, or any of its sources, was just added by a monitor.
-    ...((() => { const own = liveMarks?.get(node.id); const kids = node.branches.map((b) => liveMarks?.get(b.id)); const m = own === 'fresh' || kids.includes('fresh') ? 'fresh' : own ?? kids.find(Boolean); return m ? { live: m } : {}; })()),
-    branches: node.branches.map((branch) => ({
-      id: branch.id, name: shortLabel(branch.name), info: branch.info, seed: branch.seed, publishedAt: branch.publishedAt, ...(branch.stance && { stance: branch.stance }), ...(branch.outcomeReport && { outcomeReport: true }), ...(branch.sourceReport && { sourceReport: true }),
-      ...(liveMarks?.get(branch.id) && { live: liveMarks.get(branch.id) }),
-      // Branches a live monitor just added re-grow on screen.
-      isNew: Boolean(branch._animateGrowth || (branch._prog !== undefined && branch._prog < 1) || liveMarks?.get(branch.id) === 'fresh'),
-    })),
+    ...((() => { const own = liveMarks?.get(node.id); const kids = node.branches.flatMap((b) => [liveMarks?.get(b.id), ...(b.groupedSources?.map((source) => liveMarks?.get(source.id)) ?? [])]); const m = own === 'fresh' || kids.includes('fresh') ? 'fresh' : own ?? kids.find(Boolean); return m ? { live: m } : {}; })()),
+    branches: node.branches.map((branch) => {
+      const branchLive = liveMarks?.get(branch.id) ?? branch.groupedSources?.map((source) => liveMarks?.get(source.id)).find(Boolean);
+      return {
+        id: branch.id, name: shortLabel(branch.name), info: branch.info, seed: branch.seed, publishedAt: branch.publishedAt, ...(branch.stance && { stance: branch.stance }), ...(branch.outcomeReport && { outcomeReport: true }), ...(branch.sourceReport && { sourceReport: true }),
+        ...(branchLive && { live: branchLive }),
+        // Group branches already represent their sources; a pulse is enough, don't regrow them.
+        isNew: Boolean(branch._animateGrowth || (branch._prog !== undefined && branch._prog < 1) || (!branch.groupedSources && branchLive === 'fresh')),
+      };
+    }),
   }));
 }
 

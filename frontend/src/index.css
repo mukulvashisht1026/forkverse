@@ -859,6 +859,9 @@ button { color: inherit; }
 .node-card-sources ul { display: grid; max-height: 190px; gap: 4px; overflow: auto; margin: 0; padding: 0; list-style: none; }
 .node-card-sources li button { display: grid; width: 100%; gap: 3px; border: 1px solid #e7eae6; border-left: 2px solid #91a79e; border-radius: 4px; background: #fff; padding: 6px 8px; color: #303833; cursor: pointer; text-align: left; }
 .node-card-sources li button:hover { background: #f4f7f3; }
+.node-card-sources li > a { display: grid; gap: 3px; border: 1px solid #e7eae6; border-left: 2px solid #91a79e; border-radius: 4px; background: #fff; padding: 6px 8px; color: #303833; text-decoration: none; }
+.node-card-sources li > a:hover { background: #f4f7f3; }
+.node-card-sources li > a strong { color: #44645b; text-decoration: underline; text-underline-offset: 2px; }
 .node-card-sources strong { font-size: 11px; font-weight: 500; line-height: 1.35; }
 .node-card-relation, .node-card-source-meta { color: #737c76; font-size: 9px; }
 .node-card-workspace .node-card-source-link:focus-visible,

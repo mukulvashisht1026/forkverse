@@ -20,6 +20,17 @@ export type BranchSourceType = 'social' | 'news' | 'market' | 'policy' | 'manual
 
 export type BranchGrowthSide = 'top' | 'bottom';
 
+/** Original articles retained under a consolidated insight in Research runs. */
+export interface GroupedBranchSource {
+  id: string;
+  name: string;
+  info: string;
+  sourceDomain?: string;
+  sourceName?: string;
+  sourceUrl?: string;
+  publishedAt?: string;
+}
+
 export interface BranchNode {
   id: string;
   name: string;
@@ -46,6 +57,8 @@ export interface BranchNode {
   sourceReport?: boolean;
   /** Claim view: short relation label, e.g. "Supports", "Reports the claim", "Not fulfilled". */
   relation?: string;
+  /** Multiple articles supporting the same insight; originals remain available in its card. */
+  groupedSources?: GroupedBranchSource[];
 }
 
 export type ScrapeEngine =

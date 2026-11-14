@@ -1,4 +1,4 @@
-import type { BranchNode, SpineNode } from '../types/tree';
+import type { BranchNode, GroupedBranchSource, SpineNode } from '../types/tree';
 import type { ClaimDto, InvestigationEventDto, InvestigationEvidenceDto } from '../../../contracts/investigations';
 
 function stableSeed(value: string): number {
@@ -91,4 +91,51 @@ export function claimsToSpineNodes(claims: ClaimDto[], mode: 'news' | 'politicia
       seed: stableSeed(`${claim.id}:${e.evidenceId}`),
     })),
   }));
+}
+
+/**
+ * Research runs keeps event nodes on the timeline, but groups its source branches by the
+ * claim/insight they support. Evidence with no extracted claim stays visible as an article.
+ */
+export function groupResearchRunInsights(events: SpineNode[], claims: SpineNode[]): SpineNode[] {
+  if (!claims.length) return events;
+  return events.map((event) => {
+    if (!event.branches.length) return event;
+    const evidenceById = new Map(event.branches.map((source) => [source.id, source]));
+    const grouped: BranchNode[] = [];
+    const assigned = new Set<string>();
+
+    for (const claim of claims) {
+      const matched = claim.branches
+        .map((source) => evidenceById.get(source.id))
+        .filter((source): source is BranchNode => Boolean(source));
+      if (!matched.length) continue;
+
+      const sources: GroupedBranchSource[] = matched.map((source) => ({
+        id: source.id,
+        name: source.name,
+        info: source.info,
+        ...(source.sourceDomain && { sourceDomain: source.sourceDomain }),
+        ...(source.sourceName && { sourceName: source.sourceName }),
+        ...(source.sourceUrl && { sourceUrl: source.sourceUrl }),
+        ...(source.publishedAt && { publishedAt: source.publishedAt }),
+      }));
+      matched.forEach((source) => assigned.add(source.id));
+      const dates = matched.map((source) => source.publishedAt).filter((date): date is string => Boolean(date)).sort();
+      grouped.push({
+        id: `insight:${event.id}:${claim.id}`,
+        name: claim.name,
+        info: claim.info,
+        sourceType: 'news',
+        sourceTypeIsInferred: true,
+        ...(dates[0] && { publishedAt: dates[0] }),
+        relation: `${sources.length} source${sources.length === 1 ? '' : 's'}`,
+        groupedSources: sources,
+        seed: stableSeed(`${event.id}:${claim.id}`),
+      });
+    }
+
+    const ungrouped = event.branches.filter((source) => !assigned.has(source.id));
+    return grouped.length ? { ...event, branches: [...grouped, ...ungrouped] } : event;
+  });
 }

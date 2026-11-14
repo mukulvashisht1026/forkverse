@@ -1,6 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mapInvestigationGraphDto, investigationRepository } from './investigations';
+import { groupResearchRunInsights } from './investigationGraphAdapter';
+import type { BranchNode, SpineNode } from '../types/tree';
+
+const canvasNode = (id: string, name: string, branches: BranchNode[]): SpineNode => ({
+  id, name, declaration: name, info: '', platform: 'Investigation', stockImpact: { summary: '', tickers: [] },
+  publicAppeal: { sentimentLabel: '', positivePct: 0, neutralPct: 0, negativePct: 0, narrative: '' }, scrapeEngine: 'manual', branches,
+});
+
 test('investigation graph adapter preserves event and evidence for canvas', () => {
   const graph = mapInvestigationGraphDto({
     investigationId: 'inv-1', revision: 2, updatedAt: '2026-01-01T00:00:00Z',
@@ -15,6 +23,40 @@ test('investigation graph adapter preserves event and evidence for canvas', () =
   assert.equal(graph.nodes[0].branches[0].publishedAt, '2026-01-03T00:00:00Z');
   assert.equal(graph.nodes[0].branches[0].impactAngle, 'News coverage');
   assert.equal(graph.nodes[0].branches[0].sourceTypeIsInferred, true);
+});
+
+test('Research runs groups same insights across sources but keeps distinct insights separate', () => {
+  const event = canvasNode('event-1', 'Factory dispute', [
+    { id: 'source-a', name: 'Workers report a walkout', info: 'A', sourceType: 'news', sourceDomain: 'a.test', sourceUrl: 'https://a.test/1', seed: 1 },
+    { id: 'source-b', name: 'Union confirms walkout', info: 'B', sourceType: 'news', sourceDomain: 'b.test', sourceUrl: 'https://b.test/1', seed: 2 },
+    { id: 'source-c', name: 'Company offers mediation', info: 'C', sourceType: 'news', sourceDomain: 'c.test', sourceUrl: 'https://c.test/1', seed: 3 },
+  ]);
+  const claims = [
+    canvasNode('claim-walkout', 'Workers began a walkout', [
+      { id: 'source-a', name: 'Workers report a walkout', info: 'A', sourceType: 'news', seed: 1 },
+      { id: 'source-b', name: 'Union confirms walkout', info: 'B', sourceType: 'news', seed: 2 },
+    ]),
+    canvasNode('claim-mediation', 'The company offered mediation', [
+      { id: 'source-b', name: 'Union confirms walkout', info: 'B', sourceType: 'news', seed: 2 },
+      { id: 'source-c', name: 'Company offers mediation', info: 'C', sourceType: 'news', seed: 3 },
+    ]),
+  ];
+
+  const [grouped] = groupResearchRunInsights([event], claims);
+  assert.deepEqual(grouped?.branches.map((branch) => branch.name), ['Workers began a walkout', 'The company offered mediation']);
+  assert.deepEqual(grouped?.branches.map((branch) => branch.groupedSources?.map((source) => source.id)), [['source-a', 'source-b'], ['source-b', 'source-c']]);
+  assert.equal(grouped?.branches[0]?.groupedSources?.[0]?.sourceUrl, 'https://a.test/1');
+});
+
+test('Research runs leave unclassified evidence visible and retain raw branches when claims are absent', () => {
+  const event = canvasNode('event-1', 'Factory dispute', [
+    { id: 'source-a', name: 'A source', info: '', sourceType: 'news', seed: 1 },
+    { id: 'source-b', name: 'Unclassified source', info: '', sourceType: 'news', seed: 2 },
+  ]);
+  const claim = canvasNode('claim-a', 'Insight', [{ id: 'source-a', name: 'A source', info: '', sourceType: 'news', seed: 1 }]);
+  const [grouped] = groupResearchRunInsights([event], [claim]);
+  assert.deepEqual(grouped?.branches.map((branch) => branch.name), ['Insight', 'Unclassified source']);
+  assert.equal(groupResearchRunInsights([event], [])[0], event);
 });
 
 test('public investigations repository maps stable API records', async (t) => {

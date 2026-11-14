@@ -14,6 +14,7 @@ import { ResearchChat } from './components/ResearchChat';
 import { MockResearchChat } from './components/MockResearchChat';
 import type { InvestigationGraphDto } from '../../contracts/investigations';
 import { mapInvestigationGraphDto, type ClaimLink, type InvestigationGraph } from './services/investigations';
+import { groupResearchRunInsights } from './services/investigationGraphAdapter';
 
 /** Claim view: pending claims shown on the unverified lane (the rest are counted). */
 const PENDING_SHOWN = 8;
@@ -192,7 +193,7 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
   const lastRevisionRef = useRef(0);
 
   /** Claim timeline (Entity -> Topic -> Claims -> Evidence), present once claims were built. */
-  const [claimGraph, setClaimGraph] = useState<{ nodes: SpineNode[]; links: ClaimLink[]; hiddenPending: number; entity?: string; mode?: 'news' | 'politician' } | null>(null);
+  const [claimGraph, setClaimGraph] = useState<{ nodes: SpineNode[]; allNodes: SpineNode[]; links: ClaimLink[]; hiddenPending: number; entity?: string; mode?: 'news' | 'politician' } | null>(null);
   const [graphMode, setGraphMode] = useState<'claims' | 'runs'>('claims');
   const showClaims = graphMode === 'claims' && Boolean(claimGraph?.nodes.length);
   const applyGraph = (graph: InvestigationGraph) => {
@@ -211,9 +212,10 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
     // Politician view: every claim is on the main tracker line, so nothing is collapsed.
     const politician = graph.mode === 'politician';
     const nodes = graph.claimNodes.filter((n) => politician || n.claimStatus !== 'pending' || shown.has(n.id));
-    setClaimGraph((previous) => ({ nodes: animateGraphAdditions(previous?.nodes ?? null, nodes), links: links.filter((l) => nodes.some((n) => n.id === l.from) && nodes.some((n) => n.id === l.to)), hiddenPending: politician ? 0 : pending.length - shown.size, ...(graph.entity ? { entity: graph.entity } : {}), ...(graph.mode ? { mode: graph.mode } : {}) }));
+    setClaimGraph((previous) => ({ nodes: animateGraphAdditions(previous?.nodes ?? null, nodes), allNodes: graph.claimNodes!, links: links.filter((l) => nodes.some((n) => n.id === l.from) && nodes.some((n) => n.id === l.to)), hiddenPending: politician ? 0 : pending.length - shown.size, ...(graph.entity ? { entity: graph.entity } : {}), ...(graph.mode ? { mode: graph.mode } : {}) }));
   };
-  const activeNodes = showClaims ? claimGraph!.nodes : workspaceNodes ?? [];
+  const runNodes = useMemo(() => groupResearchRunInsights(workspaceNodes ?? [], claimGraph?.allNodes ?? []), [workspaceNodes, claimGraph?.allNodes]);
+  const activeNodes = showClaims ? claimGraph!.nodes : runNodes;
   const [viewTransform, setViewTransform] = useState({ k: 1, x: 0, y: 0 });
   const [canvasElement, setCanvasElement] = useState<SVGSVGElement | null>(null);
   const workspaceBodyRef = useRef<HTMLDivElement>(null);
@@ -713,15 +715,18 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
             const isBranch = Boolean(cardInfo.evidenceId);
             const branchIndex = cardInfo.evidenceId ? node.branches.findIndex((item) => item.id === cardInfo.evidenceId) : -1;
             if (isBranch && branchIndex < 0) return null;
-            const targetNode = isBranch && branchIndex >= 0 ? node.branches[branchIndex] : node;
+            const targetBranch = isBranch && branchIndex >= 0 ? node.branches[branchIndex] : undefined;
+            const targetNode = targetBranch ?? node;
+            const groupedSources = targetBranch?.groupedSources;
             const anchorId = isBranch ? `evidence:${node.id}:${targetNode.id}` : `event:${node.id}`;
             const positionKey = `${graphMode}:${anchorId}`;
             const savedOffset = cardOffsets.current.get(positionKey);
             const nodeRef = { current: canvasElement };
-            return <NodeCard key={positionKey} node={targetNode} isBranch={isBranch} anchorId={anchorId} view={viewTransform} svgRef={nodeRef} workspaceRef={workspaceBodyRef} offset={savedOffset} revision={cardRevision} onClose={() => setActiveNodeCard((active) => closeNodeCard(active, cardId))} onDragEnd={(_id, offset) => { cardOffsets.current.set(positionKey, offset); setCardRevision((n) => n + 1); }} cardKey={cardId} label={showClaims ? (isBranch ? 'Evidence' : node.claimStatus === 'pending' ? 'Unverified claim' : 'Claim') : undefined}>
+            return <NodeCard key={positionKey} node={targetNode} isBranch={isBranch} anchorId={anchorId} view={viewTransform} svgRef={nodeRef} workspaceRef={workspaceBodyRef} offset={savedOffset} revision={cardRevision} onClose={() => setActiveNodeCard((active) => closeNodeCard(active, cardId))} onDragEnd={(_id, offset) => { cardOffsets.current.set(positionKey, offset); setCardRevision((n) => n + 1); }} cardKey={cardId} label={showClaims ? (isBranch ? 'Evidence' : node.claimStatus === 'pending' ? 'Unverified claim' : 'Claim') : groupedSources?.length ? `Insight · ${groupedSources.length} source${groupedSources.length === 1 ? '' : 's'}` : undefined}>
               {showClaims && (isBranch
                 ? <button type="button" className="node-card-back" onClick={() => focusTarget({ i: spineIdx })}>← Claim: {node.name}</button>
                 : <section className="node-card-sources" aria-label="Claim sources"><h4>{node.branches.length ? `${node.branches.length} source${node.branches.length === 1 ? '' : 's'}` : 'No sources attached yet'}</h4><ul>{node.branches.map((b, j) => <li key={b.id}><button type="button" onClick={() => focusTarget({ i: spineIdx, j })}><span className="node-card-relation">{b.relation ?? b.stance}</span><strong>{b.name}</strong><span className="node-card-source-meta">{[b.sourceDomain, asDate(b.publishedAt)].filter(Boolean).join(' · ')}</span></button></li>)}</ul></section>)}
+              {groupedSources && groupedSources.length > 0 && <section className="node-card-sources" aria-label="Sources for this insight"><h4>{groupedSources.length} source{groupedSources.length === 1 ? '' : 's'} for this insight</h4><ul>{groupedSources.map((source) => <li key={source.id}>{source.sourceUrl ? <a href={source.sourceUrl} target="_blank" rel="noopener noreferrer"><strong>{source.name}</strong></a> : <strong>{source.name}</strong>}<span className="node-card-source-meta">{[source.sourceName ?? source.sourceDomain, asDate(source.publishedAt)].filter(Boolean).join(' · ')}</span></li>)}</ul></section>}
             </NodeCard>;
           })()}
         </section>
