@@ -32,6 +32,8 @@ export interface AgentGraphDeps {
   checkpointer: BaseCheckpointSaver;
   /** Defaults to the tools loaded by initTools() (local + Context.dev MCP). */
   tools?: StructuredToolInterface[];
+  /** Overrides the default chat system prompt (e.g. for research runs). */
+  systemPrompt?: string;
 }
 
 /** Deps are injectable so tests can use a fake model and an in-memory checkpointer. */
@@ -40,7 +42,7 @@ export function createAgentGraph(deps: AgentGraphDeps) {
   const model = deps.model.bindTools!(tools);
 
   async function agentNode(state: AgentStateType) {
-    const response = await model.invoke([new SystemMessage(buildSystemPrompt(state.entityId)), ...state.messages]);
+    const response = await model.invoke([new SystemMessage(deps.systemPrompt ?? buildSystemPrompt(state.entityId)), ...state.messages]);
     return { messages: [response] };
   }
 

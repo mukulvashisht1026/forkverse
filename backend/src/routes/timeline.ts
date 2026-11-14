@@ -10,19 +10,19 @@
  * POST   /timeline/nodes/:nodeId/branches
  * DELETE /timeline/nodes/:nodeId/branches/:branchId
  * POST   /timeline/events            (ingestion webhook for workers / cron)
- * POST   /prompt                     (prompt bar -> chat agent; reply shown as a banner message)
+ * POST   /prompt                     (prompt bar -> research agent; articles stream over /ws)
  * POST   /scrape-event, /scrape-branch  -> 501 until the ingest pipeline exists
  *
  * TODO:
- *   - /prompt: turn agent results into nodes/branches once ingest + tools return real data.
  *   - /scrape-*: call ingest/ (Context.dev discover -> scrape -> vet -> extract).
  *   - Protect mutation + /timeline/events routes (shared secret) before going public.
  */
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
-import { runAgent } from '../agent/index.js';
 import { config } from '../config.js';
 import type { RealtimeHub } from '../realtime/hub.js';
+import { runResearch } from '../research/run.js';
+import { logger } from '../utils/logger.js';
 import {
   CreateBranchSchema,
   CreateNodeSchema,
@@ -169,11 +169,21 @@ export function timelineRouter({ store, hub }: { store: TimelineStore; hub: Real
     }
   });
 
+  // Prompt bar: research the topic with the agent and stream articles onto the graph over /ws.
+  // Returns 202 at once; node:created / branch:created / node:updated frames follow live.
   r.post('/prompt', async (req, res) => {
     const body = parseBody(PromptSchema, req.body);
-    const { reply } = await runAgent({ message: body.prompt });
-    // No node/branches yet: the frontend shows `message` in its live banner.
-    res.json({ ok: true, message: reply || 'The assistant returned no answer.' });
+    const nodeId = body.mode === 'branch' ? body.selectedNodeId : undefined;
+    res.status(202).json({ ok: true, message: `Researching "${body.prompt}"… articles will stream in live.` });
+
+    runResearch({ query: body.prompt, nodeId }, { store, hub }).catch((err: unknown) => {
+      logger.error({ err, query: body.prompt }, 'research run failed');
+      emit({
+        type: 'system:message',
+        message: `Research failed for "${body.prompt}": ${err instanceof Error ? err.message : 'unknown error'}`,
+        timestamp: now(),
+      });
+    });
   });
 
   const notBuilt = (_req: Request, res: Response) => {

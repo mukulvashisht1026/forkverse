@@ -2,6 +2,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express, { type ErrorRequestHandler } from 'express';
+import { MongoNetworkError, MongoServerError, MongoServerSelectionError } from 'mongodb';
 import { pinoHttp } from 'pino-http';
 import { config } from './config.js';
 import { col } from './db/client.js';
@@ -44,10 +45,20 @@ export function buildServer({ store, hub }: ServerDeps) {
   // Express 5 forwards rejected promises from async handlers here.
   const onError: ErrorRequestHandler = (err, req, res, _next) => {
     req.log.error(err);
+    if (isDatabaseUnavailable(err)) {
+      res.status(503).json({ error: 'database_unavailable', detail: 'Cannot reach or log in to MongoDB. Check MONGODB_URI.' });
+      return;
+    }
     res.status(500).json({ error: 'internal_error' });
   };
   app.use(onError);
   return app;
+}
+
+/** Auth failures (Atlas code 8000 / 18) and unreachable servers. */
+function isDatabaseUnavailable(err: unknown): boolean {
+  if (err instanceof MongoServerSelectionError || err instanceof MongoNetworkError) return true;
+  return err instanceof MongoServerError && (err.code === 8000 || err.code === 18);
 }
 
 /** HTTP server with the WebSocket hub attached on `/ws`. */
