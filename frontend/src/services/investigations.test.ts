@@ -26,6 +26,13 @@ test('public investigations repository maps stable API records', async (t) => {
   assert.equal(requests[0], '/api/investigations?visibility=public');
 });
 
+test('investigations repository reports request timeout rather than leaving request hanging', async (t) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => { throw new DOMException('timed out', 'TimeoutError'); }) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  await assert.rejects(investigationRepository.listPublicInvestigations(), /request timed out/i);
+});
+
 test('investigations repository surfaces backend errors', async (t) => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async () => new Response(JSON.stringify({ code: 'unavailable', message: 'Backend unavailable' }), {

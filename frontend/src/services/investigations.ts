@@ -82,15 +82,22 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     res = await fetch(resolveApiUrl(path, API_BASE), {
       ...init,
+      signal: init?.signal ?? AbortSignal.timeout(15_000),
       headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'TimeoutError') {
+      throw new InvestigationApiError('The backend request timed out. Research may still be running; retry or open investigation list.', 'request_timeout', 0);
+    }
     throw new InvestigationApiError('The research backend could not be reached.', 'network_error', 0);
   }
   const body = (await res.json().catch(() => null)) as (T & Partial<ApiErrorDto>) | null;
   if (!res.ok) {
+    const message = res.status === 408
+      ? 'Research request timed out. Backend did not respond in time. Try again; if this repeats, check backend logs and provider status.'
+      : body?.message || `Backend request failed (${res.status}).`;
     throw new InvestigationApiError(
-      body?.message || `Backend request failed (${res.status}).`,
+      message,
       body?.code || 'http_error',
       res.status,
       body?.requestId,

@@ -6,13 +6,13 @@
   background: #10161d;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  --canvas: #10161d;
-  --surface: #17212b;
-  --elevated: #22303d;
-  --border: #354657;
-  --text: #e6edf3;
-  --muted: #a3b0bd;
-  --accent: #4dafb8;
+  --canvas: #FAFAF7;
+  --surface: #FFFFFF;
+  --elevated: #FFFFFF;
+  --border: #E5E5E0;
+  --text: #171717;
+  --muted: #666660;
+  --accent: #FFD43B;
 }
 
 * { box-sizing: border-box; }
@@ -79,6 +79,9 @@ button { color: inherit; }
 .gh-home .gh-investigation-meta { display: flex; flex: 0 0 auto; align-items: center; gap: 9px; white-space: nowrap; }
 .gh-home .gh-investigation-meta svg { display: block; flex: 0 0 auto; }
 .gh-home .gh-library-unavailable { display: flex; min-height: 56px; align-items: center; justify-content: space-between; gap: 18px; border: 1px solid var(--border-subtle); border-radius: 7px; background: var(--bg-surface); padding: 10px 12px; }
+.gh-home .gh-library-unavailable p { padding-right: 0; }
+.gh-home .gh-load-error { margin: 8px 7px 0; padding: 10px 12px; border: 1px solid var(--border-subtle); border-radius: 7px; background: var(--bg-surface); }
+.gh-home .gh-load-error p { min-width: 0; margin: 0; padding-right: 8px; }
 .gh-home .gh-library-unavailable p { min-width: 0; margin: 0; line-height: 1.5; }
 .gh-home .gh-library-empty { margin: 0; border-top: 1px solid var(--border-subtle); padding: 14px 7px; }
 .gh-home .gh-library-unavailable button { flex: 0 0 auto; border: 1px solid var(--border-default); border-radius: 5px; background: var(--bg-surface); padding: 7px 11px; cursor: pointer; }
@@ -342,7 +345,8 @@ button { color: inherit; }
 .gh-home .gh-investigation-copy { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
 .gh-home .gh-investigation-copy strong, .gh-home .gh-investigation-copy span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gh-home .gh-investigation-meta { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 8px; }
-.gh-home .gh-library-unavailable { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid var(--border-subtle); padding: 14px 0; }
+.gh-home .gh-library-unavailable { display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid var(--border-subtle); border-radius: 7px; background: var(--bg-surface); padding: 10px 12px; }
+.gh-home .gh-library-unavailable p { min-width: 0; margin: 0; padding-right: 0; line-height: 1.5; }
 .gh-home .gh-library-unavailable button { border: 1px solid var(--border-default); border-radius: 6px; background: transparent; padding: 5px 10px; cursor: pointer; }
 .gh-spin { animation: gh-spin 1s linear infinite; }
 @keyframes gh-spin { to { transform: rotate(360deg); } }
@@ -413,19 +417,20 @@ button { color: inherit; }
 
 /* TRACEWIRE — White laboratory Home. Scoped to avoid changing Workspace geometry. */
 .gh-home {
-  --bg-canvas: #fafaf8;
-  --bg-surface: #ffffff;
-  --bg-elevated: #f2f4f2;
-  --bg-hover: #edf2ef;
-  --border-subtle: #e3e8e5;
-  --border-default: #d2dad6;
-  --border-focus: #247c78;
-  --text-primary: #171c1b;
-  --text-secondary: #505b59;
-  --text-muted: #727d7a;
-  --accent-primary: #247c78;
-  --accent-subtle: #e5f2ef;
-  --text-on-accent: #ffffff;
+  --bg-canvas: #FAFAF7;
+  --bg-surface: #FFFFFF;
+  --bg-elevated: #FFFFFF;
+  --bg-hover: #F3F3EF;
+  --border-subtle: #E5E5E0;
+  --border-default: #E5E5E0;
+  --border-focus: #D1A900;
+  --text-primary: #171717;
+  --text-secondary: #555550;
+  --text-muted: #777770;
+  --accent-primary: #FFD43B;
+  --accent-subtle: #FFF3BF;
+  --selection-highlight: #FFD43B;
+  --text-on-accent: #171717;
   color: var(--text-primary);
   background: var(--bg-canvas);
 }
@@ -439,7 +444,16 @@ button { color: inherit; }
 .gh-home .gh-lede { position: relative; z-index: 1; max-width: 580px; }
 .gh-home .tw-hero-network {
   position: absolute; right: -94px; top: -73px; width: 370px; height: 175px;
-  color: #247c78; opacity: .13; pointer-events: none; z-index: 0;
+  color: #FFD43B; opacity: .18; pointer-events: none; z-index: 0;
+  animation: tw-network-wave 9s ease-in-out infinite;
+  transform-origin: 50% 50%;
+}
+@keyframes tw-network-wave {
+  0%, 100% { transform: translate3d(0, 0, 0) scaleY(1); }
+  50% { transform: translate3d(0, 3px, 0) scaleY(.97); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gh-home .tw-hero-network { animation: none; }
 }
 .gh-home .gh-form { position: relative; z-index: 1; }
 .gh-home .gh-research-composer {
@@ -451,9 +465,9 @@ button { color: inherit; }
 }
 .gh-home .gh-research-composer textarea { color: var(--text-primary); }
 .gh-home .gh-primary {
-  background: var(--accent-primary); border-color: var(--accent-primary); color: #fff;
+  background: var(--accent-primary); border-color: var(--accent-primary); color: var(--text-on-accent);
 }
-.gh-home .gh-primary:hover:not(:disabled) { background: #1a625f; border-color: #1a625f; }
+.gh-home .gh-primary:hover:not(:disabled) { background: #F2C629; border-color: #F2C629; }
 .gh-home .gh-primary:disabled { opacity: .5; }
 .gh-home .gh-error { color: #a62525; }
 .gh-home .gh-existing { border-top-color: var(--border-subtle); }
@@ -496,7 +510,7 @@ button { color: inherit; }
 .gh-home .tw-view-all {
   display: flex; align-items: center; justify-content: center; gap: 8px;
   width: 100%; margin: 11px 0 0; padding: 8px;
-  background: transparent; border: 0; border-radius: 7px; color: #247c78;
+  background: transparent; border: 0; border-radius: 7px; color: #B58A00;
   font-size: 12px; font-weight: 600; cursor: pointer;
 }
 .gh-home .tw-view-all:hover { background: var(--bg-hover); }
