@@ -267,3 +267,110 @@ button { color: inherit; }
   .gh-composer textarea { min-height: 44px; }
   .gh-composer .gh-primary { height: auto; min-height: 36px; }
 }
+
+
+/* TRACEWIRE — White laboratory Home. Scoped to avoid changing Workspace geometry. */
+.gh-home {
+  --bg-canvas: #fafaf8;
+  --bg-surface: #ffffff;
+  --bg-elevated: #f2f4f2;
+  --bg-hover: #edf2ef;
+  --border-subtle: #e3e8e5;
+  --border-default: #d2dad6;
+  --border-focus: #247c78;
+  --text-primary: #171c1b;
+  --text-secondary: #505b59;
+  --text-muted: #727d7a;
+  --accent-primary: #247c78;
+  --accent-subtle: #e5f2ef;
+  --text-on-accent: #ffffff;
+  color: var(--text-primary);
+  background: var(--bg-canvas);
+}
+.gh-home .gh-home-content { position: relative; isolation: isolate; }
+.gh-home .gh-brand {
+  display: inline-flex; align-items: center; font-size: 17px; font-weight: 650;
+  letter-spacing: -.045em; text-transform: lowercase;
+}
+.gh-home .gh-create { position: relative; margin-top: 82px; }
+.gh-home .gh-create h1 { position: relative; z-index: 1; max-width: 640px; font-weight: 560; }
+.gh-home .gh-lede { position: relative; z-index: 1; max-width: 580px; }
+.gh-home .tw-hero-network {
+  position: absolute; right: -94px; top: -73px; width: 370px; height: 175px;
+  color: #247c78; opacity: .13; pointer-events: none; z-index: 0;
+}
+.gh-home .gh-form { position: relative; z-index: 1; }
+.gh-home .gh-research-composer {
+  background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 10px;
+  box-shadow: 0 5px 20px rgba(21,43,35,.035);
+}
+.gh-home .gh-research-composer:focus-within {
+  border-color: var(--border-focus); box-shadow: 0 0 0 3px rgba(36,124,120,.13);
+}
+.gh-home .gh-research-composer textarea { color: var(--text-primary); }
+.gh-home .gh-primary {
+  background: var(--accent-primary); border-color: var(--accent-primary); color: #fff;
+}
+.gh-home .gh-primary:hover:not(:disabled) { background: #1a625f; border-color: #1a625f; }
+.gh-home .gh-primary:disabled { opacity: .5; }
+.gh-home .gh-error { color: #a62525; }
+.gh-home .gh-existing { border-top-color: var(--border-subtle); }
+.gh-home .gh-investigation { border-top-color: var(--border-subtle); }
+.gh-home .gh-investigation:hover { background: var(--bg-hover); }
+.gh-home .gh-investigation-copy strong { color: var(--text-primary); }
+.gh-home .gh-library-unavailable { border-top-color: var(--border-subtle); }
+.gh-home .gh-library-unavailable button { border-color: var(--border-default); background: #fff; }
+.gh-home .gh-library-unavailable button:hover { background: var(--bg-hover); }
+
+/* Rotating example: single readable example, no continuous border animation. */
+.gh-home .tw-example {
+  display: flex; flex-direction: column; align-items: stretch; gap: 7px;
+  min-width: 0; margin-top: 14px;
+}
+.gh-home .tw-example-button {
+  display: flex; width: 100%; min-width: 0; align-items: center;
+  justify-content: space-between; gap: 14px; border: 1px solid var(--border-default);
+  border-radius: 9px; background: #fff; padding: 13px 15px;
+  color: var(--text-primary); text-align: left; font-size: 13px; line-height: 1.5;
+  cursor: pointer; transition: background .2s, border-color .2s;
+}
+.gh-home .tw-example-button:hover:not(:disabled) { border-color: #9bbdb5; background: #f5faf8; }
+.gh-home .tw-example-button:disabled { cursor: not-allowed; opacity: .6; }
+.gh-home .tw-example-button svg { flex: 0 0 auto; color: var(--accent-primary); }
+.gh-home .tw-example-text { display: block; min-width: 0; animation: tw-suggestion-in .24s ease-out; }
+.gh-home .tw-example-caption { color: var(--text-muted); font-size: 11px; }
+@keyframes tw-suggestion-in {
+  from { opacity: .3; transform: translateY(2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* A real disclosure, not pseudo-pagination. */
+.gh-home .tw-investigation-list { min-width: 0; }
+.gh-home .tw-investigation-list.is-expanded {
+  max-height: 236px; overflow-y: auto; overscroll-behavior: contain;
+  scrollbar-color: #bdccc5 transparent; scrollbar-width: thin;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.gh-home .tw-view-all {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  width: 100%; margin: 11px 0 0; padding: 8px;
+  background: transparent; border: 0; border-radius: 7px; color: #247c78;
+  font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.gh-home .tw-view-all:hover { background: var(--bg-hover); }
+.gh-home .tw-view-all span { font-size: 16px; line-height: 1; }
+.gh-home .tw-example-button:focus-visible,
+.gh-home .tw-view-all:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 3px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .gh-home .tw-example-text { animation: none; }
+  .gh-home .tw-example-button { transition: none; }
+}
+@media (max-width: 760px) {
+  .gh-home .gh-create { margin-top: 52px; }
+  .gh-home .tw-hero-network { right: -30px; top: -65px; width: 245px; opacity: .09; }
+  .gh-home .gh-composer-footer { flex-wrap: wrap; }
+  .gh-home .gh-composer-note { max-width: none; }
+  .gh-home .tw-example-button { padding: 11px 12px; font-size: 12px; }
+  .gh-home .tw-investigation-list.is-expanded { max-height: 222px; }
+}
