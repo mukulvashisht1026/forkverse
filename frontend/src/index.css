@@ -498,14 +498,17 @@ button { color: inherit; }
 .gh-graph-mode { position: absolute; z-index: 3; top: 40px; left: 18px; display: inline-flex; overflow: hidden; border: 1px solid var(--border); border-radius: 6px; }
 .gh-graph-mode button { border: 0; background: rgba(23,33,43,.94); padding: 5px 10px; color: var(--muted); font-size: 10px; cursor: pointer; }
 .gh-graph-mode button.on { background: var(--elevated); color: var(--text); }
-.gh-claim-legend { position: absolute; z-index: 3; bottom: 14px; right: 14px; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px 12px; max-width: min(560px, calc(100% - 240px)); border: 1px solid var(--border); border-radius: 4px; background: rgba(23,33,43,.9); padding: 6px 10px; color: var(--muted); font-size: 10px; }
-.gh-claim-legend span { display: inline-flex; align-items: center; gap: 5px; }
-.gh-claim-legend i { width: 8px; height: 8px; border-radius: 50%; }
-.lg-supports i { background: #d1bd91; }
-.lg-contradicts i { background: #ff8a73; }
-.lg-context i { background: #3a4652; border: 1px solid #8b9baa; }
+.gh-claim-legend { position: absolute; z-index: 3; right: 14px; bottom: 14px; max-width: min(360px, calc(100% - 240px)); border: 1px solid #dfe4df; border-radius: 6px; background: rgba(255,255,252,.96); padding: 7px 10px; color: #505852; box-shadow: 0 3px 12px rgba(28,36,30,.08); font-size: 10px; }
+.gh-claim-legend summary { color: #39433e; cursor: pointer; font-size: 11px; font-weight: 600; }
+.gh-claim-legend > p { margin: 7px 0 0; color: #5c665f; line-height: 1.45; }
+.gh-claim-legend > div { display: flex; flex-wrap: wrap; gap: 5px 10px; margin-top: 7px; }
+.gh-claim-legend span { display: inline-flex; align-items: center; gap: 5px; color: #505852; }
+.gh-claim-legend i { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.lg-supports i { background: #9b7c28; }
+.lg-contradicts i { background: #c75b48; }
+.lg-context i { background: #7b8580; border: 1px solid #636d67; }
 .lg-pending i { width: 14px; height: 0; border-radius: 0; border-top: 1.5px dashed #8b9baa; }
-.lg-link i { width: 14px; height: 0; border-radius: 0; border-top: 1.5px solid #d1bd91; }
+.lg-link i { width: 14px; height: 0; border-radius: 0; border-top: 1.5px solid #9b7c28; }
 @media (max-width: 760px) { .gh-claim-legend { display: none; } .gh-graph-mode { top: 8px; left: 8px; } }
 .gh-workspace .gh-graph nav { max-height: 28vh; }
 .gh-proof-details { border-top: 1px solid var(--border); padding-top: 6px; }
@@ -820,7 +823,7 @@ button { color: inherit; }
 
 /* Evidence cards use the same quiet graphite-and-paper palette as the Workspace. */
 .node-card-workspace {
-  box-sizing: border-box; border: 1px solid #d8ddd8; border-radius: 8px; background: #fffefa;
+  box-sizing: border-box; max-height: min(72vh, 680px); overflow-y: auto; border: 1px solid #d8ddd8; border-radius: 8px; background: #fffefa;
   color: #202522; box-shadow: 0 8px 24px rgba(30, 36, 31, .14); backdrop-filter: none;
 }
 .node-card-workspace .node-card-header {
@@ -833,7 +836,7 @@ button { color: inherit; }
 .node-card-workspace .node-card-close-compact { position: absolute; z-index: 1; top: 4px; right: 5px; }
 .node-card-workspace .node-card-content.has-compact-handle { gap: 8px; padding-top: 2px; }
 .node-card-workspace .node-card-metadata { display: flex; min-width: 0; flex-wrap: wrap; align-items: baseline; gap: 3px 8px; }
-.node-card-workspace .node-card-source-type { color: #766000; font-size: 9px; font-weight: 650; letter-spacing: .09em; }
+.node-card-workspace .node-card-source-type { color: #4d6860; font-size: 9px; font-weight: 650; letter-spacing: .08em; }
 .node-card-workspace .node-card-source-name,
 .node-card-workspace .node-card-source-domain { overflow: hidden; max-width: 170px; color: #68706a; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .node-card-workspace .node-card-close { width: 24px; height: 24px; color: #616963; }
@@ -845,15 +848,28 @@ button { color: inherit; }
 .node-card-workspace .node-card-relationship { color: #747b75; font-size: 10px; line-height: 1.4; }
 .node-card-workspace .node-card-description { margin: 0; color: #505852; font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
 .node-card-workspace .node-card-source-link {
-  justify-self: start; min-height: 28px; border-color: #dfe3de; border-radius: 5px; background: #fff; padding: 0 9px;
-  color: #505852; font-size: 10px; font-weight: 550;
+  justify-self: start; min-height: 24px; border: 0; border-radius: 0; background: transparent; padding: 0;
+  color: #44645b; font-size: 10px; font-weight: 550; text-decoration: underline; text-underline-offset: 2px;
 }
-.node-card-workspace .node-card-source-link:hover { border-color: #d2bd65; background: #fffdf4; color: #554700; }
+.node-card-workspace .node-card-source-link:hover { background: transparent; color: #263f37; }
+.node-card-workspace .node-card-header > svg { flex: 0 0 auto; color: #89928c; }
+.node-card-back { justify-self: start; border: 0; background: transparent; padding: 2px 0; color: #44645b; cursor: pointer; font-size: 11px; text-align: left; }
+.node-card-sources { border-top: 1px solid #e6e9e5; padding-top: 8px; }
+.node-card-sources h4 { margin: 0 0 6px; color: #69736d; font-size: 10px; font-weight: 600; }
+.node-card-sources ul { display: grid; max-height: 190px; gap: 4px; overflow: auto; margin: 0; padding: 0; list-style: none; }
+.node-card-sources li button { display: grid; width: 100%; gap: 3px; border: 1px solid #e7eae6; border-left: 2px solid #91a79e; border-radius: 4px; background: #fff; padding: 6px 8px; color: #303833; cursor: pointer; text-align: left; }
+.node-card-sources li button:hover { background: #f4f7f3; }
+.node-card-sources strong { font-size: 11px; font-weight: 500; line-height: 1.35; }
+.node-card-relation, .node-card-source-meta { color: #737c76; font-size: 9px; }
 .node-card-workspace .node-card-source-link:focus-visible,
 .node-card-workspace .node-card-close:focus-visible { outline: 2px solid #c4a932; outline-offset: 2px; }
 
 /* Workspace uses a full graph canvas with the complete Research panel floating above it. */
 .gh-workspace-body { position: relative; display: block; overflow: hidden; }
+.gh-topbar { position: relative; }
+.gh-topbar .gh-graph-mode { position: static; top: auto; left: auto; margin-left: auto; flex: 0 0 auto; }
+.gh-topbar .gh-graph-mode button { background: transparent; padding: 6px 10px; color: #5b655f; }
+.gh-topbar .gh-graph-mode button.on { background: #edf1ed; color: #29332e; }
 .gh-workspace-body > .gh-graph { position: absolute; inset: 0; z-index: 0; }
 .gh-chat-window {
   position: absolute; z-index: 8; display: flex; width: min(352px, calc(100% - 24px)); height: min(680px, calc(100% - 24px));

@@ -155,7 +155,7 @@ function BranchView({
         penEl.classList.remove('on');
       }
 
-      tipEl.classList.toggle('on', state.tipVisible);
+      tipEl.classList.toggle('ready', state.tipVisible);
       tipEl.style.opacity = state.tipVisible ? '1' : '0';
       mistEl.style.opacity = state.tipVisible ? '1' : String(state.eased * 0.65);
     };
@@ -300,7 +300,8 @@ function BranchView({
       {/* Interactive branch tip node */}
       <g
         ref={tipGroupRef}
-        className={`tip-group ${!branch.isNew ? 'on' : ''} ${isTipHot ? 'hot' : ''}`}
+        data-card-anchor={`evidence:${eventId}:${branch.id}`}
+        className={`tip-group ${isTipHot ? 'hot' : ''}`}
         tabIndex={0}
         role="button"
         aria-label={branch.name}
@@ -655,7 +656,7 @@ export function TreeCanvas({
       data-testid="tree-canvas"
       role="img"
       aria-label="Tree map: a main timeline spine with curved branches growing forward from each node"
-      className={`itl-canvas absolute inset-0 h-full w-full select-none touch-none ${className} ${
+      className={`itl-canvas absolute inset-0 h-full w-full select-none touch-none ${className} ${claimView ? 'claim-view' : ''} ${
         isDragging ? 'cursor-grabbing' : 'cursor-grab'
       }`}
       onPointerDown={(e) => {
@@ -888,7 +889,7 @@ export function TreeCanvas({
                   </g>
                 )}
                 {node.disputed && <circle className="disputed-ring" cx={cx} cy={0} r={27} fill="none" />}
-                {(node.pending || node.unverified) && <text className="pending-badge" x={cx} y={42} textAnchor="middle">UNVERIFIED</text>}
+                {(node.unverified || (node.pending && !claimView)) && <text className="pending-badge" x={cx} y={42} textAnchor="middle">UNVERIFIED</text>}
                 {node.outcome && (
                   <text className={`outcome-badge outcome-${node.outcome}`} x={cx} y={node.pending || node.unverified ? 55 : 42} textAnchor="middle">
                     {node.outcome === 'no_update' ? 'NO UPDATE YET' : node.outcome.replace('_', ' ').toUpperCase()}
@@ -934,6 +935,7 @@ export function TreeCanvas({
 
                 {/* Main spine node: hybrid of Tree Map numbered instrument coin & Living Tree particle lens */}
                 <g
+                  data-card-anchor={`event:${node.id}`}
                   className={`node-group ${isNodeHot ? 'hot' : ''} ${node.isNew && !isPaused ? 'new-event' : ''}`}
                   style={node.isNew && !isPaused ? { animationDelay: `${eventRevealDelay}s` } : undefined}
                   onAnimationEnd={(event) => {

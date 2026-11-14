@@ -77,6 +77,27 @@
 .itl-tree .branch.live-recent .live-new-tag{fill:#c98f89}
 /* Live items stay visible even while an answer highlight dims the rest */
 .itl-tree .citing .tree-group.live-fresh,.itl-tree .citing .tree-group.live-fresh .branch.live-fresh{opacity:1}
+/* Claims stays legible and quiet; keep the animated Research Runs design intact. */
+.itl-tree .tip-group.ready .tip-core{fill:#d1bd91}
+.itl-tree .itl-canvas.claim-view .ambient-stars,
+.itl-tree .itl-canvas.claim-view .spine-decorations,
+.itl-tree .itl-canvas.claim-view .branch-filaments,
+.itl-tree .itl-canvas.claim-view .node-spark,
+.itl-tree .itl-canvas.claim-view .node-lens-texture { display:none!important }
+.itl-tree .itl-canvas.claim-view .tip-label { opacity:0; }
+.itl-tree .itl-canvas.claim-view .tip-group.hot .tip-label,
+.itl-tree .itl-canvas.claim-view .tip-group:focus-visible .tip-label,
+.itl-tree .itl-canvas.claim-view .branch.cited .tip-label,
+.itl-tree .itl-canvas.claim-view .branch.live-fresh .tip-label { opacity:1; }
+.itl-tree .itl-canvas.claim-view .main-label { font-size:10px; }
+.itl-tree .itl-canvas.claim-view .claim-link path { opacity:.32; }
+.itl-tree .itl-canvas.claim-view .claim-link:hover path,
+.itl-tree .itl-canvas.claim-view .claim-link:focus-within path { opacity:.78; }
+.itl-tree .itl-canvas.claim-view .claim-link text { opacity:0; }
+.itl-tree .itl-canvas.claim-view .claim-link:hover text,
+.itl-tree .itl-canvas.claim-view .claim-link:focus-within text { opacity:1; }
+.itl-tree .itl-canvas.claim-view .unverified-lane line { stroke:#9aa59e; stroke-dasharray:3 7; opacity:.34; }
+.itl-tree .itl-canvas.claim-view .lane-label { fill:#737e77; font-size:8px; letter-spacing:.08em; }
 @keyframes itl-live-ring{0%{opacity:.85;transform:scale(.7)}100%{opacity:0;transform:scale(2.3)}}
 @keyframes itl-live-glow{from{opacity:.45}to{opacity:1}}
 @keyframes itl-live-blink{50%{opacity:.25}}
