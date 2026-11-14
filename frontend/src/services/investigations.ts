@@ -1,4 +1,17 @@
 import type { SpineNode } from '../types/tree';
+import { investigationEventsToSpineNodes } from './investigationGraphAdapter';
+
+const API_BASE = import.meta.env?.VITE_API_BASE_URL ?? '';
+
+async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
+  });
+  const data = await response.json().catch(() => ({})) as T & { error?: string };
+  if (!response.ok) throw new Error(data.error || `Backend request failed (${response.status})`);
+  return data;
+}
 import type {
   CreateInvestigationRequestDto,
   ExtendInvestigationRequestDto,
@@ -44,32 +57,32 @@ export function mapInvestigationDto(dto: InvestigationDto): Investigation {
   return { id: dto.id, title: dto.title, description: dto.description, createdAt: dto.createdAt, updatedAt: dto.updatedAt };
 }
 
-/** Deliberately not mapped yet: transport event/evidence model needs agreed graph adapter. */
+/** Map backend investigation graph into canvas model. */
 export function mapInvestigationGraphDto(dto: InvestigationGraphDto): InvestigationGraph {
-  void dto;
-  throw new CapabilityUnavailableError('Investigation event/evidence to Canvas graph mapping');
+  return { investigationId: dto.investigationId, nodes: investigationEventsToSpineNodes(dto.events) };
 }
 
-/** Stub adapter: current service exposes global in-memory timeline only, never investigations. */
 export const investigationRepository: InvestigationApi = {
   async listPublicInvestigations(): Promise<Investigation[]> {
-    throw new CapabilityUnavailableError('Public investigation library');
+    const response = await apiJson<{ nodes: SpineNode[] }>('/api/timeline');
+    return response.nodes.map((node) => ({ id: node.id, title: node.name, description: node.info, createdAt: node.timestamp }));
   },
   async getInvestigation(id: string): Promise<Investigation> {
-    void id;
-    throw new CapabilityUnavailableError('Investigation retrieval by ID');
+    const response = await apiJson<{ nodes: SpineNode[] }>('/api/timeline');
+    const node = response.nodes.find((item) => item.id === id);
+    if (!node) throw new Error('Investigation not found.');
+    return { id: node.id, title: node.name, description: node.info, createdAt: node.timestamp };
   },
   async getInvestigationGraph(id: string): Promise<InvestigationGraph> {
-    void id;
-    throw new CapabilityUnavailableError('Investigation-scoped graph retrieval');
+    const response = await apiJson<{ nodes: SpineNode[] }>('/api/timeline');
+    const node = response.nodes.find((item) => item.id === id);
+    if (!node) throw new Error('Investigation not found.');
+    return { investigationId: id, nodes: [node] };
   },
-  async createInvestigation(input: CreateInvestigationRequestDto): Promise<Investigation> {
-    void input;
-    throw new CapabilityUnavailableError('Persistent investigation creation');
+  async createInvestigation(_input: CreateInvestigationRequestDto): Promise<Investigation> {
+    throw new Error('Use live scrape flow to create investigations.');
   },
-  async extendInvestigation(id: string, input: ExtendInvestigationRequestDto): Promise<InvestigationGraph> {
-    void id;
-    void input;
-    throw new CapabilityUnavailableError('Investigation-scoped research extension');
+  async extendInvestigation(_id: string, _input: ExtendInvestigationRequestDto): Promise<InvestigationGraph> {
+    throw new Error('Use live research prompt flow to extend investigations.');
   },
 };

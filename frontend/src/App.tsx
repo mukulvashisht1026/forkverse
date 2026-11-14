@@ -3,7 +3,8 @@ import type { FormEvent } from 'react';
 import { ArrowLeft, ArrowUpRight, LoaderCircle } from 'lucide-react';
 import type { FocusTarget, SpineNode, BranchNode } from './types/tree';
 import { useLiveTimeline } from './hooks/useLiveTimeline';
-import { TreeMapCanvas } from './components/TreeMapCanvas';
+import { TreeCanvasAdapter } from './components/investigationTree/TreeCanvasAdapter';
+import './components/investigationTree/treeCanvas.css';
 import { SpineNav } from './components/SpineNav';
 import { investigationRepository, type Investigation } from './services/investigations';
 
@@ -22,13 +23,14 @@ function asDate(value?: string) {
 export default function App() {
   const [fitSignal, setFitSignal] = useState(0);
   const fitGraph = useCallback(() => setFitSignal((count) => count + 1), []);
-  useLiveTimeline(fitGraph);
+  const { scrapeMainNode, sendPrompt, nodes: timelineNodes } = useLiveTimeline(fitGraph);
   const [view, setView] = useState<'home' | 'workspace'>('home');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [hoverFocus, setHoverFocus] = useState<FocusTarget | null>(null);
   const [pinnedFocus, setPinnedFocus] = useState<FocusTarget | null>(null);
   const [motionOn, setMotionOn] = useState(() => !window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   const [topic, setTopic] = useState('');
+  const [exampleOffset, setExampleOffset] = useState(0);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [investigations, setInvestigations] = useState<Investigation[]>([]);
@@ -41,10 +43,26 @@ export default function App() {
   const [workspaceFitSignal, setWorkspaceFitSignal] = useState(0);
   const [chatText, setChatText] = useState('');
   const [chatBusy, setChatBusy] = useState(false);
+  const [continuing, setContinuing] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const [chatEntries, setChatEntries] = useState<ChatEntry[]>([]);
 
   const activeNodes = workspaceNodes ?? [];
+  const topicExamples = [
+    'US tariffs and international trade policy',
+    'European AI regulation and its global impact',
+    'Global lithium supply chains',
+    'The international dispute over Arctic shipping routes',
+    'How central banks are responding to inflation',
+    'A public figure’s documented political statements',
+  ];
+  const visibleExamples = Array.from({ length: 3 }, (_, index) => topicExamples[(exampleOffset + index) % topicExamples.length]);
+
+  useEffect(() => {
+    if (topic || creating) return;
+    const timer = window.setInterval(() => setExampleOffset((offset) => (offset + 1) % topicExamples.length), 7000);
+    return () => window.clearInterval(timer);
+  }, [topic, creating, topicExamples.length]);
 
   const loadPublicInvestigations = useCallback(async () => {
     setLibraryLoading(true);
@@ -113,8 +131,18 @@ export default function App() {
     setCreating(true);
     setCreateError(null);
     try {
-      const created = await investigationRepository.createInvestigation({ topic: cleanTopic });
-      await openWorkspace(created);
+      const result = await scrapeMainNode({ query: cleanTopic, provider: 'auto' });
+      const created: Investigation = {
+        id: result.node.id,
+        title: result.node.name,
+        description: result.node.info,
+        createdAt: result.node.timestamp,
+      };
+      setSelectedInvestigation(created);
+      setWorkspaceNodes([result.node]);
+      setWorkspaceFitSignal((value) => value + 1);
+      setView('workspace');
+      if (result.notice) setChatEntries([{ id: Date.now(), role: 'system', text: result.notice }]);
     } catch (error) {
       setCreateError(error instanceof Error ? error.message : 'Investigation creation failed.');
     } finally {
@@ -135,6 +163,38 @@ export default function App() {
   const sourceName = focusBranch?.sourceDomain ?? (sourceUrl ? new URL(sourceUrl).hostname : undefined);
   const focusDate = asDate(focusBranch?.publishedAt ?? focusNode?.timestamp);
 
+  const continueGraph = async () => {
+    if (continuing || !selectedInvestigation || activeNodes.length === 0) return;
+    const lastNode = activeNodes[activeNodes.length - 1];
+    const context = activeNodes.slice(-3).map((node) => node.name).join('; ');
+    setContinuing(true);
+    setChatError(null);
+    try {
+      const result = await sendPrompt({
+        prompt: `Continue this investigation after "${lastNode.name}". Research the next significant related event. Context: ${context}`,
+        mode: 'new-node', selectedNodeId: lastNode.id, selectedNodeName: lastNode.name, provider: 'auto',
+      });
+      if (result.node) {
+        setWorkspaceNodes((nodes) => {
+          const current = nodes ?? [];
+          if (current.some((node) => node.id === result.node!.id)) return current;
+          const node = result.branches?.length
+            ? { ...result.node!, branches: [...result.node!.branches, ...result.branches.filter((branch) => !result.node!.branches.some((existing) => existing.id === branch.id))] }
+            : result.node!;
+          return [...current, node];
+        });
+        setSelectedIndex(activeNodes.length);
+        setWorkspaceFitSignal((value) => value + 1);
+      } else if (result.message) {
+        setChatError(result.message);
+      }
+    } catch (error) {
+      setChatError(error instanceof Error ? error.message : 'Could not continue research.');
+    } finally {
+      setContinuing(false);
+    }
+  };
+
   const submitResearch = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const prompt = chatText.trim();
@@ -142,11 +202,20 @@ export default function App() {
     setChatBusy(true);
     setChatError(null);
     try {
-      const graph = await investigationRepository.extendInvestigation(selectedInvestigation.id, { topic: prompt });
-      if (graph.investigationId !== selectedInvestigation.id) throw new Error('Research update returned a different investigation.');
-      setWorkspaceNodes(graph.nodes);
-      setWorkspaceFitSignal((value) => value + 1);
-      setChatEntries((entries) => [...entries, { id: Date.now(), role: 'system', text: 'Investigation updated.' }]);
+      const result = await sendPrompt({ prompt, mode: 'auto', selectedNodeId: selectedInvestigation.id, selectedNodeName: selectedInvestigation.title, provider: 'auto' });
+      if (result.branches?.length || result.node) {
+        const graph = await investigationRepository.getInvestigationGraph(selectedInvestigation.id);
+        setWorkspaceNodes(graph.nodes);
+        setWorkspaceFitSignal((value) => value + 1);
+        if (result.node) {
+          setChatEntries((entries) => [...entries, { id: Date.now(), role: 'system', text: 'Research created a separate event in shared timeline; it was not added to this investigation.' }]);
+        }
+      }
+      if (result.message || result.notice) {
+        setChatEntries((entries) => [...entries, { id: Date.now(), role: 'system', text: result.message ?? result.notice! }]);
+      } else {
+        setChatEntries((entries) => [...entries, { id: Date.now(), role: 'system', text: 'Research completed.' }]);
+      }
       setChatText('');
     } catch (error) {
       setChatError(error instanceof Error ? error.message : 'Investigation update failed.');
@@ -160,20 +229,33 @@ export default function App() {
       <div className="gh-home-content">
         <div className="gh-brand"><span className="gh-mark">G</span><span>GHOSTLINE</span></div>
         <section className="gh-create">
-          <p className="gh-eyebrow">LIVING EVIDENCE INTELLIGENCE</p>
           <h1>What would you like to investigate?</h1>
           <p className="gh-lede">Explore a topic through connected events and evidence.</p>
           <form onSubmit={createInvestigation} className="gh-form">
-            <label>Research topic<textarea value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="e.g. US tariffs and international trade policy" rows={3} disabled={creating} /></label>
-            {createError && <p role="alert" className="gh-error">{createError}</p>}
-            <button className="gh-primary" type="submit" disabled={creating}>{creating ? <><LoaderCircle className="gh-spin" size={16} /> Starting investigation…</> : 'Start investigation'}</button>
-            {creating && <p className="gh-hint">Creating a persistent investigation…</p>}
+            <label className="gh-topic-label" htmlFor="research-topic">Research topic</label>
+            <div className="gh-research-composer">
+              <textarea id="research-topic" value={topic} onChange={(e) => { setTopic(e.target.value); setCreateError(null); }} placeholder="e.g. US tariffs and international trade policy" rows={3} disabled={creating} aria-describedby={createError ? 'topic-error' : undefined} />
+              <div className="gh-composer-footer">
+                <span className="gh-composer-note">Open-ended research · sources and events</span>
+                <button className="gh-primary" type="submit" disabled={creating || !topic.trim()}>{creating ? <><LoaderCircle className="gh-spin" size={15} /> Starting…</> : <>Start investigation <ArrowUpRight size={15} /></>}</button>
+              </div>
+            </div>
+            {createError && <p id="topic-error" role="alert" className="gh-error">{createError}</p>}
+            {creating && <p className="gh-hint">Starting live research…</p>}
+            <div className="gh-example-picker" aria-label="Topic examples">
+              <span className="gh-example-label">For example</span>
+              <div className="gh-example-list">
+                {visibleExamples.map((example) => <button className="gh-example-chip" type="button" key={example} disabled={creating} onClick={() => { setTopic(example); setCreateError(null); }} title="Fill research topic">
+                  <span>{example}</span>
+                </button>)}
+              </div>
+            </div>
           </form>
         </section>
         <section className="gh-existing">
           <div className="gh-section-heading"><h2>Explore investigations</h2></div>
           <p className="gh-library-lede">Browse existing public research.</p>
-          {libraryLoading ? <p className="gh-muted">Loading public investigations…</p> : libraryError ? <div className="gh-load-error"><p>{libraryError}</p><button type="button" onClick={() => void loadPublicInvestigations()}>Retry</button></div> : investigations.length ? investigations.map((item) => (
+          {libraryLoading ? <p className="gh-muted">Loading public investigations…</p> : libraryError ? <div className="gh-library-unavailable"><p>Public investigations are temporarily unavailable.</p><button type="button" onClick={() => void loadPublicInvestigations()}>Retry</button></div> : investigations.length ? investigations.map((item) => (
             <button className="gh-investigation" key={item.id} onClick={() => void openWorkspace(item)}>
               <span className="gh-investigation-copy"><strong>{item.title}</strong>{item.description && <span>{item.description}</span>}</span>
               <span className="gh-investigation-meta">{asDate(item.updatedAt ?? item.createdAt) ?? ''}<ArrowUpRight size={16} /></span>
@@ -192,7 +274,7 @@ export default function App() {
         <aside className="gh-research" aria-label="Research chat">
           <div className="gh-chat-heading"><h2>Research</h2><p>{selectedInvestigation?.title}</p></div>
           <div className="gh-chat-messages" aria-live="polite">
-            {!chatEntries.length && <p className="gh-chat-intro">Continue this investigation with additional research. Updates require investigation-scoped backend support.</p>}
+            {!chatEntries.length && <p className="gh-chat-intro">Research prompts run against the current backend. Results may appear in shared timeline; investigation-specific persistence is not supported yet.</p>}
             {chatEntries.map((entry) => <div className={`gh-chat-message ${entry.role}`} key={entry.id}>{entry.text}</div>)}
             {chatError && <p className="gh-error">{chatError}</p>}
             {chatBusy && <p className="gh-muted">Updating investigation…</p>}
@@ -203,7 +285,7 @@ export default function App() {
           </form>
         </aside>
         <section className="gh-graph" aria-label="Evidence graph">
-          {workspaceNodes && <TreeMapCanvas spine={activeNodes} selectedIndex={selectedIndex} focus={activeFocus} moving={motionOn} fitSignal={fitSignal} onHoverTarget={setHoverFocus} onSelectTarget={focusTarget} onClearPin={() => setPinnedFocus(null)} />}
+          {workspaceNodes && <TreeCanvasAdapter spine={activeNodes} selectedIndex={selectedIndex} focus={activeFocus} moving={motionOn} fitSignal={workspaceFitSignal} onHoverTarget={setHoverFocus} onSelectTarget={focusTarget} onClearPin={() => setPinnedFocus(null)} onContinue={() => void continueGraph()} isContinuing={continuing} />}
           <div className="gh-graph-label">EVIDENCE GRAPH <span>{activeNodes.length} events</span></div>
           <div className="gh-graph-controls"><button type="button" onClick={() => setMotionOn((value) => !value)}>{motionOn ? 'Pause motion' : 'Resume motion'}</button><button type="button" onClick={fitGraph}>Fit graph</button></div>
           {workspaceLoading && <div className="gh-graph-state">Loading investigation graph…</div>}

@@ -32,6 +32,8 @@ export interface BranchNode {
   impactAngle?: string;
   seed: number;
   _prog?: number;
+  /** Set to true only for new live events; renderer clears after growth finishes. */
+  _animateGrowth?: boolean;
 }
 
 export type ScrapeEngine =
