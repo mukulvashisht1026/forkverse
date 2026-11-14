@@ -58,6 +58,16 @@ const post = (path: string, body: unknown) => json(path, { method: 'POST', body:
 const settle = () => Promise.all([...service.running.values()]);
 
 describe('investigation API', () => {
+  it('renames a public graph title and validates empty titles', async () => {
+    const created = await post('/api/investigations', { topic: 'Original first prompt' });
+    const id = created.body.investigation.id as string;
+    const renamed = await json(`/api/investigations/${id}`, { method: 'PATCH', body: JSON.stringify({ title: '  Refined title  ' }) });
+    expect(renamed.status).toBe(200);
+    expect(renamed.body.title).toBe('Refined title');
+    const invalid = await json(`/api/investigations/${id}`, { method: 'PATCH', body: JSON.stringify({ title: ' ' }) });
+    expect(invalid.status).toBe(400);
+  });
+
   it('creates an investigation, runs research, and exposes graph + run', async () => {
     const created = await post('/api/investigations', { topic: '  Trump manifesto  ', context: 'Agenda 47' });
     expect(created.status).toBe(202);
