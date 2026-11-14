@@ -188,6 +188,7 @@ export async function storeCorroboration(
       ...(a.publishedAt && { publishedAt: a.publishedAt }),
       relationship: 'Corroborating source',
       eventId,
+      ...(a.imageUrl && { imageUrl: a.imageUrl }),
       ...(vetting.get(a.url) && { vetting: vetting.get(a.url) }),
     });
   }

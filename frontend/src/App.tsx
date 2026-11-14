@@ -8,6 +8,7 @@ import './components/investigationTree/treeCanvas.css';
 import { SpineNav } from './components/SpineNav';
 import { investigationRepository, rolesFrom, vettingRepository, watchInvestigation, type Investigation, type InvestigationHighlight, type Monitor, type MonitorActivity, type VettingActivity } from './services/investigations';
 import { SourceVettingBadge, VettingCard } from './components/SourceVetting';
+import { NewspaperEdition } from './components/NewspaperEdition';
 import { LiveMonitor, host as siteHost } from './components/LiveMonitor';
 import { addLiveIds, liveMarksAt, pruneLiveIds } from './utils/liveMarks';
 import { ResearchChat } from './components/ResearchChat';
@@ -84,6 +85,15 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
     }, 5000);
     return () => window.clearInterval(t);
   }, [liveAdded.size]);
+  /** Newspaper edition below the graph: rebuilt when claims change (debounced version bump). */
+  const [editionVersion, setEditionVersion] = useState(0);
+  const editionRef = useRef<HTMLElement>(null);
+  const editionTimer = useRef<number | undefined>(undefined);
+  const bumpEdition = useCallback(() => {
+    window.clearTimeout(editionTimer.current);
+    editionTimer.current = window.setTimeout(() => setEditionVersion((v) => v + 1), 2500);
+  }, []);
+  useEffect(() => () => window.clearTimeout(editionTimer.current), []);
   /** Source vetting (propaganda screening) progress and per-source requests in flight. */
   const [vettingActivity, setVettingActivity] = useState<VettingActivity[]>([]);
   const [vetToast, setVetToast] = useState<VettingActivity | null>(null);
@@ -212,6 +222,7 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
     const stop = watchInvestigation(liveInvestigationId, {
       onUpdate: (update) => {
         setResearchRunning(update.runStatus === 'queued' || update.runStatus === 'running');
+        if (update.runStatus === 'succeeded' || update.runStatus === 'failed') bumpEdition();
         // Live monitor runs ("mon-…"): the new source and its "Live update" event animate in.
         if (update.runId?.startsWith('mon-')) markLive([update.evidenceId, update.eventId]);
         schedule();
@@ -224,18 +235,19 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
       onVetting: (activity) => {
         setVettingActivity((list) => [...list.slice(-29), activity]);
         if (activity.evidenceId) setScreeningIds((ids) => { if (!ids.has(activity.evidenceId!)) return ids; const n = new Set(ids); n.delete(activity.evidenceId!); return n; });
-        if (activity.phase === 'done' || activity.phase === 'error') { setScreeningIds(new Set()); setVetToast(activity); schedule(); }
+        if (activity.phase === 'done' || activity.phase === 'error') { setScreeningIds(new Set()); setVetToast(activity); schedule(); bumpEdition(); }
         else if (activity.verdict === 'manipulative') setVetToast(activity);
       },
       onMonitor: (activity) => {
         if (activity.phase === 'claims_updated') markLive(activity.newClaimIds ?? []);
+        if (activity.phase === 'claims_updated') bumpEdition();
         setMonitorActivity((list) => [...list.slice(-29), activity]);
         if (activity.phase !== 'checking') setLiveToast(activity);
         if (activity.phase === 'claims_updated') { schedule(); setWorkspaceFitSignal((v) => v + 1); }
       },
     });
     return () => { stop(); window.clearTimeout(timer); };
-  }, [liveInvestigationId, refreshGraph, markLive]);
+  }, [liveInvestigationId, refreshGraph, markLive, bumpEdition]);
 
   useEffect(() => {
     if (!vetToast) return;
@@ -331,8 +343,9 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
     const mapped = mapInvestigationGraphDto(event.graph);
     applyGraph(mapped);
     if (mapped.claimNodes?.length && !hadClaims) setGraphMode('claims'); // just built: show the timeline
+    bumpEdition();
     setWorkspaceFitSignal((value) => value + 1);
-  }, [selectedInvestigation, claimGraph]);
+  }, [selectedInvestigation, claimGraph, bumpEdition]);
 
   const continueGraph = async () => {
     if (continuing || !selectedInvestigation || activeNodes.length === 0) return;
@@ -452,6 +465,7 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
           {temporaryTimelineContext && <p className="gh-context-notice" role="status">Temporary timeline context; not a saved investigation.</p>}
           {selectedInvestigation && <ResearchChat key={selectedInvestigation.id} investigationId={selectedInvestigation.id} historyAvailable={!temporaryTimelineContext} disabled={workspaceLoading || Boolean(workspaceError) || temporaryTimelineContext} onGraphUpdated={applyResearchGraph} onHighlight={(nodeIds, evidenceIds, roles) => { const roleMap = rolesFrom(roles); setHighlight(nodeIds.length || evidenceIds.length ? { messageId: 'sse', evidenceIds: new Set(evidenceIds), eventIds: new Set(nodeIds), final: true, ...(roleMap && { roles: roleMap }) } : null); }} onShowSources={(evidenceIds, eventIds, roles) => { const roleMap = rolesFrom(roles); setHighlight({ messageId: 'local', evidenceIds: new Set(evidenceIds), eventIds: new Set(eventIds), final: true, ...(roleMap && { roles: roleMap }) }); }} selectedEvent={temporaryTimelineContext || showClaims ? null : activeNodes[selectedIndex] ? { id: activeNodes[selectedIndex].id, title: activeNodes[selectedIndex].name } : null} />}
         </div>
+        <div className="gh-main-column">
         <section className="gh-graph" aria-label="Evidence graph">
           {workspaceNodes && <TreeCanvasAdapter spine={activeNodes} selectedIndex={selectedIndex} focus={activeFocus} moving={motionOn} fitSignal={workspaceFitSignal} onHoverTarget={setHoverFocus} onSelectTarget={focusTarget} onClearPin={() => setPinnedFocus(null)} onContinue={() => void continueGraph()} isContinuing={continuing} highlight={highlight} liveMarks={liveMarks} links={showClaims ? claimGraph!.links : undefined} laneNote={showClaims && claimGraph!.hiddenPending ? `+${claimGraph!.hiddenPending} more unverified (listed in the chat)` : undefined} onViewChange={setViewTransform} onCanvasReady={setCanvasElement} />}
           <div className="gh-graph-label">{showClaims ? <>CLAIM TIMELINE <span>{activeNodes.filter((n) => n.claimStatus === 'established').length} established · {activeNodes.filter((n) => n.claimStatus === 'pending').length + (claimGraph?.hiddenPending ?? 0)} unverified · {claimGraph!.links.length} links</span></> : <>EVIDENCE GRAPH <span>{activeNodes.length} research runs</span></>}{liveMarks.size > 0 && <span className="tw-live-count"><i className="tw-live-dot" aria-hidden="true" />{liveMarks.size} added by live tracking</span>}</div>
@@ -516,7 +530,10 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
               />
             );
           })}
+          {selectedInvestigation && !temporaryTimelineContext && !workspaceLoading && !workspaceError && <button type="button" className="tw-paper-jump" onClick={() => editionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Today's edition <span aria-hidden="true">↓</span></button>}
         </section>
+        {selectedInvestigation && !temporaryTimelineContext && !workspaceError && <NewspaperEdition ref={editionRef} key={selectedInvestigation.id} investigationId={selectedInvestigation.id} version={editionVersion} />}
+        </div>
       </div>
     </main>
   );

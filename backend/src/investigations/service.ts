@@ -107,6 +107,7 @@ function articleToEvidence(a: Article, eventId: string): InvestigationEvidenceDt
     ...(a.publishedAt && { publishedAt: a.publishedAt }),
     relationship: a.tool.includes('news') ? 'News coverage' : 'Web result',
     eventId,
+    ...(a.imageUrl && { imageUrl: a.imageUrl }),
   };
 }
 

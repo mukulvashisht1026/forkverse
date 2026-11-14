@@ -13,7 +13,7 @@ export interface SearchResult {
 }
 
 export type ScrapeResult =
-  | { success: true; url: string; markdown: string; title: string | null; publishedAt: string | null }
+  | { success: true; url: string; markdown: string; title: string | null; publishedAt: string | null; image?: string | null }
   | { success: false; url: string; error: string };
 
 const limit = createLimiter(config.CONTEXT_DEV_CONCURRENCY);
@@ -136,6 +136,7 @@ export function normalizeScrape(url: string, raw: unknown): ScrapeResult {
         markdown: md.data,
         title: str(meta, 'title', 'ogTitle'),
         publishedAt: str(meta, 'publishedTime', 'publishedAt', 'modifiedTime', 'date'),
+        image: str(meta, 'image', 'ogImage', 'og:image'),
       };
     }
     return { success: false, url, error: str(md, 'error_code', 'message', 'error') ?? str(raw, 'error_code', 'message') ?? 'markdown output failed' };

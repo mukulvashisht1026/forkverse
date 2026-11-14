@@ -25,6 +25,7 @@ import { MonitorService } from './monitors/service.js';
 import { VettingService, withSourceRatings } from './vetting/service.js';
 import { cachedScraper } from './vetting/scrapeCache.js';
 import { SourceIndex } from './vetting/sourceIndex.js';
+import { NewspaperService } from './newspaper/service.js';
 import { getEmbeddings } from './db/vectorStore.js';
 import { contextDevScraper } from './proof/articles.js';
 import { MemoryInvestigationStore, MongoInvestigationStore, type InvestigationStore } from './investigations/store.js';
@@ -47,9 +48,11 @@ export interface ServerDeps {
   monitors?: MonitorService;
   /** Source vetting (propaganda screening); needs `investigations`. */
   vetting?: VettingService;
+  /** Newspaper editions; needs `investigations`. */
+  newspaper?: NewspaperService;
 }
 
-export function buildServer({ store, hub, investigations, chat, monitors, vetting, corsOrigins = config.CORS_ORIGINS }: ServerDeps) {
+export function buildServer({ store, hub, investigations, chat, monitors, vetting, newspaper, corsOrigins = config.CORS_ORIGINS }: ServerDeps) {
   const app = express();
   app.disable('x-powered-by');
   // Never log credentials (browsers send cookies for every app on localhost).
@@ -75,7 +78,7 @@ export function buildServer({ store, hub, investigations, chat, monitors, vettin
   api.use(helloRouter);
   api.use(chatRouter);
   api.use(timelineRouter({ store, hub }));
-  if (investigations) api.use(investigationsRouter(investigations, chat, monitors, vetting));
+  if (investigations) api.use(investigationsRouter(investigations, chat, monitors, vetting, newspaper));
 
   // Caddy and the Vite dev proxy strip `/api`; `/api/*` is also served for clients that
   // point VITE_API_BASE_URL straight at the backend.
@@ -201,7 +204,17 @@ async function main() {
     ...(config.AUTO_VET_SOURCES && { vetting }),
   });
 
-  const server = createHttpServer({ store, hub, investigations, chat, monitors, vetting });
+  // Front-page edition of each investigation (claim graph -> newspaper), images from articles.
+  const newspaper = new NewspaperService({
+    store: investigationStore,
+    json: defaultJsonLlm,
+    pageImage: async (url) => {
+      const r = await contextDevScrape(url);
+      return r.success && r.image && /^https?:\/\//i.test(r.image) ? r.image : undefined;
+    },
+  });
+
+  const server = createHttpServer({ store, hub, investigations, chat, monitors, vetting, newspaper });
   server.listen(config.PORT, '0.0.0.0', () => {
     logger.info({ port: config.PORT, mockTimeline: config.TIMELINE_MOCK }, 'server listening (HTTP + WebSocket /ws)');
   });

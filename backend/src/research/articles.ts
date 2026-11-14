@@ -19,9 +19,13 @@ export interface Article {
   sourceName: string | null;
   publishedAt: string | null;
   tool: string;
+  /** Lead image of the article, when the search result provides one (http(s) only). */
+  imageUrl?: string;
 }
 
 const MAX_DEPTH = 6;
+
+const httpUrl = (v: string | null | undefined) => (v && /^https?:\/\/\S+$/i.test(v) ? v : undefined);
 
 /** Find every { url, title } object in a tool result. Non-JSON output yields []. */
 export function extractArticles(raw: unknown, tool = 'unknown'): Article[] {
@@ -58,6 +62,7 @@ export function extractArticles(raw: unknown, tool = 'unknown'): Article[] {
           sourceName: str(source.name),
           publishedAt: str(o.published_at) ?? str(o.publishedAt) ?? str(o.publishedTime),
           tool,
+          ...(httpUrl(str(o.image_url) ?? str(o.imageUrl) ?? str(o.image)) && { imageUrl: httpUrl(str(o.image_url) ?? str(o.imageUrl) ?? str(o.image))! }),
         });
       }
       return; // don't descend into an article

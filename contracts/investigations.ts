@@ -63,6 +63,8 @@ export interface InvestigationEvidenceDto {
   eventId?: string;
   /** Propaganda / manipulation screening of this source (domain listing, optionally content). */
   vetting?: SourceVettingDto;
+  /** Lead image of the article (from the search result), used by the newspaper edition. */
+  imageUrl?: string;
 }
 
 export interface CreateInvestigationRequestDto {
@@ -427,4 +429,53 @@ export interface InvestigationVettingEvent {
     total?: number;
   };
   timestamp: IsoDateTime;
+}
+
+// ---- newspaper edition (GET /investigations/:id/newspaper[.html]) ------------------------------
+
+export interface NewspaperSourceDto {
+  title: string;
+  url: string;
+  publisher?: string;
+  publishedAt?: IsoDateTime;
+}
+
+export interface NewspaperStoryDto {
+  /** Claim the story is about (graph node id). */
+  claimId?: string;
+  kicker: string;
+  headline: string;
+  /** Short standfirst / summary. */
+  dek: string;
+  /** Body paragraphs (lead story only), each written from the cited claims. */
+  paragraphs: string[];
+  /** established / pending (shown as "Unverified") / disputed, from the claim graph. */
+  status?: 'established' | 'pending' | 'disputed';
+  imageUrl?: string;
+  imageCredit?: string;
+  sources: NewspaperSourceDto[];
+  date?: IsoDateTime;
+}
+
+export interface NewspaperEditionDto {
+  investigationId: InvestigationId;
+  /** Graph state the edition was written from (claimsUpdatedAt + evidence count + flags). */
+  stateKey: string;
+  title: string;
+  entity?: string;
+  editionDate: IsoDateTime;
+  editionNumber: number;
+  /** One-sentence "story so far". */
+  crux: string;
+  lead: NewspaperStoryDto;
+  stories: NewspaperStoryDto[];
+  briefs: NewspaperStoryDto[];
+  /** Chronology of established developments. */
+  timeline: { date?: IsoDateTime; text: string; status: 'established' | 'pending' | 'disputed' }[];
+  stats: { sources: number; established: number; unverified: number; flagged: number };
+  /** Red-flagged sources left out of the edition (propaganda watch box). */
+  propagandaWatch: { title: string; publisher?: string; score?: number }[];
+  /** llm = written by the editor model from the claims; fallback = composed directly from claims. */
+  writer: 'llm' | 'fallback';
+  generatedAt: IsoDateTime;
 }
