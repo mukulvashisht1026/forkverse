@@ -23,6 +23,7 @@ import type { Scraper } from '../proof/articles.js';
 import { selectArticles } from '../proof/articles.js';
 import type { JsonLlm } from '../proof/agents.js';
 import { runProof } from '../proof/engine.js';
+import { buildClaims, pickEvidence } from '../claims/builder.js';
 import { queryTerms } from '../research/articles.js';
 import { logger } from '../utils/logger.js';
 import { InvestigationError, toGraphDto, type InvestigationService } from './service.js';
@@ -166,6 +167,8 @@ interface TurnResult {
   proof?: ProofReportDto;
   /** evidenceId -> role, for verify_sources highlights. */
   roles?: Record<string, ProofRoleDto>;
+  /** Do not highlight the cited sources in the graph (e.g. after rebuilding claims). */
+  noHighlight?: boolean;
 }
 
 type Emit = (event: ResearchStreamEventDto) => void;
@@ -201,6 +204,12 @@ export class ResearchChatService {
       }
       const focus = (message ?? '').trim().slice(0, MAX_QUESTION);
       return { record, message: focus || `Verify the sources for “${event.title}”.`, event };
+    }
+    if (action === 'build_claims') {
+      if (pickEvidence(record).length < 2) {
+        throw new InvestigationError(400, 'not_enough_sources', 'Building claims needs at least two articles in this investigation.');
+      }
+      return { record, message: (message ?? '').trim() || `Build the claim timeline for “${record.title}”.` };
     }
     const clean = (message ?? '').trim();
     if (!clean) throw new InvestigationError(400, 'invalid_message', 'Message is required.');
@@ -246,7 +255,9 @@ export class ResearchChatService {
         ? await this.extend(record, message, emit)
         : action === 'verify_sources'
           ? await this.verify(record, event!, message, messageId, emit, signal)
-          : await this.answer(record, message, messageId, emit, signal);
+          : action === 'build_claims'
+            ? await this.claims(record, emit)
+            : await this.answer(record, message, messageId, emit, signal);
 
     const assistant: ChatMessageDto = {
       id: messageId,
@@ -262,7 +273,53 @@ export class ResearchChatService {
     emit({ type: 'sources', sources: assistant.sources });
     await this.deps.store.addMessage(assistant);
     emit({ type: 'message_complete', message: assistant });
-    this.highlight(record.id, messageId, result.sources, true, result.roles);
+    this.highlight(record.id, messageId, result.noHighlight ? [] : result.sources, true, result.roles);
+  }
+
+  /** build_claims: turn the investigation's evidence into a chronological, evidence-backed claim timeline. */
+  private async claims(record: InvestigationRecord, emit: Emit): Promise<TurnResult> {
+    const built = await buildClaims(record, {
+      scrape: this.deps.proof?.scrape,
+      json: this.deps.proof?.json,
+      token: (text) => emit({ type: 'token', text }),
+    });
+    await this.deps.store.setClaims(record.id, { claims: built.claims, links: built.links, entity: built.entity });
+    const updated = await this.deps.investigations.get(record.id);
+    emit({ type: 'graph_updated', graph: toGraphDto(updated) });
+
+    // Cite one piece of evidence per claim so the summary links to sources.
+    const allEvidence = new Map(record.events.flatMap((e) => e.evidence.map((ev) => [ev.id, { ev, event: e }] as const)));
+    const sources: RetrievedSource[] = [];
+    const cite = (evidenceId?: string) => {
+      const hit = evidenceId ? allEvidence.get(evidenceId) : undefined;
+      if (!hit) return '';
+      let src = sources.find((s) => s.evidence.id === evidenceId);
+      if (!src) {
+        src = { label: `S${sources.length + 1}`, evidence: hit.ev, event: hit.event, score: 0 };
+        sources.push(src);
+      }
+      return ` [[source:${src.label}]]`;
+    };
+    const line = (c: (typeof built.claims)[number]) =>
+      `- ${c.occurredAt ? `**first reported ${c.occurredAt.slice(0, 10)}** · ` : ''}${c.statement}${cite(c.evidence.find((e) => e.stance === 'supports')?.evidenceId ?? c.evidence[0]?.evidenceId)}${c.disputed ? ' _(disputed)_' : ''}\n  ${c.statusReason}`;
+    const established = built.claims.filter((c) => c.status === 'established');
+    const pending = built.claims.filter((c) => c.status === 'pending');
+    const { stats } = built;
+    const content = [
+      `${built.entity ? `**${built.entity}** › ` : ''}**${record.title}**: ${stats.claims} claims from ${stats.articles} articles (${stats.fullText} read in full). ${stats.established} established, ${stats.pending} unverified, ${built.links.length} connections.`,
+      established.length ? `### Established claims\n${established.map(line).join('\n')}` : '',
+      pending.length ? `### Unverified (pending)\nShown on the separate dashed line; not presented as fact until more evidence arrives.\n${pending.map(line).join('\n')}` : '',
+      built.links.length
+        ? `### How claims connect\n${built.links
+            .map((l) => `- ${l.type.replace('_', ' ')} (${l.basis.replace('_', ' ')}): ${l.description}`)
+            .join('\n')}`
+        : '',
+      `_Quotes checked against the articles: ${stats.quotesVerified} verified, ${stats.quotesRejected} rejected._`,
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+    emit({ type: 'token', text: '\n' + content });
+    return { content, sources, noHighlight: true };
   }
 
   /** verify_sources: Corroborator + Skeptic proof run over one event's articles. */

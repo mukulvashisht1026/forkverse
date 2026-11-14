@@ -6,6 +6,8 @@ export interface BranchItem {
   isNew?: boolean;
   /** ISO date; orders the branch along the timeline line. */
   publishedAt?: string;
+  /** Claim view: supports / contradicts / context (colours the tip). */
+  stance?: 'supports' | 'contradicts' | 'context';
 }
 
 export interface SpineNode {
@@ -13,6 +15,19 @@ export interface SpineNode {
   name: string;
   info: string;
   branches: BranchItem[];
+  /** Claim view: unverified claim, drawn on the separate dashed lane below the timeline. */
+  pending?: boolean;
+  /** Claim view: contradicting evidence exists. */
+  disputed?: boolean;
+}
+
+/** Claim view: a neutral connection between two claims (by node id). */
+export interface TreeLink {
+  from: string;
+  to: string;
+  type: 'evolution' | 'follow_up' | 'potential_inconsistency';
+  basis: 'stated' | 'sequence_only' | 'inferred';
+  description: string;
 }
 
 export interface FocusTarget {

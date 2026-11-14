@@ -12,6 +12,8 @@
 import type { Collection } from 'mongodb';
 import type {
   ChatMessageDto,
+  ClaimDto,
+  ClaimLinkDto,
   InvestigationEventDto,
   InvestigationEvidenceDto,
   InvestigationRecord,
@@ -30,6 +32,8 @@ export interface InvestigationStore {
   addEvent(id: string, event: InvestigationEventDto): Promise<number>;
   addEvidence(id: string, eventId: string, evidence: InvestigationEvidenceDto): Promise<number>;
   setEventSummary(id: string, eventId: string, summary: string): Promise<number>;
+  /** Replace the claim timeline built from the evidence (and the inferred entity). */
+  setClaims(id: string, claims: { claims: ClaimDto[]; links: ClaimLinkDto[]; entity?: string }): Promise<number>;
 
   createRun(run: ResearchRunDto): Promise<void>;
   updateRun(run: ResearchRunDto): Promise<void>;
@@ -129,7 +133,7 @@ export class MongoInvestigationStore implements InvestigationStore {
           status: 'active',
           ...(c && { $or: [{ updatedAt: { $lt: c.u } }, { updatedAt: c.u, _id: { $lt: c.i } }] }),
         },
-        { projection: { events: 0 } },
+        { projection: { events: 0, claims: 0, claimLinks: 0 } },
       )
       .sort({ updatedAt: -1, _id: -1 })
       .limit(limit + 1)
@@ -158,6 +162,12 @@ export class MongoInvestigationStore implements InvestigationStore {
 
   setEventSummary(id: string, eventId: string, summary: string) {
     return this.bump(id, { $set: { 'events.$.summary': summary } }, { 'events.id': eventId });
+  }
+
+  setClaims(id: string, { claims, links, entity }: { claims: ClaimDto[]; links: ClaimLinkDto[]; entity?: string }) {
+    return this.bump(id, {
+      $set: { claims, claimLinks: links, claimsUpdatedAt: nowIso(), ...(entity && { entity }) },
+    });
   }
 
   async createRun({ id, ...rest }: ResearchRunDto) {
@@ -258,6 +268,15 @@ export class MemoryInvestigationStore implements InvestigationStore {
   async setEventSummary(id: string, eventId: string, summary: string) {
     return this.mutate(id, (r) => {
       this.event(r, eventId).summary = summary;
+    });
+  }
+
+  async setClaims(id: string, { claims, links, entity }: { claims: ClaimDto[]; links: ClaimLinkDto[]; entity?: string }) {
+    return this.mutate(id, (r) => {
+      r.claims = structuredClone(claims);
+      r.claimLinks = structuredClone(links);
+      r.claimsUpdatedAt = nowIso();
+      if (entity) r.entity = entity;
     });
   }
 

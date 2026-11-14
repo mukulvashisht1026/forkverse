@@ -12,7 +12,7 @@ import type {
   ResearchRunStatus,
 } from '../../../contracts/investigations';
 import { resolveApiUrl, resolveWsUrl } from '../utils/timelineReducer';
-import { investigationEventsToSpineNodes } from './investigationGraphAdapter';
+import { claimsToSpineNodes, investigationEventsToSpineNodes } from './investigationGraphAdapter';
 
 /** View model consumed by Home and Workspace; isolated from wire DTOs. */
 export interface Investigation {
@@ -23,11 +23,24 @@ export interface Investigation {
   updatedAt?: string;
 }
 
+export interface ClaimLink {
+  from: string;
+  to: string;
+  type: 'evolution' | 'follow_up' | 'potential_inconsistency';
+  basis: 'stated' | 'sequence_only' | 'inferred';
+  description: string;
+}
+
 export interface InvestigationGraph {
   investigationId: string;
   /** Monotonic graph revision from the backend; newer graphs have higher numbers. */
   revision: number;
   nodes: SpineNode[];
+  /** Claim timeline (present once claims were built): chronological claims as spine nodes. */
+  claimNodes?: SpineNode[];
+  claimLinks?: ClaimLink[];
+  /** Broader entity the topic belongs to (Entity -> Topic). */
+  entity?: string;
 }
 
 export type CreateInvestigationInput = CreateInvestigationRequestDto;
@@ -66,7 +79,13 @@ export function mapInvestigationDto(dto: InvestigationDto): Investigation {
 
 /** Events -> main spine nodes, evidence -> branches (see investigationGraphAdapter). */
 export function mapInvestigationGraphDto(dto: InvestigationGraphDto): InvestigationGraph {
-  return { investigationId: dto.investigationId, revision: dto.revision, nodes: investigationEventsToSpineNodes(dto.events) };
+  return {
+    investigationId: dto.investigationId,
+    revision: dto.revision,
+    nodes: investigationEventsToSpineNodes(dto.events),
+    ...(dto.claims?.length ? { claimNodes: claimsToSpineNodes(dto.claims), claimLinks: dto.claimLinks ?? [] } : {}),
+    ...(dto.entity ? { entity: dto.entity } : {}),
+  };
 }
 
 // ---- HTTP adapter (backend: backend/src/routes/investigations.ts) ------------------------

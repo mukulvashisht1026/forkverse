@@ -27,7 +27,7 @@ export interface SpineLayout {
 }
 
 /** Event nodes spaced so each one's articles fit along the line between it and the next node. */
-export function computeSpineLayout(branchCounts: number[]): SpineLayout {
+export function computeSpineLayout(branchCounts: number[], minGap = SPINE_GAP): SpineLayout {
   const nodeX: number[] = [];
   const originStart: number[] = [];
   let x = 0;
@@ -36,7 +36,7 @@ export function computeSpineLayout(branchCounts: number[]): SpineLayout {
     originStart.push(x + SEGMENT_PAD);
     const n = branchCounts[i] ?? 0;
     const segment = n ? SEGMENT_PAD + (n - 1) * ORIGIN_STEP + SEGMENT_TAIL : 0;
-    x += Math.max(SPINE_GAP, segment);
+    x += Math.max(minGap, segment);
   }
   const last = branchCounts.length - 1;
   const lastSegment = last >= 0 && branchCounts[last] ? SEGMENT_PAD + (branchCounts[last]! - 1) * ORIGIN_STEP + 40 : 0;

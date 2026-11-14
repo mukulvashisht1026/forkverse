@@ -62,12 +62,19 @@ const MAX_TITLE = 120;
 const MAX_CONTEXT = 1000;
 const nowIso = () => new Date().toISOString();
 
-export function toInvestigationDto({ revision: _r, events: _e, ...dto }: InvestigationRecord): InvestigationDto {
+export function toInvestigationDto({ revision: _r, events: _e, claims: _c, claimLinks: _l, claimsUpdatedAt: _u, ...dto }: InvestigationRecord): InvestigationDto {
   return dto;
 }
 
 export function toGraphDto(r: InvestigationRecord): InvestigationGraphDto {
-  return { investigationId: r.id, revision: r.revision, updatedAt: r.updatedAt, events: r.events };
+  return {
+    investigationId: r.id,
+    revision: r.revision,
+    updatedAt: r.updatedAt,
+    events: r.events,
+    ...(r.claims && { claims: r.claims, claimLinks: r.claimLinks ?? [], ...(r.claimsUpdatedAt && { claimsUpdatedAt: r.claimsUpdatedAt }) }),
+    ...(r.entity && { entity: r.entity }),
+  };
 }
 
 function cleanRequest(input: CreateInvestigationRequestDto | ExtendInvestigationRequestDto) {

@@ -14,6 +14,8 @@ export interface InvestigationDto {
   title: string;
   topic: string;
   description?: string;
+  /** Broader entity this topic belongs to (e.g. "Donald Trump"), set by claim building. */
+  entity?: string;
   visibility: InvestigationVisibility;
   status: 'active' | 'archived';
   createdAt: IsoDateTime;
@@ -34,6 +36,11 @@ export interface InvestigationGraphDto {
   revision: number;
   updatedAt: IsoDateTime;
   events: InvestigationEventDto[];
+  /** Chronological claims built from the evidence (absent until build_claims has run). */
+  claims?: ClaimDto[];
+  claimLinks?: ClaimLinkDto[];
+  entity?: string;
+  claimsUpdatedAt?: IsoDateTime;
 }
 
 export interface InvestigationEventDto {
@@ -91,6 +98,9 @@ export interface ApiErrorDto {
 export interface InvestigationRecord extends InvestigationDto {
   revision: number;
   events: InvestigationEventDto[];
+  claims?: ClaimDto[];
+  claimLinks?: ClaimLinkDto[];
+  claimsUpdatedAt?: IsoDateTime;
 }
 
 /** WebSocket frame for investigation-scoped updates; clients filter by investigationId + revision. */
@@ -109,7 +119,7 @@ export interface InvestigationUpdatedEvent {
 // ---- research chat (POST /investigations/:id/research, GET …/messages) ----------------------
 
 export type ChatMessageRole = 'user' | 'assistant';
-export type ResearchActionDto = 'answer_question' | 'extend_graph' | 'verify_sources';
+export type ResearchActionDto = 'answer_question' | 'extend_graph' | 'verify_sources' | 'build_claims';
 
 export interface SourceCitationDto {
   id: string;
@@ -204,4 +214,45 @@ export interface ProofReportDto {
   /** Skeptic: points where outlets disagree. */
   disputes: { point: string; positions: { source: string; position: string; quote: string }[] }[];
   stats: { articles: number; readable: number; quotesVerified: number; quotesRejected: number };
+}
+
+// ---- claims (action build_claims): Entity -> Topic -> Claims -> Evidence --------------------
+
+export type ClaimStatusDto = 'established' | 'pending';
+export type ClaimKindDto = 'statement' | 'position' | 'development';
+export type EvidenceStanceDto = 'supports' | 'contradicts' | 'context';
+
+export interface ClaimEvidenceDto {
+  evidenceId: string; // InvestigationEvidenceDto.id
+  stance: EvidenceStanceDto;
+  quote: string; // verbatim, verified against the article text
+  title: string;
+  publisher?: string;
+  url?: string;
+  publishedAt?: string;
+}
+
+export interface ClaimDto {
+  id: string;
+  statement: string; // e.g. "Trump promised to reduce taxes."
+  kind: ClaimKindDto;
+  /** established: enough reliable, independent evidence; pending: not (yet) - never shown as fact. */
+  status: ClaimStatusDto;
+  /** Human-readable reason for the status (which/how many independent sources, what is missing). */
+  statusReason: string;
+  /** Contradicting evidence exists; perspectives are preserved, not averaged. */
+  disputed: boolean;
+  /** Earliest publication date among verified evidence (chronological order). */
+  occurredAt?: string;
+  evidence: ClaimEvidenceDto[];
+}
+
+export interface ClaimLinkDto {
+  id: string;
+  from: string; // ClaimDto.id (earlier)
+  to: string; // ClaimDto.id (later)
+  type: 'evolution' | 'follow_up' | 'potential_inconsistency';
+  /** stated: a source draws the connection; sequence_only: only the order is known; inferred: analyst inference. */
+  basis: 'stated' | 'sequence_only' | 'inferred';
+  description: string; // neutral wording; never asserts intent or causation
 }

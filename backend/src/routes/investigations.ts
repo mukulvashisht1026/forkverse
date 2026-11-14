@@ -14,7 +14,9 @@
  *      action answer_question: RAG answer over the investigation graph, cited [[source:Sn]];
  *      action extend_graph: research run + graph_updated;
  *      action verify_sources (+eventId): proof engine (Corroborator + Skeptic) over one event's
- *      articles, emits `proof` with roles per article. Cited/added/compared evidence is highlighted
+ *      articles, emits `proof` with roles per article;
+ *      action build_claims: claim timeline (claims/claimLinks/entity on the graph) + graph_updated.
+ *      Cited/added/compared evidence is highlighted
  *      on /ws via `investigation:highlight`.
  *
  * Runs execute in the background. Progress arrives on /ws as `investigation:updated`
@@ -37,7 +39,7 @@ const RunBody = z.object({
 
 const ResearchBody = z.object({
   investigationId: z.string(),
-  action: z.enum(['answer_question', 'extend_graph', 'verify_sources']),
+  action: z.enum(['answer_question', 'extend_graph', 'verify_sources', 'build_claims']),
   message: z.string(),
   conversationId: z.string().optional(),
   eventId: z.string().optional(),

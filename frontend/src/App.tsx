@@ -9,7 +9,10 @@ import { SpineNav } from './components/SpineNav';
 import { investigationRepository, rolesFrom, watchInvestigation, type Investigation, type InvestigationHighlight } from './services/investigations';
 import { ResearchChat } from './components/ResearchChat';
 import type { InvestigationGraphDto } from '../../contracts/investigations';
-import { investigationEventsToSpineNodes } from './services/investigationGraphAdapter';
+import { mapInvestigationGraphDto, type ClaimLink, type InvestigationGraph } from './services/investigations';
+
+/** Claim view: pending claims shown on the unverified lane (the rest are counted). */
+const PENDING_SHOWN = 8;
 
 function asDate(value?: string) {
   if (!value || value === 'Live update' || value === 'Live scrape') return null;
@@ -45,7 +48,28 @@ export default function App() {
   const [researchRunning, setResearchRunning] = useState(false);
   const lastRevisionRef = useRef(0);
 
-  const activeNodes = workspaceNodes ?? [];
+  /** Claim timeline (Entity -> Topic -> Claims -> Evidence), present once claims were built. */
+  const [claimGraph, setClaimGraph] = useState<{ nodes: SpineNode[]; links: ClaimLink[]; hiddenPending: number; entity?: string } | null>(null);
+  const [graphMode, setGraphMode] = useState<'claims' | 'runs'>('claims');
+  const showClaims = graphMode === 'claims' && Boolean(claimGraph?.nodes.length);
+  const activeNodes = showClaims ? claimGraph!.nodes : workspaceNodes ?? [];
+  const applyGraph = (graph: InvestigationGraph) => {
+    setWorkspaceNodes(graph.nodes);
+    if (!graph.claimNodes?.length) { setClaimGraph(null); return; }
+    // Unverified lane shows the most relevant pending claims (linked, best supported, most recent);
+    // the full list stays in the chat summary.
+    const links = graph.claimLinks ?? [];
+    const linked = new Set(links.flatMap((l) => [l.from, l.to]));
+    const pending = graph.claimNodes.filter((n) => n.claimStatus === 'pending');
+    const shown = new Set(
+      [...pending]
+        .sort((a, b) => Number(linked.has(b.id)) - Number(linked.has(a.id)) || b.branches.length - a.branches.length || (b.timestamp ?? '').localeCompare(a.timestamp ?? ''))
+        .slice(0, PENDING_SHOWN)
+        .map((n) => n.id),
+    );
+    const nodes = graph.claimNodes.filter((n) => n.claimStatus !== 'pending' || shown.has(n.id));
+    setClaimGraph({ nodes, links: links.filter((l) => nodes.some((n) => n.id === l.from) && nodes.some((n) => n.id === l.to)), hiddenPending: pending.length - shown.size, ...(graph.entity ? { entity: graph.entity } : {}) });
+  };
   const topicExamples = [
     'US tariffs and international trade policy',
     'European AI regulation and its global impact',
@@ -97,6 +121,8 @@ export default function App() {
     setWorkspaceError(null);
     setHighlight(null);
     setResearchRunning(false);
+    setClaimGraph(null);
+    setGraphMode('claims');
     void loadPublicInvestigations();
   };
 
@@ -106,7 +132,7 @@ export default function App() {
       const graph = await investigationRepository.getInvestigationGraph(investigationId);
       if (graph.investigationId !== investigationId || graph.revision < lastRevisionRef.current) return;
       lastRevisionRef.current = graph.revision;
-      setWorkspaceNodes(graph.nodes);
+      applyGraph(graph);
     } catch {
       // best effort; the explicit load path reports errors
     }
@@ -146,7 +172,7 @@ export default function App() {
       const graph = await investigationRepository.getInvestigationGraph(investigation.id);
       if (graph.investigationId !== investigation.id) throw new Error('Investigation graph ID mismatch.');
       lastRevisionRef.current = graph.revision;
-      setWorkspaceNodes(graph.nodes);
+      applyGraph(graph);
       setWorkspaceFitSignal((value) => value + 1);
     } catch (error) {
       setWorkspaceError(error instanceof Error ? error.message : 'Investigation could not be loaded.');
@@ -195,10 +221,12 @@ export default function App() {
     if (!selectedInvestigation || event.graph.investigationId !== selectedInvestigation.id) return;
     if (event.graph.revision < lastRevisionRef.current) return;
     lastRevisionRef.current = event.graph.revision;
-    const nodes = investigationEventsToSpineNodes(event.graph.events);
-    setWorkspaceNodes(nodes);
+    const hadClaims = Boolean(claimGraph);
+    const mapped = mapInvestigationGraphDto(event.graph);
+    applyGraph(mapped);
+    if (mapped.claimNodes?.length && !hadClaims) setGraphMode('claims'); // just built: show the timeline
     setWorkspaceFitSignal((value) => value + 1);
-  }, [selectedInvestigation]);
+  }, [selectedInvestigation, claimGraph]);
 
   const continueGraph = async () => {
     if (continuing || !selectedInvestigation || activeNodes.length === 0) return;
@@ -275,29 +303,31 @@ export default function App() {
     <main className="gh-workspace">
       <header className="gh-topbar">
         <button className="gh-back" onClick={returnHome} aria-label="Back to investigations"><ArrowLeft size={16} /><span>Ghostline</span></button>
-        <span className="gh-workspace-title" title={selectedInvestigation?.title}>{selectedInvestigation?.title ?? 'Investigation'}</span>
+        <span className="gh-workspace-title" title={selectedInvestigation?.title}>{claimGraph?.entity && <><span className="gh-entity">{claimGraph.entity}</span><span className="gh-crumb-sep">›</span></>}{selectedInvestigation?.title ?? 'Investigation'}</span>
       </header>
       <div className="gh-workspace-body">
         <div className="gh-chat-column">
           {temporaryTimelineContext && <p className="gh-context-notice" role="status">Temporary timeline context; not a saved investigation.</p>}
-          {selectedInvestigation && <ResearchChat key={selectedInvestigation.id} investigationId={selectedInvestigation.id} historyAvailable={!temporaryTimelineContext} disabled={workspaceLoading || Boolean(workspaceError) || temporaryTimelineContext} onGraphUpdated={applyResearchGraph} onShowSources={(evidenceIds, eventIds, roles) => { const roleMap = rolesFrom(roles); setHighlight({ messageId: 'local', evidenceIds: new Set(evidenceIds), eventIds: new Set(eventIds), final: true, ...(roleMap && { roles: roleMap }) }); }} selectedEvent={temporaryTimelineContext ? null : activeNodes[selectedIndex] ? { id: activeNodes[selectedIndex].id, title: activeNodes[selectedIndex].name } : null} />}
+          {selectedInvestigation && <ResearchChat key={selectedInvestigation.id} investigationId={selectedInvestigation.id} historyAvailable={!temporaryTimelineContext} disabled={workspaceLoading || Boolean(workspaceError) || temporaryTimelineContext} onGraphUpdated={applyResearchGraph} onShowSources={(evidenceIds, eventIds, roles) => { const roleMap = rolesFrom(roles); setHighlight({ messageId: 'local', evidenceIds: new Set(evidenceIds), eventIds: new Set(eventIds), final: true, ...(roleMap && { roles: roleMap }) }); }} selectedEvent={temporaryTimelineContext || showClaims ? null : activeNodes[selectedIndex] ? { id: activeNodes[selectedIndex].id, title: activeNodes[selectedIndex].name } : null} />}
         </div>
         <section className="gh-graph" aria-label="Evidence graph">
-          {workspaceNodes && <TreeCanvasAdapter spine={activeNodes} selectedIndex={selectedIndex} focus={activeFocus} moving={motionOn} fitSignal={workspaceFitSignal} onHoverTarget={setHoverFocus} onSelectTarget={focusTarget} onClearPin={() => setPinnedFocus(null)} onContinue={() => void continueGraph()} isContinuing={continuing} highlight={highlight} />}
-          <div className="gh-graph-label">EVIDENCE GRAPH <span>{activeNodes.length} events</span></div>
+          {workspaceNodes && <TreeCanvasAdapter spine={activeNodes} selectedIndex={selectedIndex} focus={activeFocus} moving={motionOn} fitSignal={workspaceFitSignal} onHoverTarget={setHoverFocus} onSelectTarget={focusTarget} onClearPin={() => setPinnedFocus(null)} onContinue={() => void continueGraph()} isContinuing={continuing} highlight={highlight} links={showClaims ? claimGraph!.links : undefined} laneNote={showClaims && claimGraph!.hiddenPending ? `+${claimGraph!.hiddenPending} more unverified (listed in the chat)` : undefined} />}
+          <div className="gh-graph-label">{showClaims ? <>CLAIM TIMELINE <span>{activeNodes.filter((n) => n.claimStatus === 'established').length} established · {activeNodes.filter((n) => n.claimStatus === 'pending').length + (claimGraph?.hiddenPending ?? 0)} unverified · {claimGraph!.links.length} links</span></> : <>EVIDENCE GRAPH <span>{activeNodes.length} research runs</span></>}</div>
+          {claimGraph && <div className="gh-graph-mode" role="group" aria-label="Graph view"><button type="button" className={showClaims ? 'on' : ''} onClick={() => { setGraphMode('claims'); setSelectedIndex(0); setPinnedFocus(null); setWorkspaceFitSignal((v) => v + 1); }}>Claims</button><button type="button" className={!showClaims ? 'on' : ''} onClick={() => { setGraphMode('runs'); setSelectedIndex(0); setPinnedFocus(null); setWorkspaceFitSignal((v) => v + 1); }}>Research runs</button></div>}
+          {showClaims && !highlight?.roles && <div className="gh-claim-legend" aria-label="Claim legend"><span className="lg-supports"><i />supports</span><span className="lg-contradicts"><i />contradicts</span><span className="lg-context"><i />context</span><span className="lg-pending"><i />unverified lane</span><span className="lg-link"><i />links: solid = stated, dashed = inferred / sequence</span></div>}
           <div className="gh-graph-controls">{highlight?.roles && <div className="gh-proof-legend" aria-label="Proof roles"><span className="role-consensus"><i />Shared facts</span><span className="role-angle"><i />Own angle</span><span className="role-dispute"><i />Disputed</span><span className="role-unreadable"><i />Unreadable</span></div>}{highlight && <button type="button" className="gh-highlight-clear" onClick={() => setHighlight(null)} title="Show the whole graph again">{highlight.roles ? `Comparing ${highlight.evidenceIds.size} articles` : highlight.final ? `Showing ${highlight.evidenceIds.size} cited source${highlight.evidenceIds.size === 1 ? '' : 's'}` : 'Citing sources…'} · Clear</button>}<button type="button" onClick={() => setMotionOn((value) => !value)}>{motionOn ? 'Pause motion' : 'Resume motion'}</button><button type="button" onClick={fitGraph}>Fit graph</button></div>
           {workspaceLoading && <div className="gh-graph-state">Loading investigation graph…</div>}
           {workspaceError && <div className="gh-graph-state"><p>{workspaceError}</p><button onClick={() => selectedInvestigation && void openWorkspace(selectedInvestigation)}>Retry</button></div>}
           {!workspaceLoading && !workspaceError && workspaceNodes?.length === 0 && <div className="gh-graph-state">{researchRunning ? 'Researching… evidence will appear here as it is found.' : 'This investigation has no evidence yet.'}</div>}
           {pinnedFocus && focusTitle && <article className="gh-detail" aria-label="Selected evidence">
-            <div className="gh-detail-head"><span>{focusBranch ? 'Evidence' : 'Event'}</span><button aria-label="Close evidence details" onClick={() => setPinnedFocus(null)}>Close</button></div>
+            <div className="gh-detail-head"><span>{focusBranch ? 'Evidence' : showClaims ? (focusNode?.claimStatus === 'pending' ? 'Unverified claim' : 'Claim') : 'Event'}</span><button aria-label="Close evidence details" onClick={() => setPinnedFocus(null)}>Close</button></div>
             <h3>{focusTitle}</h3>
             {focusDate && <p className="gh-detail-date">{focusDate}</p>}
             {focusDescription && <p className="gh-detail-description">{focusDescription}</p>}
             {(focusBranch?.sourceType || sourceName) && <p className="gh-source-label">{sourceName ?? focusBranch?.sourceType}</p>}
             {sourceUrl && <a href={sourceUrl} target="_blank" rel="noopener noreferrer">Open original source <ArrowUpRight size={14} /></a>}
           </article>}
-          {workspaceNodes && <SpineNav spine={activeNodes} selectedIndex={selectedIndex} onHoverNode={setHoverFocus} onSelectNode={(index) => { setSelectedIndex(index); setPinnedFocus({ i: index }); }} />}
+          {workspaceNodes && !showClaims && <SpineNav spine={activeNodes} selectedIndex={selectedIndex} onHoverNode={setHoverFocus} onSelectNode={(index) => { setSelectedIndex(index); setPinnedFocus({ i: index }); }} />}
         </section>
       </div>
     </main>

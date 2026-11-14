@@ -285,3 +285,20 @@ button { color: inherit; }
 .gh-proof-legend { display: flex; align-items: center; gap: 12px; border: 1px solid var(--border); border-radius: 4px; background: rgba(23,33,43,.94); padding: 5px 10px; }
 .gh-proof-legend span { font-size: 10px; }
 @media (max-width: 760px) { .gh-proof-legend { display: none; } }
+
+/* ---- Claim timeline ------------------------------------------------------ */
+.gh-entity { color: var(--text); font-weight: 600; }
+.gh-crumb-sep { margin: 0 7px; color: var(--muted); }
+.gh-graph-mode { position: absolute; z-index: 3; top: 40px; left: 18px; display: inline-flex; overflow: hidden; border: 1px solid var(--border); border-radius: 6px; }
+.gh-graph-mode button { border: 0; background: rgba(23,33,43,.94); padding: 5px 10px; color: var(--muted); font-size: 10px; cursor: pointer; }
+.gh-graph-mode button.on { background: var(--elevated); color: var(--text); }
+.gh-claim-legend { position: absolute; z-index: 3; bottom: 14px; right: 14px; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px 12px; max-width: min(560px, calc(100% - 240px)); border: 1px solid var(--border); border-radius: 4px; background: rgba(23,33,43,.9); padding: 6px 10px; color: var(--muted); font-size: 10px; }
+.gh-claim-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.gh-claim-legend i { width: 8px; height: 8px; border-radius: 50%; }
+.lg-supports i { background: #d1bd91; }
+.lg-contradicts i { background: #ff8a73; }
+.lg-context i { background: #3a4652; border: 1px solid #8b9baa; }
+.lg-pending i { width: 14px; height: 0; border-radius: 0; border-top: 1.5px dashed #8b9baa; }
+.lg-link i { width: 14px; height: 0; border-radius: 0; border-top: 1.5px solid #d1bd91; }
+@media (max-width: 760px) { .gh-claim-legend { display: none; } .gh-graph-mode { top: 8px; left: 8px; } }
+.gh-workspace .gh-graph nav { max-height: 28vh; }

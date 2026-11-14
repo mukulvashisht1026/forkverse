@@ -16,3 +16,23 @@
 /* Timeline date ticks under/over each article's origin on the line */
 .itl-tree .date-tick-label{fill:#a3b0bd;font-size:9px;letter-spacing:.02em;opacity:.7;paint-order:stroke;stroke:#02040a;stroke-width:3px;stroke-linejoin:round}
 .itl-tree .citing .tree-group.cited .date-tick{opacity:.45}
+/* ---- Claim view ---- */
+/* Evidence stance: contradicting evidence coral, context grey (supports keep the event accent) */
+.itl-tree .branch.stance-contradicts .tip-core{fill:#ff8a73;stroke:#ffe3dc}
+.itl-tree .branch.stance-contradicts path{stroke:#ff8a73}
+.itl-tree .branch.stance-context .tip-core{fill:#3a4652;stroke:#8b9baa}
+.itl-tree .branch.stance-context{opacity:.75}
+/* Pending (unverified) claims: dimmer, on the dashed lane */
+.itl-tree .tree-group.pending{opacity:.78}
+.itl-tree .tree-group.pending .tip-core{fill:#1b2630;stroke:#8b9baa;stroke-dasharray:3 2}
+.itl-tree .pending-badge{fill:#a3b0bd;font-size:9px;font-weight:700;letter-spacing:.14em;paint-order:stroke;stroke:#02040a;stroke-width:3px}
+.itl-tree .lane-label{fill:#8b9baa;font-size:10px;font-weight:600;letter-spacing:.12em}
+.itl-tree .disputed-ring{stroke:#ff8a73;stroke-width:1.5;stroke-dasharray:4 3;opacity:.9}
+/* Claim links */
+.itl-tree .claim-link path{stroke:#d1bd91;stroke-width:1.4;opacity:.6}
+.itl-tree .claim-link.link-follow_up path{stroke:#4dafb8}
+.itl-tree .claim-link.link-potential_inconsistency path{stroke:#ff8a73}
+.itl-tree .claim-link:not(.basis-stated) path{stroke-dasharray:5 5}
+.itl-tree .claim-link text{fill:#c8d1da;font-size:10px;letter-spacing:.04em;paint-order:stroke;stroke:#02040a;stroke-width:3px}
+.itl-tree .claim-link.link-potential_inconsistency text{fill:#ffb4a5}
+.itl-tree .citing .claim-link{opacity:.3}

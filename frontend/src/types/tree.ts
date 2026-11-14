@@ -34,6 +34,8 @@ export interface BranchNode {
   _prog?: number;
   /** Set to true only for new live events; renderer clears after growth finishes. */
   _animateGrowth?: boolean;
+  /** Claim view: how this article relates to its claim. */
+  stance?: 'supports' | 'contradicts' | 'context';
 }
 
 export type ScrapeEngine =
@@ -60,6 +62,10 @@ export interface SpineNode {
   publicAppeal: PublicAppealMetrics;
   scrapeEngine: ScrapeEngine;
   branches: BranchNode[];
+  /** Claim view: established claims sit on the main timeline, pending ones on the unverified lane. */
+  claimStatus?: 'established' | 'pending';
+  /** Claim view: contradicting evidence exists. */
+  disputed?: boolean;
 }
 
 export interface FocusTarget {

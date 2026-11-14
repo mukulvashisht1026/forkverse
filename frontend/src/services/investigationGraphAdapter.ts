@@ -1,5 +1,5 @@
 import type { BranchNode, SpineNode } from '../types/tree';
-import type { InvestigationEventDto, InvestigationEvidenceDto } from '../../../contracts/investigations';
+import type { ClaimDto, InvestigationEventDto, InvestigationEvidenceDto } from '../../../contracts/investigations';
 
 function stableSeed(value: string): number {
   let hash = 2166136261;
@@ -34,5 +34,40 @@ export function investigationEventsToSpineNodes(events: InvestigationEventDto[])
     publicAppeal: { sentimentLabel: '', positivePct: 0, neutralPct: 0, negativePct: 0, narrative: '' },
     scrapeEngine: 'manual',
     branches: event.evidence.map(evidenceToBranch),
+  }));
+}
+
+const KIND_LABEL: Record<ClaimDto['kind'], string> = { statement: 'Statement', position: 'Position', development: 'Development' };
+
+/**
+ * Claim view: each claim becomes a timeline node (chronological), its evidence becomes branches
+ * that keep their stance (supports / contradicts / context), quote and source link.
+ * Pending claims keep status 'pending' so the canvas puts them on the separate unverified lane.
+ */
+export function claimsToSpineNodes(claims: ClaimDto[]): SpineNode[] {
+  return claims.map((claim) => ({
+    id: claim.id,
+    name: claim.statement,
+    declaration: claim.statement,
+    info: `${claim.status === 'established' ? 'Established' : 'Unverified (pending)'} ${KIND_LABEL[claim.kind].toLowerCase()}${claim.disputed ? ' · disputed' : ''}. ${claim.statusReason}`,
+    platform: 'Claim',
+    ...(claim.occurredAt ? { timestamp: claim.occurredAt } : {}),
+    stockImpact: { summary: '', tickers: [] },
+    publicAppeal: { sentimentLabel: '', positivePct: 0, neutralPct: 0, negativePct: 0, narrative: '' },
+    scrapeEngine: 'manual',
+    claimStatus: claim.status,
+    disputed: claim.disputed,
+    branches: claim.evidence.map((e) => ({
+      id: e.evidenceId,
+      name: e.title,
+      info: `${e.stance === 'supports' ? 'Supports' : e.stance === 'contradicts' ? 'Contradicts' : 'Context'}: “${e.quote}”`,
+      sourceType: 'news' as const,
+      ...(e.publisher ? { sourceDomain: e.publisher } : {}),
+      ...(e.url ? { sourceUrl: e.url } : {}),
+      ...(e.publishedAt ? { publishedAt: e.publishedAt } : {}),
+      impactAngle: e.stance,
+      stance: e.stance,
+      seed: stableSeed(`${claim.id}:${e.evidenceId}`),
+    })),
   }));
 }
