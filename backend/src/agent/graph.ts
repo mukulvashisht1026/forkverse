@@ -42,7 +42,9 @@ export function createAgentGraph(deps: AgentGraphDeps) {
   const model = deps.model.bindTools!(tools);
 
   async function agentNode(state: AgentStateType) {
-    const response = await model.invoke([new SystemMessage(deps.systemPrompt ?? buildSystemPrompt(state.entityId)), ...state.messages]);
+    // Thread-level prompt choice: report prompt, or the live-tracking prompt once the user asked for live updates.
+    const userTexts = state.messages.filter((m) => m.getType() === 'human').map((m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content)));
+    const response = await model.invoke([new SystemMessage(deps.systemPrompt ?? buildSystemPrompt(state.entityId, userTexts)), ...state.messages]);
     return { messages: [response] };
   }
 

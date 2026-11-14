@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { TreeLink } from '../types/tree';
 import type {
   BranchGeometry,
   BranchItem,
@@ -16,7 +17,36 @@ import {
   generateSpineSynapses,
   NODE_ACCENTS,
   SPINE_GAP,
+  ORIGIN_STEP,
+  branchOrder,
+  computeSpineLayout,
+  tickLabel,
 } from '../utils/treeMath';
+
+/** Claim view: y of the dashed lane holding pending (unverified) claims. */
+const UNVERIFIED_LANE_Y = 290;
+/** Claim view: wrap a claim statement into at most two short lines (ellipsis after). */
+function wrapLabel(text: string, width = 26, maxLines = 2): string[] {
+  const words = text.replace(/\s+/g, ' ').trim().split(' ');
+  const lines: string[] = [];
+  let line = '';
+  for (const w of words) {
+    if ((line ? `${line} ${w}` : w).length <= width) line = line ? `${line} ${w}` : w;
+    else {
+      if (line) lines.push(line);
+      line = w.length > width ? `${w.slice(0, width - 1)}…` : w;
+      if (lines.length === maxLines) break;
+    }
+  }
+  if (lines.length < maxLines && line) lines.push(line);
+  if (lines.length === maxLines && lines.join(' ').length < text.trim().length) {
+    lines[maxLines - 1] = `${lines[maxLines - 1]!.slice(0, width - 1).trimEnd()}…`;
+  }
+  return lines.slice(0, maxLines);
+}
+
+/** Claim view: minimum spacing between claim nodes (claims carry few articles each). */
+const CLAIM_GAP = 330;
 
 interface TreeCanvasProps {
   spine: SpineNode[];
@@ -32,10 +62,21 @@ interface TreeCanvasProps {
   onGrowthComplete: (eventId: string, evidenceId?: string) => void;
   onContinue: () => void;
   isContinuing: boolean;
+  /** Claim view: neutral links between claims, drawn as labelled arcs above the timeline. */
+  links?: TreeLink[];
+  /** Claim view: established and pending claims are laid out on separate lanes, compactly. */
+  claimView?: boolean;
+  /** Claim view: note shown at the end of the unverified lane (e.g. "+12 more unverified"). */
+  laneNote?: string;
   onViewChange?: (view: ViewTransform) => void;
   onCanvasReady?: (svg: SVGSVGElement | null) => void;
   /** Evidence/event ids cited by the current answer: these stay lit, everything else dims. */
-  highlight?: { evidenceIds: ReadonlySet<string>; eventIds: ReadonlySet<string> } | null;
+  highlight?: {
+    evidenceIds: ReadonlySet<string>;
+    eventIds: ReadonlySet<string>;
+    /** Proof engine roles per evidence id: colours the lit branches. */
+    roles?: ReadonlyMap<string, string>;
+  } | null;
 }
 
 interface BranchViewProps {
@@ -49,6 +90,7 @@ interface BranchViewProps {
   isGroupFocused: boolean;
   isTipHot: boolean;
   isCited: boolean;
+  role?: string;
   isPaused: boolean;
   dragMovedRef: React.RefObject<boolean>;
   onSelectBranch: (spineIndex: number, branchIndex: number) => void;
@@ -67,6 +109,7 @@ function BranchView({
   isGroupFocused,
   isTipHot,
   isCited,
+  role,
   isPaused,
   dragMovedRef,
   onSelectBranch,
@@ -175,7 +218,7 @@ function BranchView({
   const targetFocus: FocusTarget = { spineIndex, branchIndex };
 
   return (
-    <g className={`branch ${isCited ? 'cited' : ''}`} transform={`translate(${geometry.points[0].x} ${geometry.points[0].y}) scale(${geometry.depthScale}) translate(${-geometry.points[0].x} ${-geometry.points[0].y})`}>
+    <g className={`branch ${isCited ? 'cited' : ''} ${branch.live ? `live-${branch.live}` : ''} ${role ? `role-${role}` : ''} ${branch.stance ? `stance-${branch.stance}` : ''} ${branch.outcomeReport ? 'outcome-report' : ''} ${branch.sourceReport ? 'source-report' : ''}`} transform={`translate(${geometry.points[0].x} ${geometry.points[0].y}) scale(${geometry.depthScale}) translate(${-geometry.points[0].x} ${-geometry.points[0].y})`}>
       {/* Living-Tree mist stipple + neural-scan tangent filaments & micro-dendrites */}
       <g ref={mistGroupRef} className="branch-filaments" style={{ transition: 'opacity 0.35s ease' }}>
         {geometry.filaments.map((strand, idx) => (
@@ -287,6 +330,13 @@ function BranchView({
         />
         <circle className="keyboard-focus-ring" r={14} fill="none" />
         <circle className="fill-transparent" r={22} />
+        {branch.live && (
+          <g className="live-tip" aria-hidden="true">
+            <circle className="live-tip-ring" r={11} />
+            {branch.live === 'fresh' && <circle className="live-tip-ring delay" r={11} />}
+            <text className="live-new-tag" x={13} y={geometry.dir < 0 ? 14 : -10}>NEW</text>
+          </g>
+        )}
         <text
           className="tip-label"
           fill="#ffffff"
@@ -317,6 +367,9 @@ export function TreeCanvas({
   onCanvasReady,
   className = '',
   highlight = null,
+  links = [],
+  claimView = false,
+  laneNote,
 }: TreeCanvasProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const worldRef = useRef<SVGGElement>(null);
@@ -336,38 +389,82 @@ export function TreeCanvas({
   const [isDragging, setIsDragging] = useState(false);
 
   const ambientStars = useMemo(() => generateAmbientStars(68, 1979), []);
+  // Timeline layout: event nodes spaced so their articles fit along the line, in date order.
+  const layout = useMemo(() => {
+    if (!claimView) return computeSpineLayout(spine.map((n) => n.branches.length));
+    // Claim view: main (established) and unverified lanes each laid out compactly from x = 0.
+    const lane = (pending: boolean) => spine.map((n, i) => ({ n, i })).filter(({ n }) => Boolean(n.pending) === pending);
+    const main = lane(false);
+    const pend = lane(true);
+    const mainL = computeSpineLayout(main.map(({ n }) => n.branches.length), CLAIM_GAP);
+    const pendL = computeSpineLayout(pend.map(({ n }) => n.branches.length), CLAIM_GAP);
+    const nodeX = new Array<number>(spine.length);
+    const originStart = new Array<number>(spine.length);
+    main.forEach(({ i }, k) => { nodeX[i] = mainL.nodeX[k]!; originStart[i] = mainL.originStart[k]!; });
+    pend.forEach(({ i }, k) => { nodeX[i] = pendL.nodeX[k]!; originStart[i] = pendL.originStart[k]!; });
+    return { nodeX, originStart, end: Math.max(mainL.end, main.length ? 0 : pendL.end) };
+  }, [spine, claimView]);
   const groundParticles = useMemo(
-    () => generateGroundParticles(spine.length, SPINE_GAP, 7),
-    [spine.length]
+    () => generateGroundParticles(spine.length, SPINE_GAP, 7, layout.end),
+    [spine.length, layout.end]
   );
   const spineSynapses = useMemo(
     () =>
       generateSpineSynapses(
         spine.map((n) => n.branches.length),
         SPINE_GAP,
-        313
+        313,
+        layout.nodeX
       ),
-    [spine]
+    [spine, layout]
   );
 
   const spineGeometries = useMemo(() => {
-    return spine.map((node, spineIdx) => {
-      const cx = spineIdx * SPINE_GAP;
+    const result = spine.map((node, spineIdx) => {
+      const cx = layout.nodeX[spineIdx] ?? spineIdx * SPINE_GAP;
       const accent = NODE_ACCENTS[spineIdx % NODE_ACCENTS.length];
       const lensParticles = generateLensParticles(spineIdx * 53 + 11, 14.5, 42);
-      const branches = node.branches.map((b, branchIdx) => ({
-        branch: b,
-        geometry: generateBranchGeometry(
-          cx,
-          branchIdx % 2 ? 1 : -1,
-          Math.floor(branchIdx / 2),
-          b.seed,
-          accent
-        ),
-      }));
-      return { node, cx, accent, lensParticles, branches };
+      // Each article sprouts from its own point on the line, ordered by publish date,
+      // alternating above (-1) and below (+1) the line.
+      const rank = branchOrder(node.branches.map((b) => b.publishedAt));
+      // Pending (unverified) claims sit on their own lane below; their branches only grow downward
+      // so they never reach the main timeline.
+      const laneY = node.pending ? UNVERIFIED_LANE_Y : 0;
+      const branches = node.branches.map((b, branchIdx) => {
+        const pos = rank[branchIdx] ?? branchIdx;
+        const dir: 1 | -1 = node.pending ? 1 : pos % 2 ? 1 : -1;
+        // Claim view: sources fan out of the claim node itself (alternating up/down) so each child
+        // is visibly attached to the linked-list node it proves.
+        if (claimView) {
+          return {
+            branch: b,
+            tick: { x: cx, dir, label: tickLabel(b.publishedAt), show: false },
+            geometry: generateBranchGeometry(cx, dir, node.pending ? pos : Math.floor(pos / 2), b.seed, accent),
+          };
+        }
+        const originX = (layout.originStart[spineIdx] ?? cx) + pos * ORIGIN_STEP;
+        return {
+          branch: b,
+          tick: { x: originX, dir, label: tickLabel(b.publishedAt), show: false },
+          geometry: generateBranchGeometry(cx, dir, node.pending ? pos : Math.floor(pos / 2), b.seed, accent, originX),
+        };
+      });
+      return { node, cx, laneY, accent, lensParticles, branches };
     });
-  }, [spine]);
+    // Date labels: one row below the line, only where the date changes and there is room.
+    const MIN_LABEL_GAP = 56;
+    let lastX = -Infinity;
+    let lastLabel: string | null = null;
+    const ticks = result.filter((g) => !g.laneY).flatMap((g) => g.branches.map((b) => b.tick)).sort((a, b) => a.x - b.x);
+    for (const t of ticks) {
+      // Below-line labels only under upward branches, so no stem passes through the text.
+      if (!t.label || t.dir > 0 || t.label === lastLabel || t.x - lastX < MIN_LABEL_GAP) continue;
+      t.show = true;
+      lastX = t.x;
+      lastLabel = t.label;
+    }
+    return result;
+  }, [spine, layout, claimView]);
 
   const applyViewToDom = () => {
     const world = worldRef.current;
@@ -384,8 +481,13 @@ export function TreeCanvas({
     // SVG elements may report empty dimensions while graph data is still rendering.
     const bbox = world.getBBox();
     if (!bbox.width || !bbox.height) return;
+    // Long claim timelines: never zoom out until labels are unreadable; show the start of the
+    // timeline at a readable scale and let the user pan/zoom along it.
+    const MIN_CLAIM_SCALE = 0.85;
+    const maxWidth = svg.clientWidth / MIN_CLAIM_SCALE;
+    const view = claimView && bbox.width > maxWidth ? { x: bbox.x, y: bbox.y, width: maxWidth, height: bbox.height } : bbox;
     const nextGoal = computeFitTransform(
-      bbox,
+      view,
       svg.clientWidth,
       svg.clientHeight
     );
@@ -542,7 +644,7 @@ export function TreeCanvas({
     return () => svg.removeEventListener('wheel', handleWheel);
   }, []);
 
-  const totalSpineWidth = Math.max(0, spine.length - 1) * SPINE_GAP;
+  const totalSpineWidth = layout.end;
   const isFocusing = focusTarget !== null;
   const isCiting = Boolean(highlight && (highlight.evidenceIds.size > 0 || highlight.eventIds.size > 0));
 
@@ -715,9 +817,45 @@ export function TreeCanvas({
           {isContinuing ? <path d="M-5,-7 L5,0 L-5,7" fill="none" stroke="#343d38" strokeWidth={2.5} /> : <path d="M-7,0 H7 M2,-5 L7,0 L2,5" fill="none" stroke="#343d38" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />}
         </g>
 
+        {/* Unverified lane: pending claims, visually separated from established ones */}
+        {(() => {
+          const pending = spineGeometries.filter((g) => g.laneY);
+          if (!pending.length) return null;
+          const x1 = Math.min(...pending.map((g) => g.cx)) - 90;
+          const x2 = Math.max(...pending.map((g) => g.cx + 64 + Math.max(0, g.branches.length - 1) * ORIGIN_STEP)) + 60;
+          return (
+            <g className="unverified-lane" aria-hidden="true">
+              <line x1={x1} y1={UNVERIFIED_LANE_Y} x2={x2} y2={UNVERIFIED_LANE_Y} stroke="#8b9baa" strokeWidth={1.5} strokeDasharray="6 7" opacity={0.55} />
+              <text className="lane-label" x={x1} y={UNVERIFIED_LANE_Y - 14}>UNVERIFIED · awaiting corroboration</text>
+              {laneNote && <text className="lane-label lane-note" x={x2 + 12} y={UNVERIFIED_LANE_Y + 4}>{laneNote}</text>}
+            </g>
+          );
+        })()}
+
+        {/* Claim links: neutral, labelled connections between claims (never causal claims) */}
+        {links.length > 0 && (() => {
+          const at = new Map(spineGeometries.map((g) => [g.node.id, { x: g.cx, y: g.laneY }]));
+          const minY = Math.min(...spineGeometries.filter((g) => !g.laneY).flatMap((g) => g.branches.map((b) => b.geometry.tip.y)), -60);
+          return links.map((link, i) => {
+            const a = at.get(link.from);
+            const b = at.get(link.to);
+            if (!a || !b) return null;
+            const apex = minY - 70 - (i % 3) * 34;
+            const mid = (a.x + b.x) / 2;
+            const label = `${link.type === 'potential_inconsistency' ? 'possible inconsistency' : link.type.replace('_', '-')} · ${link.basis.replace('_', ' ')}`;
+            return (
+              <g key={`${link.from}-${link.to}-${link.type}`} className={`claim-link link-${link.type} basis-${link.basis}`}>
+                <title>{link.description}</title>
+                <path d={`M${a.x},${a.y - 22} C${a.x},${apex} ${b.x},${apex} ${b.x},${b.y - 22}`} fill="none" />
+                <text x={mid} y={apex + 26} textAnchor="middle">{label}</text>
+              </g>
+            );
+          });
+        })()}
+
         {/* Spine nodes and their forward-growing branches */}
         {spineGeometries.map(
-          ({ node, cx, accent, lensParticles, branches }, spineIdx) => {
+          ({ node, cx, laneY, accent, lensParticles, branches }, spineIdx) => {
             const isSelected = spineIdx === selectedIndex;
             const isGroupOn =
               focusTarget !== null && focusTarget.spineIndex === spineIdx;
@@ -736,8 +874,44 @@ export function TreeCanvas({
                 key={node.id}
                 className={`tree-group ${isGroupOn ? 'on' : ''} ${
                   isSelected ? 'sel' : ''
-                } ${isNodeCited ? 'cited' : ''}`}
+                } ${isNodeCited ? 'cited' : ''} ${node.pending ? 'pending' : ''} ${node.disputed ? 'disputed' : ''} ${node.live ? `live-${node.live}` : ''}`}
+                transform={laneY ? `translate(0 ${laneY})` : undefined}
               >
+                {/* Added by live tracking: pulse rings + badge (fresh), quiet badge afterwards (recent) */}
+                {node.live && (
+                  <g className="live-node" aria-label={node.live === 'fresh' ? 'Just added by live tracking' : 'Recently added by live tracking'}>
+                    <circle className="live-node-glow" cx={cx} cy={0} r={30} />
+                    {node.live === 'fresh' && [0, 0.7, 1.4].map((d) => (
+                      <circle key={d} className="live-node-ring" cx={cx} cy={0} r={26} style={{ animationDelay: `${d}s` }} />
+                    ))}
+                    <g transform={`translate(${cx} ${-50})`}><g className="live-badge">
+                      <rect className="live-badge-bg" x={node.live === 'fresh' ? -38 : -42} y={-9} width={node.live === 'fresh' ? 76 : 84} height={16} rx={8} />
+                      <circle className="live-badge-dot" cx={node.live === 'fresh' ? -28 : -32} cy={-1} r={3} />
+                      <text className="live-badge-text" x={4} y={3} textAnchor="middle">{node.live === 'fresh' ? 'NEW · LIVE' : 'LIVE UPDATE'}</text>
+                    </g></g>
+                  </g>
+                )}
+                {node.disputed && <circle className="disputed-ring" cx={cx} cy={0} r={27} fill="none" />}
+                {(node.pending || node.unverified) && <text className="pending-badge" x={cx} y={42} textAnchor="middle">UNVERIFIED</text>}
+                {node.outcome && (
+                  <text className={`outcome-badge outcome-${node.outcome}`} x={cx} y={node.pending || node.unverified ? 55 : 42} textAnchor="middle">
+                    {node.outcome === 'no_update' ? 'NO UPDATE YET' : node.outcome.replace('_', ' ').toUpperCase()}
+                  </text>
+                )}
+                {/* Date ticks: where each article meets the timeline; sparse labels in one row below the line */}
+                {branches.map(({ branch, tick }) => (
+                  <g key={`tick-${branch.id}`} className="date-tick" aria-hidden="true">
+                    <line x1={tick.x} x2={tick.x} y1={-3} y2={3} stroke="#d1bd91" strokeWidth={1} opacity={0.35} />
+                    {tick.show && (
+                      <>
+                        <line x1={tick.x} x2={tick.x} y1={3} y2={10} stroke="#d1bd91" strokeWidth={1} opacity={0.35} />
+                        <text className="date-tick-label" x={tick.x} y={21} textAnchor="middle">
+                          {tick.label}
+                        </text>
+                      </>
+                    )}
+                  </g>
+                ))}
                 {branches.map(({ branch, geometry }, branchIdx) => (
                   <BranchView
                     key={branch.id}
@@ -753,6 +927,7 @@ export function TreeCanvas({
                       isGroupOn && focusTarget?.branchIndex === branchIdx
                     }
                     isCited={isCiting && highlight!.evidenceIds.has(branch.id)}
+                    role={isCiting ? highlight!.roles?.get(branch.id) : undefined}
                     isPaused={isPaused}
                     dragMovedRef={dragMovedRef}
                     onSelectBranch={onSelectBranch}
@@ -905,10 +1080,14 @@ export function TreeCanvas({
                     className="main-label"
                     fill="#f5f2e8"
                     x={-34}
-                    y={-18}
+                    y={claimView ? -26 : -18}
                     textAnchor="end"
                   >
-                    {node.name}
+                    {claimView
+                      ? wrapLabel(node.name).map((line, li) => (
+                          <tspan key={li} x={-34} dy={li ? 13 : 0}>{line}</tspan>
+                        ))
+                      : node.name}
                   </text>
                 </g>
               </g>

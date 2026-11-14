@@ -1,5 +1,5 @@
 import type { BranchNode, SpineNode } from '../types/tree';
-import type { InvestigationEventDto, InvestigationEvidenceDto } from '../../../contracts/investigations';
+import type { ClaimDto, InvestigationEventDto, InvestigationEvidenceDto } from '../../../contracts/investigations';
 
 function stableSeed(value: string): number {
   let hash = 2166136261;
@@ -38,5 +38,57 @@ export function investigationEventsToSpineNodes(events: InvestigationEventDto[])
     publicAppeal: { sentimentLabel: '', positivePct: 0, neutralPct: 0, negativePct: 0, narrative: '' },
     scrapeEngine: 'manual',
     branches: event.evidence.map(evidenceToBranch),
+  }));
+}
+
+const KIND_LABEL: Record<ClaimDto['kind'], string> = { statement: 'Statement', position: 'Position', development: 'Development' };
+
+/**
+ * Claim view: each claim becomes a timeline node (chronological), its evidence becomes branches
+ * that keep their stance (supports / contradicts / context), quote and source link.
+ * Pending claims keep status 'pending' so the canvas puts them on the separate unverified lane.
+ */
+const OUTCOME_LABEL: Record<NonNullable<ClaimDto['outcome']>, string> = {
+  fulfilled: 'Fulfilled', not_fulfilled: 'Not fulfilled', in_progress: 'In progress', no_update: 'No follow-up reported yet',
+};
+
+export function evidenceLabel(e: ClaimDto['evidence'][number], politician: boolean): string {
+  if (politician && e.role !== 'outcome') return e.stance === 'contradicts' ? 'Disputes the claim was made' : 'Reports the claim';
+  if (politician) return e.stance === 'supports' ? 'Fulfilled' : e.stance === 'contradicts' ? 'Not fulfilled' : 'In progress';
+  return e.stance === 'supports' ? 'Supports' : e.stance === 'contradicts' ? 'Contradicts' : 'Context';
+}
+
+export function claimsToSpineNodes(claims: ClaimDto[], mode: 'news' | 'politician' = 'news'): SpineNode[] {
+  const politician = mode === 'politician';
+  return claims.map((claim) => ({
+    id: claim.id,
+    name: claim.statement,
+    declaration: claim.statement,
+    info: `${politician && claim.outcome ? `Outcome: ${OUTCOME_LABEL[claim.outcome]}. ` : ''}${claim.status === 'established' ? 'Established' : 'Unverified (pending)'} ${KIND_LABEL[claim.kind].toLowerCase()}${claim.disputed ? ' · disputed' : ''}. ${claim.statusReason}`,
+    platform: 'Claim',
+    ...(claim.occurredAt ? { timestamp: claim.occurredAt } : {}),
+    stockImpact: { summary: '', tickers: [] },
+    publicAppeal: { sentimentLabel: '', positivePct: 0, neutralPct: 0, negativePct: 0, narrative: '' },
+    scrapeEngine: 'manual',
+    claimStatus: claim.status,
+    disputed: claim.disputed,
+    ...(politician && claim.outcome ? { outcome: claim.outcome } : {}),
+    // Every article that proves the claim grows as a child branch. Politician view: articles that
+    // report the claim itself are neutral; later outcome reports are coloured fulfilled / not / in progress.
+    branches: claim.evidence.map((e) => ({
+      id: e.evidenceId,
+      name: e.title,
+      info: `${evidenceLabel(e, politician)}: ${e.summary ? `${e.summary} ` : ''}“${e.quote}”`,
+      relation: evidenceLabel(e, politician),
+      ...(politician && e.role === 'outcome' ? { outcomeReport: true } : {}),
+      ...(politician && e.role !== 'outcome' ? { sourceReport: true } : {}),
+      sourceType: 'news' as const,
+      ...(e.publisher ? { sourceDomain: e.publisher } : {}),
+      ...(e.url ? { sourceUrl: e.url } : {}),
+      ...(e.publishedAt ? { publishedAt: e.publishedAt } : {}),
+      impactAngle: e.stance,
+      stance: e.stance,
+      seed: stableSeed(`${claim.id}:${e.evidenceId}`),
+    })),
   }));
 }

@@ -15,6 +15,7 @@ import { randomUUID } from 'node:crypto';
 import type { Article } from '../research/articles.js';
 import { articleBranchId } from '../research/articles.js';
 import { collectArticles, type CollectRequest } from '../research/run.js';
+import type { TopicPlanT } from '../research/planner.js';
 import { logger } from '../utils/logger.js';
 import type { InvestigationStore } from './store.js';
 import type {
@@ -56,18 +57,36 @@ export interface InvestigationServiceDeps {
   publish: (event: InvestigationUpdatedEvent) => void;
   /** Research implementation; defaults to the real agent. Injected in tests. */
   collect?: Collect;
+  /** Topic planner (clean title, mode, queries, key terms). Without it the raw topic is used as-is. */
+  plan?: (raw: string) => Promise<TopicPlanT>;
+  /** Runs after a successful research run that added articles, before the run is marked done
+   *  (the server builds the structured claim graph here). Failures are logged, not fatal. */
+  afterRun?: (investigationId: string) => Promise<void>;
+}
+
+interface RunPlan {
+  keyTerms?: string[];
+  queries?: string[];
 }
 
 const MAX_TITLE = 120;
 const MAX_CONTEXT = 1000;
 const nowIso = () => new Date().toISOString();
 
-export function toInvestigationDto({ revision: _r, events: _e, ...dto }: InvestigationRecord): InvestigationDto {
+export function toInvestigationDto({ revision: _r, events: _e, claims: _c, claimLinks: _l, claimsUpdatedAt: _u, plan: _p, monitors: _m, ...dto }: InvestigationRecord): InvestigationDto {
   return dto;
 }
 
 export function toGraphDto(r: InvestigationRecord): InvestigationGraphDto {
-  return { investigationId: r.id, revision: r.revision, updatedAt: r.updatedAt, events: r.events };
+  return {
+    investigationId: r.id,
+    revision: r.revision,
+    updatedAt: r.updatedAt,
+    events: r.events,
+    ...(r.claims && { claims: r.claims, claimLinks: r.claimLinks ?? [], ...(r.claimsUpdatedAt && { claimsUpdatedAt: r.claimsUpdatedAt }) }),
+    ...(r.entity && { entity: r.entity }),
+    ...(r.mode && { mode: r.mode }),
+  };
 }
 
 function cleanRequest(input: CreateInvestigationRequestDto | ExtendInvestigationRequestDto) {
@@ -120,13 +139,21 @@ export class InvestigationService {
   }
 
   async create(input: CreateInvestigationRequestDto): Promise<CreateInvestigationResponseDto> {
-    const { topic, context } = cleanRequest(input);
+    const { topic: raw, context } = cleanRequest(input);
+    // Planner: "LEST DO A NALAYS OF NARDNER MODI" -> "Narendra Modi", mode, queries, key terms.
+    const plan = this.deps.plan ? await this.deps.plan(raw) : undefined;
+    const topic = plan?.title || raw;
+    const description = [context, plan && plan.title.toLowerCase() !== raw.toLowerCase() ? `Requested as: “${raw}”` : '']
+      .filter(Boolean)
+      .join(' · ');
     const now = nowIso();
     const record: InvestigationRecord = {
       id: randomUUID(),
       title: topic.slice(0, MAX_TITLE),
       topic,
-      ...(context && { description: context }),
+      ...(description && { description }),
+      ...(plan && { mode: plan.mode, plan: { queries: plan.queries, keyTerms: plan.keyTerms } }),
+      ...(plan?.entity && { entity: plan.entity }),
       visibility: 'public', // no authentication yet: every investigation is public
       status: 'active',
       createdAt: now,
@@ -135,20 +162,24 @@ export class InvestigationService {
       events: [],
     };
     await this.deps.store.create(record);
-    const run = await this.startRun(record.id, topic, context);
+    const run = await this.startRun(record.id, topic, context, plan);
     return { investigation: toInvestigationDto(record), run };
   }
 
   async extend(id: string, input: ExtendInvestigationRequestDto): Promise<ExtendInvestigationResponseDto> {
-    const { topic, context } = cleanRequest(input);
-    await this.get(id);
+    const { topic: raw, context } = cleanRequest(input);
+    const record = await this.get(id);
     const active = await this.deps.store.activeRun(id);
     if (active) {
       throw new InvestigationError(409, 'run_in_progress', 'A research run is already in progress for this investigation.', {
         runId: active.id,
       });
     }
-    const run = await this.startRun(id, topic, context);
+    // Plan the follow-up topic too; keep the investigation's own key terms as a fallback match.
+    const plan = this.deps.plan ? await this.deps.plan(`${raw} (${record.title})`) : undefined;
+    const topic = plan?.title || raw;
+    const keyTerms = [...new Set([...(plan?.keyTerms ?? []), ...(record.plan?.keyTerms ?? [])])];
+    const run = await this.startRun(id, topic, context, plan ? { keyTerms, queries: plan.queries } : record.plan);
     return { run, graph: toGraphDto(await this.get(id)) };
   }
 
@@ -164,10 +195,10 @@ export class InvestigationService {
     return this.deps.store.listRuns(id);
   }
 
-  private async startRun(investigationId: string, topic: string, context?: string): Promise<ResearchRunDto> {
+  private async startRun(investigationId: string, topic: string, context?: string, plan?: RunPlan): Promise<ResearchRunDto> {
     const run: ResearchRunDto = { id: randomUUID(), investigationId, status: 'queued', startedAt: nowIso() };
     await this.deps.store.createRun(run);
-    const p = this.execute(run, topic, context).finally(() => this.running.delete(run.id));
+    const p = this.execute(run, topic, context, plan).finally(() => this.running.delete(run.id));
     this.running.set(run.id, p);
     return run;
   }
@@ -181,7 +212,7 @@ export class InvestigationService {
   }
 
   /** Never throws: failures are recorded on the run and published. */
-  private async execute(queued: ResearchRunDto, topic: string, context?: string): Promise<void> {
+  private async execute(queued: ResearchRunDto, topic: string, context?: string, plan?: RunPlan): Promise<void> {
     const { store } = this.deps;
     const id = queued.investigationId;
     let run: ResearchRunDto = { ...queued, status: 'running' };
@@ -194,12 +225,18 @@ export class InvestigationService {
       this.publish(id, revision, run);
 
       const skipIds = existing.events.flatMap((e) => e.evidence.map((ev) => ev.id));
-      const { articles, summary } = await this.collect({ query: topic, context, skipIds }, async (article) => {
+      const { articles, summary } = await this.collect({ query: topic, context, skipIds, keyTerms: plan?.keyTerms, queries: plan?.queries }, async (article) => {
         const evidence = articleToEvidence(article, eventId);
         revision = await store.addEvidence(id, eventId, evidence);
         this.publish(id, revision, run, evidence);
       });
       if (summary) revision = await store.setEventSummary(id, eventId, summary.slice(0, 1000));
+
+      // Build the structured graph (claims) right away so the user sees parents + children.
+      if (articles > 0 && this.deps.afterRun) {
+        await this.deps.afterRun(id).catch((err) => logger.error({ err, investigationId: id }, 'graph build after research failed'));
+        revision = (await store.get(id))?.revision ?? revision;
+      }
 
       run = { ...run, status: 'succeeded', completedAt: nowIso() };
       await store.updateRun(run);

@@ -43,6 +43,35 @@ Research chat (RAG over the graph), implemented in `backend/src/investigations/c
 - `extend_graph`: starts a research run (409 if one is active), streams progress, emits `graph_updated` with the new graph, and cites the newly added evidence.
 - Highlight: the backend broadcasts `InvestigationHighlightEventDto` (`investigation:highlight` with `{investigationId, messageId, evidenceIds, eventIds, final}`) on `/ws`. An empty frame at `message_start` clears the previous highlight. A frame is sent each time the answer cites a new source, and a final frame carries exactly the cited set. The Workspace lights those branches and events and dims the rest. Each answer has a "Show N cited in graph" button that re-applies its highlight from the stored citations.
 
+Proof engine (`action: "verify_sources"` with `eventId`), implemented in `backend/src/proof/`:
+
+1. Select up to 8 articles under the event, one per publisher, labelled `S1..Sn`.
+2. Scrape each article's full text through Context.dev (`context_web-scrape`, main content only, 4 at a time). Pages that fail or contain too little text are kept as `unreadable` with their error and are never analysed.
+3. Two agents run in parallel over the same texts (JSON via `completeJson`):
+   - the **Corroborator** finds facts that at least 2 outlets report, with a verbatim quote per outlet;
+   - the **Skeptic** finds each outlet's angle and framing, details only one outlet reports, and contradictions.
+4. Every quote is checked verbatim (`verifyQuote`) against the article it is attributed to, and failing quotes are dropped. A shared fact must keep verified quotes from 2 or more distinct outlets, and a dispute must keep 2 or more sides.
+5. Each article gets a role: `dispute` takes priority over `consensus`, then `angle`; articles that could not be read are `unreadable`.
+6. A synthesis streams cited Markdown written from the verified findings only: Verdict, Common ground, How each outlet frames it, Different elements, Disputed or uncertain, and a coverage line.
+
+The stream carries progress tokens and then `proof` (a `ProofReportDto` with sources, roles, findings and stats), followed by `sources` and `message_complete`. The report is also stored on the message (`ChatMessageDto.proof`). `investigation:highlight` frames carry `roles` (evidenceId to role) once the agents finish. The graph colours compared articles by role (teal = consensus, gold = angle, coral = dispute, grey = unreadable), dims everything else, and shows a legend. Errors before streaming: `event_not_found` (404), `no_events` and `not_enough_sources` (400).
+
+Claim timeline (`action: "build_claims"`), implemented in `backend/src/claims/builder.ts`. It builds the hierarchy Entity → Topic investigation → chronological claims → source evidence:
+
+1. Read up to 24 of the investigation's articles, round-robin across outlets. Full text comes through Context.dev; if a page can't be read, its title and excerpt are used.
+2. Candidates: one small JSON call per article, in parallel, returns the 1-3 most important specific claims, each with a verbatim quote. Quotes are verified against that article immediately, so a small context gives accurate quoting.
+3. Merge: one JSON call groups equivalent candidates from different outlets into canonical claims, with each member's stance (`supports`, `contradicts` or `context`), neutral links (`evolution`, `follow_up` or `potential_inconsistency`, each with a basis of `stated`, `sequence_only` or `inferred`), and the main `entity`. Candidates the merge leaves out are attached to the most similar claim by word and number overlap, or else grouped among themselves; nothing is silently lost.
+4. Status depends on evidence, not on a fixed article count. A claim is `established` if it has verified support from 2 or more independent outlets, or from a primary or official source (`.gov`, `.int`, `europa.eu`, …). Hedged wording ("reportedly", "sources say", "could", …) does not count. Everything else is `pending`, and `statusReason` says what is missing. Contradicting evidence sets `disputed`; perspectives are kept, not averaged.
+5. A claim's date (`occurredAt`) is the earliest publication date among its verified evidence, i.e. when it was first reported. Claim ids are stable hashes of the statement, so a rebuild after extending the graph re-evaluates claims, and a pending claim becomes established once corroborated.
+
+The result is stored on the investigation (`claims`, `claimLinks`, `entity`, `claimsUpdatedAt`) and returned in `InvestigationGraphDto`. The stream emits `graph_updated` and a cited summary.
+
+Frontend claim view (the default once claims exist; "Research runs" shows the old view):
+- established claims sit on the main line, and pending claims sit on a separate dashed UNVERIFIED lane below, so they are never presented as fact. The lane shows the 8 most relevant pending claims and labels the rest "+N more", with all of them listed in the chat;
+- evidence branches are coloured by stance; disputed claims get a coral ring;
+- links are labelled arcs, solid when a source states the link and dashed when it is inferred or only sequential;
+- the breadcrumb reads "Entity › Topic".
+
 Behaviour:
 - Each run appends one event (title = run topic) and attaches every article found as evidence. Title, URL, source and date come only from search tool output. The agent's closing summary becomes `event.summary`. Earlier events and evidence are never removed, and articles already present are skipped.
 - Every graph change increments `revision` and `updatedAt`.

@@ -10,3 +10,75 @@
 .itl-tree .node-group:focus,.itl-tree .tip-group:focus{outline:none}
 .itl-tree .keyboard-focus-ring{opacity:0;pointer-events:none;stroke:#d1bd91;stroke-width:1.5;stroke-dasharray:2 3;transition:opacity .12s ease}
 .itl-tree .node-group:focus-visible>.keyboard-focus-ring,.itl-tree .tip-group:focus-visible>.keyboard-focus-ring{opacity:.95}
+/* Proof engine roles (verify_sources): colour each compared article by its role. */
+.itl-tree .citing .branch.cited.role-consensus .tip-core{fill:#4dafb8;stroke:#e6f7f8;filter:drop-shadow(0 0 7px #4dafb8)}
+.itl-tree .citing .branch.cited.role-angle .tip-core{fill:#d1bd91;stroke:#f5f2e8;filter:drop-shadow(0 0 7px #d1bd91)}
+.itl-tree .citing .branch.cited.role-dispute .tip-core{fill:#ff8a73;stroke:#ffe3dc;filter:drop-shadow(0 0 7px #ff8a73)}
+.itl-tree .citing .branch.cited.role-unreadable{opacity:.4}
+.itl-tree .citing .branch.cited.role-unreadable .tip-core{fill:#3a4652;stroke:#8b9baa;filter:none}
+/* Timeline date ticks under/over each article's origin on the line */
+.itl-tree .date-tick-label{fill:#a3b0bd;font-size:9px;letter-spacing:.02em;opacity:.7;paint-order:stroke;stroke:#02040a;stroke-width:3px;stroke-linejoin:round}
+.itl-tree .citing .tree-group.cited .date-tick{opacity:.45}
+/* ---- Claim view ---- */
+/* Evidence stance: contradicting evidence coral, context grey (supports keep the event accent) */
+.itl-tree .branch.stance-contradicts .tip-core{fill:#ff8a73;stroke:#ffe3dc}
+.itl-tree .branch.stance-contradicts path{stroke:#ff8a73}
+.itl-tree .branch.stance-context .tip-core{fill:#3a4652;stroke:#8b9baa}
+.itl-tree .branch.stance-context{opacity:.75}
+/* Pending (unverified) claims: dimmer, on the dashed lane */
+.itl-tree .tree-group.pending{opacity:.78}
+.itl-tree .tree-group.pending .tip-core{fill:#1b2630;stroke:#8b9baa;stroke-dasharray:3 2}
+.itl-tree .pending-badge{fill:#a3b0bd;font-size:9px;font-weight:700;letter-spacing:.14em;paint-order:stroke;stroke:#02040a;stroke-width:3px}
+.itl-tree .lane-label{fill:#8b9baa;font-size:10px;font-weight:600;letter-spacing:.12em}
+.itl-tree .disputed-ring{stroke:#ff8a73;stroke-width:1.5;stroke-dasharray:4 3;opacity:.9}
+/* Claim links */
+.itl-tree .claim-link path{stroke:#d1bd91;stroke-width:1.4;opacity:.6}
+.itl-tree .claim-link.link-follow_up path{stroke:#4dafb8}
+.itl-tree .claim-link.link-potential_inconsistency path{stroke:#ff8a73}
+.itl-tree .claim-link:not(.basis-stated) path{stroke-dasharray:5 5}
+.itl-tree .claim-link text{fill:#c8d1da;font-size:10px;letter-spacing:.04em;paint-order:stroke;stroke:#02040a;stroke-width:3px}
+.itl-tree .claim-link.link-potential_inconsistency text{fill:#ffb4a5}
+.itl-tree .citing .claim-link{opacity:.3}
+/* Politician view: outcome reports and claim outcome badges */
+.itl-tree .branch.outcome-report.stance-supports .tip-core{fill:#6fcf97;stroke:#e3f8ec}
+.itl-tree .branch.outcome-report.stance-supports path{stroke:#6fcf97}
+.itl-tree .branch.outcome-report.stance-context .tip-core{fill:#d1bd91;stroke:#f5f2e8}
+.itl-tree .branch.outcome-report.stance-context{opacity:1}
+.itl-tree .outcome-badge{font-size:9px;font-weight:700;letter-spacing:.12em;paint-order:stroke;stroke:#02040a;stroke-width:3px}
+.itl-tree .outcome-fulfilled{fill:#6fcf97}
+.itl-tree .outcome-not_fulfilled{fill:#ff8a73}
+.itl-tree .outcome-in_progress{fill:#d1bd91}
+.itl-tree .outcome-no_update{fill:#8b9baa}
+.itl-tree .branch.source-report .tip-core{fill:#7fa6c9;stroke:#e6eff8}
+.itl-tree .branch.source-report path{stroke:#7fa6c9}
+.itl-tree .branch.source-report.stance-contradicts .tip-core{fill:#ff8a73;stroke:#ffe6e0}
+/* ---- Live tracking: items a live monitor just added ---- */
+.itl-tree .live-node{pointer-events:none}
+.itl-tree .live-node-glow{fill:rgba(239,90,80,.12);stroke:#ef5a50;stroke-width:1.2;opacity:.75}
+.itl-tree .tree-group.live-fresh .live-node-glow{animation:itl-live-glow 1.4s ease-in-out infinite alternate}
+.itl-tree .live-node-ring{fill:none;stroke:#ef5a50;stroke-width:2;opacity:0;transform-box:fill-box;transform-origin:center;animation:itl-live-ring 2.1s ease-out infinite}
+.itl-tree .live-badge-bg{fill:rgba(70,26,26,.92);stroke:#ef5a50;stroke-width:1}
+.itl-tree .live-badge-dot{fill:#ef5a50}
+.itl-tree .tree-group.live-fresh .live-badge-dot{animation:itl-live-blink 1s ease-in-out infinite}
+.itl-tree .live-badge-text{fill:#ffd2ce;font-size:9px;font-weight:700;letter-spacing:.12em}
+.itl-tree .tree-group.live-fresh .live-badge{animation:itl-live-drop .5s cubic-bezier(.2,1.4,.4,1)}
+.itl-tree .tree-group.live-recent .live-node-glow{fill:rgba(239,90,80,.06);stroke-dasharray:3 3;opacity:.55}
+.itl-tree .tree-group.live-recent .live-badge-bg{fill:rgba(40,24,26,.9);stroke:rgba(239,90,80,.55)}
+.itl-tree .tree-group.live-recent .live-badge-text{fill:#e9b1ab}
+.itl-tree .branch.live-fresh path{filter:drop-shadow(0 0 4px rgba(239,90,80,.8))}
+.itl-tree .branch.live-fresh .tip-core,.itl-tree .branch.live-recent .tip-core{stroke:#ef5a50}
+.itl-tree .branch.live-fresh .tip-label,.itl-tree .branch.live-recent .tip-label{opacity:1}
+.itl-tree .live-tip{pointer-events:none}
+.itl-tree .live-tip-ring{fill:none;stroke:#ef5a50;stroke-width:1.6;opacity:.6;transform-box:fill-box;transform-origin:center}
+.itl-tree .branch.live-fresh .live-tip-ring{animation:itl-live-ring 1.8s ease-out infinite}
+.itl-tree .branch.live-fresh .live-tip-ring.delay{animation-delay:.9s}
+.itl-tree .branch.live-recent .live-tip-ring{opacity:.35;stroke-dasharray:2 2}
+.itl-tree .live-new-tag{fill:#ff8f86;font-size:8px;font-weight:800;letter-spacing:.14em;paint-order:stroke;stroke:#02040a;stroke-width:3px}
+.itl-tree .branch.live-recent .live-new-tag{fill:#c98f89}
+/* Live items stay visible even while an answer highlight dims the rest */
+.itl-tree .citing .tree-group.live-fresh,.itl-tree .citing .tree-group.live-fresh .branch.live-fresh{opacity:1}
+@keyframes itl-live-ring{0%{opacity:.85;transform:scale(.7)}100%{opacity:0;transform:scale(2.3)}}
+@keyframes itl-live-glow{from{opacity:.45}to{opacity:1}}
+@keyframes itl-live-blink{50%{opacity:.25}}
+@keyframes itl-live-drop{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
+@media(prefers-reduced-motion:reduce){.itl-tree .live-node-ring{display:none}}

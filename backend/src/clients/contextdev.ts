@@ -32,28 +32,31 @@ async function logRawSample(endpoint: string, body: unknown): Promise<void> {
   }
 }
 
-async function post(endpoint: string, body: unknown): Promise<unknown> {
+async function request(method: 'GET' | 'POST' | 'DELETE', endpoint: string, body?: unknown): Promise<unknown> {
   return limit(() =>
     withRetry(async () => {
       const res = await fetch(`${config.CONTEXT_DEV_BASE_URL}${endpoint}`, {
-        method: 'POST',
+        method,
         headers: {
           Authorization: `Bearer ${config.CONTEXT_DEV_API_KEY}`,
-          'Content-Type': 'application/json',
+          ...(body !== undefined && { 'Content-Type': 'application/json' }),
         },
-        body: JSON.stringify(body),
+        ...(body !== undefined && { body: JSON.stringify(body) }),
       });
       if (!res.ok) {
         const text = await res.text().catch(() => '');
         if (res.status === 402) logger.error({ endpoint }, 'context.dev: payment required / out of credits');
         throw new HttpError(res.status, `context.dev ${endpoint} ${res.status}: ${text.slice(0, 300)}`, parseRetryAfter(res.headers.get('retry-after')));
       }
+      if (res.status === 204) return null;
       const json = await res.json();
-      await logRawSample(endpoint, json);
+      await logRawSample(`${method}_${endpoint.split('?')[0]!.replace(/\/(mon|run|chg)_[\w-]+/g, '/$1')}`, json);
       return json;
     }),
   );
 }
+
+const post = (endpoint: string, body: unknown) => request('POST', endpoint, body);
 
 // ---------- defensive normalization ----------
 
@@ -121,6 +124,22 @@ export function normalizeScrape(url: string, raw: unknown): ScrapeResult {
       if (Array.isArray(v)) candidates.push(...v.filter(isObj));
     }
   }
+  // Current /web/scrape shape: one object per requested format, e.g.
+  // { markdown: { requested: true, success: true, data: "..." }, metadata: {...} }.
+  if (isObj(raw) && isObj(raw.markdown)) {
+    const md = raw.markdown;
+    const meta = isObj(raw.metadata) ? raw.metadata : {};
+    if (md.success !== false && typeof md.data === 'string' && md.data.trim()) {
+      return {
+        success: true,
+        url,
+        markdown: md.data,
+        title: str(meta, 'title', 'ogTitle'),
+        publishedAt: str(meta, 'publishedTime', 'publishedAt', 'modifiedTime', 'date'),
+      };
+    }
+    return { success: false, url, error: str(md, 'error_code', 'message', 'error') ?? str(raw, 'error_code', 'message') ?? 'markdown output failed' };
+  }
   // A 200 can still contain failed outputs: honour explicit success flags.
   for (const c of candidates) {
     if (c.success === false) continue;
@@ -158,22 +177,136 @@ export async function scrape(url: string): Promise<ScrapeResult> {
 }
 
 export async function newsSearch(searchBy: string): Promise<SearchResult[]> {
-  return normalizeSearchResults(await post('/news/search', { searchBy }));
+  return normalizeSearchResults(await post('/news/search', { searchBy: { type: 'natural_language', query: searchBy } }));
 }
 
 export async function webSearch(query: string): Promise<SearchResult[]> {
   return normalizeSearchResults(await post('/web/search', { query }));
 }
 
-export async function createMonitor(name: string, target: string): Promise<{ id: string | null; raw: unknown }> {
-  const raw = await post('/monitors', {
-    name,
-    target,
-    webhookUrl: `${config.PUBLIC_BASE_URL}/webhook/monitor`,
-  });
-  const id = isObj(raw) ? (str(raw, 'id', 'monitorId') ?? (isObj(raw.data) ? str(raw.data, 'id') : null)) : null;
-  return { id, raw };
+// ---------- Monitors API (https://docs.context.dev, OpenAPI "Context.dev Monitors API") ----------
+
+export type MonitorTarget =
+  | { type: 'page'; url: string; instructions?: string }
+  | { type: 'sitemap'; url: string; include?: string[]; exclude?: string[]; max_urls?: number };
+
+export interface CreateMonitorInput {
+  name: string;
+  target: MonitorTarget;
+  changeDetection: 'exact' | 'semantic';
+  intervalMinutes: number;
+  /** Public HTTPS URL for `change.detected` pushes; omitted = we poll instead. */
+  webhookUrl?: string;
+  tags?: string[];
 }
+
+export interface CreatedMonitor {
+  id: string;
+  status: string;
+  /** Webhook signing secret (whsec_…), present when a webhook was configured. */
+  secret?: string;
+}
+
+/** Context.dev MonitorsChange (fields we use; all optional beyond id/monitor_id). */
+export interface MonitorChange {
+  id: string;
+  monitor_id: string;
+  run_id?: string;
+  target_type?: string;
+  change_detection_type?: string;
+  title?: string;
+  summary?: string;
+  detected_at?: string;
+  url?: string;
+  importance?: 'low' | 'medium' | 'high';
+  confidence?: number;
+  diff?: string;
+  before_text_excerpt?: string;
+  after_text_excerpt?: string;
+  added_urls?: string[];
+  removed_urls?: string[];
+  evidence?: { url?: string; before: string; after: string }[];
+}
+
+export interface MonitorRun {
+  id: string;
+  status: string; // queued | running | completed | failed | skipped
+  /** Why a skipped run never executed (insufficient credits, paused, superseded). */
+  skip_reason?: string | null;
+  change_detected?: boolean;
+  change_id?: string | null;
+  error?: { code?: string; message?: string } | null;
+}
+
+/** Monitors API surface used by the monitor service (injectable for tests). */
+export interface MonitorsClient {
+  create(input: CreateMonitorInput): Promise<CreatedMonitor>;
+  remove(monitorId: string): Promise<void>;
+  runNow(monitorId: string): Promise<{ runId: string }>;
+  getRun(monitorId: string, runId: string): Promise<MonitorRun>;
+  getChange(changeId: string): Promise<MonitorChange>;
+  listChanges(monitorId: string, since?: string): Promise<MonitorChange[]>;
+}
+
+/** Unwrap `{data: …}` if present (list endpoints wrap, single-object endpoints do not). */
+const unwrap = (raw: unknown): unknown => (isObj(raw) && isObj(raw.data) ? raw.data : raw);
+
+export function parseChange(raw: unknown): MonitorChange | null {
+  const o = unwrap(raw);
+  if (!isObj(o)) return null;
+  const id = str(o, 'id');
+  const monitorId = str(o, 'monitor_id');
+  if (!id || !monitorId) return null;
+  return o as unknown as MonitorChange;
+}
+
+export const contextDevMonitors: MonitorsClient = {
+  async create({ name, target, changeDetection, intervalMinutes, webhookUrl, tags }) {
+    const raw = await post('/monitors', {
+      name: name.slice(0, 200),
+      target,
+      change_detection: { type: changeDetection },
+      schedule: { type: 'interval', frequency: intervalMinutes, unit: 'minutes' },
+      ...(webhookUrl && { webhook: { url: webhookUrl, events: ['change.detected'] } }),
+      ...(tags?.length && { tags }),
+    });
+    const o = unwrap(raw);
+    const id = isObj(o) ? str(o, 'id') : null;
+    if (!id || !isObj(o)) throw new Error('context.dev: create monitor returned no id');
+    const webhook = isObj(o.webhook) ? o.webhook : {};
+    return { id, status: str(o, 'status') ?? 'active', ...(str(webhook, 'secret') && { secret: str(webhook, 'secret')! }) };
+  },
+  async remove(monitorId) {
+    try {
+      await request('DELETE', `/monitors/${encodeURIComponent(monitorId)}`);
+    } catch (err) {
+      if (err instanceof HttpError && err.status === 404) return; // already gone
+      throw err;
+    }
+  },
+  async runNow(monitorId) {
+    const raw = await post(`/monitors/${encodeURIComponent(monitorId)}/run`, {});
+    const runId = isObj(raw) ? str(raw, 'run_id') : null;
+    if (!runId) throw new Error('context.dev: run monitor returned no run_id');
+    return { runId };
+  },
+  async getRun(monitorId, runId) {
+    const o = unwrap(await request('GET', `/monitors/${encodeURIComponent(monitorId)}/runs/${encodeURIComponent(runId)}`));
+    if (!isObj(o)) throw new Error('context.dev: unexpected run response');
+    return o as unknown as MonitorRun;
+  },
+  async getChange(changeId) {
+    const change = parseChange(await request('GET', `/monitors/changes/${encodeURIComponent(changeId)}`));
+    if (!change) throw new Error('context.dev: unexpected change response');
+    return change;
+  },
+  async listChanges(monitorId, since) {
+    const q = new URLSearchParams({ limit: '20', ...(since && { since }) });
+    const raw = await request('GET', `/monitors/${encodeURIComponent(monitorId)}/changes?${q}`);
+    const items = isObj(raw) && Array.isArray(raw.data) ? raw.data : [];
+    return items.map(parseChange).filter((c): c is MonitorChange => c !== null);
+  },
+};
 
 export async function brand(domain: string): Promise<unknown> {
   return post('/brand/retrieve', { type: 'by_domain', domain });
