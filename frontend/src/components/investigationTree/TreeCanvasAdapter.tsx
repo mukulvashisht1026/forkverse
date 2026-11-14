@@ -36,7 +36,7 @@ export function mapTreeModels(spine: AppSpine[]) {
     ...(node.claimStatus === 'pending' && (node.outcome ? { unverified: true } : { pending: true })),
     ...(node.disputed && { disputed: true }), ...(node.outcome && { outcome: node.outcome }),
     branches: node.branches.map((branch) => ({
-      id: branch.id, name: shortLabel(branch.name), info: branch.info, seed: branch.seed, publishedAt: branch.publishedAt, ...(branch.stance && { stance: branch.stance }), ...(branch.outcomeReport && { outcomeReport: true }),
+      id: branch.id, name: shortLabel(branch.name), info: branch.info, seed: branch.seed, publishedAt: branch.publishedAt, ...(branch.stance && { stance: branch.stance }), ...(branch.outcomeReport && { outcomeReport: true }), ...(branch.sourceReport && { sourceReport: true }),
       isNew: Boolean(branch._animateGrowth || (branch._prog !== undefined && branch._prog < 1)),
     })),
   }));

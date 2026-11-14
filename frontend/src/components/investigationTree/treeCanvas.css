@@ -46,3 +46,6 @@
 .itl-tree .outcome-not_fulfilled{fill:#ff8a73}
 .itl-tree .outcome-in_progress{fill:#d1bd91}
 .itl-tree .outcome-no_update{fill:#8b9baa}
+.itl-tree .branch.source-report .tip-core{fill:#7fa6c9;stroke:#e6eff8}
+.itl-tree .branch.source-report path{stroke:#7fa6c9}
+.itl-tree .branch.source-report.stance-contradicts .tip-core{fill:#ff8a73;stroke:#ffe6e0}

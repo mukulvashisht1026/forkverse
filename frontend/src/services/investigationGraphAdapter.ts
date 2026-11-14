@@ -48,6 +48,12 @@ const OUTCOME_LABEL: Record<NonNullable<ClaimDto['outcome']>, string> = {
   fulfilled: 'Fulfilled', not_fulfilled: 'Not fulfilled', in_progress: 'In progress', no_update: 'No follow-up reported yet',
 };
 
+export function evidenceLabel(e: ClaimDto['evidence'][number], politician: boolean): string {
+  if (politician && e.role !== 'outcome') return e.stance === 'contradicts' ? 'Disputes the claim was made' : 'Reports the claim';
+  if (politician) return e.stance === 'supports' ? 'Fulfilled' : e.stance === 'contradicts' ? 'Not fulfilled' : 'In progress';
+  return e.stance === 'supports' ? 'Supports' : e.stance === 'contradicts' ? 'Contradicts' : 'Context';
+}
+
 export function claimsToSpineNodes(claims: ClaimDto[], mode: 'news' | 'politician' = 'news'): SpineNode[] {
   const politician = mode === 'politician';
   return claims.map((claim) => ({
@@ -63,12 +69,15 @@ export function claimsToSpineNodes(claims: ClaimDto[], mode: 'news' | 'politicia
     claimStatus: claim.status,
     disputed: claim.disputed,
     ...(politician && claim.outcome ? { outcome: claim.outcome } : {}),
-    // Politician view: only later outcome reports grow as branches (no follow-up = no branch).
-    branches: claim.evidence.filter((e) => !politician || e.role === 'outcome').map((e) => ({
+    // Every article that proves the claim grows as a child branch. Politician view: articles that
+    // report the claim itself are neutral; later outcome reports are coloured fulfilled / not / in progress.
+    branches: claim.evidence.map((e) => ({
       id: e.evidenceId,
       name: e.title,
-      info: `${politician ? (e.stance === 'supports' ? 'Fulfilled' : e.stance === 'contradicts' ? 'Not fulfilled' : 'In progress') : e.stance === 'supports' ? 'Supports' : e.stance === 'contradicts' ? 'Contradicts' : 'Context'}: ${e.summary ? `${e.summary} ` : ''}“${e.quote}”`,
-      ...(politician ? { outcomeReport: true } : {}),
+      info: `${evidenceLabel(e, politician)}: ${e.summary ? `${e.summary} ` : ''}“${e.quote}”`,
+      relation: evidenceLabel(e, politician),
+      ...(politician && e.role === 'outcome' ? { outcomeReport: true } : {}),
+      ...(politician && e.role !== 'outcome' ? { sourceReport: true } : {}),
       sourceType: 'news' as const,
       ...(e.publisher ? { sourceDomain: e.publisher } : {}),
       ...(e.url ? { sourceUrl: e.url } : {}),

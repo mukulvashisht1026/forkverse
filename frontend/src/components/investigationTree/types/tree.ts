@@ -10,6 +10,7 @@ export interface BranchItem {
   stance?: 'supports' | 'contradicts' | 'context';
   /** Politician view: outcome report (fulfilled = supports, not fulfilled = contradicts, in progress = context). */
   outcomeReport?: boolean;
+  sourceReport?: boolean;
 }
 
 export interface SpineNode {

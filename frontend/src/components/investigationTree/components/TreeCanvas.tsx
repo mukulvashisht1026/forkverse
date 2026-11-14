@@ -197,7 +197,7 @@ function BranchView({
   const targetFocus: FocusTarget = { spineIndex, branchIndex };
 
   return (
-    <g className={`branch ${isCited ? 'cited' : ''} ${role ? `role-${role}` : ''} ${branch.stance ? `stance-${branch.stance}` : ''} ${branch.outcomeReport ? 'outcome-report' : ''}`} transform={`translate(${geometry.points[0].x} ${geometry.points[0].y}) scale(${geometry.depthScale}) translate(${-geometry.points[0].x} ${-geometry.points[0].y})`}>
+    <g className={`branch ${isCited ? 'cited' : ''} ${role ? `role-${role}` : ''} ${branch.stance ? `stance-${branch.stance}` : ''} ${branch.outcomeReport ? 'outcome-report' : ''} ${branch.sourceReport ? 'source-report' : ''}`} transform={`translate(${geometry.points[0].x} ${geometry.points[0].y}) scale(${geometry.depthScale}) translate(${-geometry.points[0].x} ${-geometry.points[0].y})`}>
       {/* Living-Tree mist stipple + neural-scan tangent filaments & micro-dendrites */}
       <g ref={mistGroupRef} style={{ transition: 'opacity 0.35s ease' }}>
         {geometry.filaments.map((strand, idx) => (
@@ -408,8 +408,17 @@ export function TreeCanvas({
       const laneY = node.pending ? UNVERIFIED_LANE_Y : 0;
       const branches = node.branches.map((b, branchIdx) => {
         const pos = rank[branchIdx] ?? branchIdx;
-        const originX = (layout.originStart[spineIdx] ?? cx) + pos * ORIGIN_STEP;
         const dir: 1 | -1 = node.pending ? 1 : pos % 2 ? 1 : -1;
+        // Claim view: sources fan out of the claim node itself (alternating up/down) so each child
+        // is visibly attached to the linked-list node it proves.
+        if (claimView) {
+          return {
+            branch: b,
+            tick: { x: cx, dir, label: tickLabel(b.publishedAt), show: false },
+            geometry: generateBranchGeometry(cx, dir, node.pending ? pos : Math.floor(pos / 2), b.seed, accent),
+          };
+        }
+        const originX = (layout.originStart[spineIdx] ?? cx) + pos * ORIGIN_STEP;
         return {
           branch: b,
           tick: { x: originX, dir, label: tickLabel(b.publishedAt), show: false },
@@ -431,7 +440,7 @@ export function TreeCanvas({
       lastLabel = t.label;
     }
     return result;
-  }, [spine, layout]);
+  }, [spine, layout, claimView]);
 
   const applyViewToDom = () => {
     const world = worldRef.current;
@@ -447,8 +456,13 @@ export function TreeCanvas({
     // SVG elements may report empty dimensions while graph data is still rendering.
     const bbox = world.getBBox();
     if (!bbox.width || !bbox.height) return;
+    // Long claim timelines: never zoom out until labels are unreadable; show the start of the
+    // timeline at a readable scale and let the user pan/zoom along it.
+    const MIN_CLAIM_SCALE = 0.85;
+    const maxWidth = svg.clientWidth / MIN_CLAIM_SCALE;
+    const view = claimView && bbox.width > maxWidth ? { x: bbox.x, y: bbox.y, width: maxWidth, height: bbox.height } : bbox;
     const nextGoal = computeFitTransform(
-      bbox,
+      view,
       svg.clientWidth,
       svg.clientHeight
     );

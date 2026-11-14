@@ -16,6 +16,7 @@ import { randomUUID } from 'node:crypto';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { createChatModel } from '../agent/model.js';
 import { buildClaims, pickEvidence } from '../claims/builder.js';
+import { corroborateClaims, storeCorroboration } from '../claims/corroborate.js';
 import type { Scraper } from '../proof/articles.js';
 import { selectArticles } from '../proof/articles.js';
 import { defaultJsonLlm, type JsonLlm } from '../proof/agents.js';
@@ -277,12 +278,18 @@ export class ResearchChatService {
       json: this.deps.proof?.json,
       token: (text) => emit({ type: 'token', text }),
     });
+    emit({ type: 'token', text: '- Looking for more independent sources per claim…\n' });
+    const corroborated = await corroborateClaims(record, built.claims, { ...(this.deps.proof?.json && { json: this.deps.proof.json }) });
+    await storeCorroboration(this.deps.store, record.id, corroborated.added);
+    built.claims = corroborated.claims;
     await this.deps.store.setClaims(record.id, { claims: built.claims, links: built.links, entity: built.entity });
     const updated = await this.deps.investigations.get(record.id);
     emit({ type: 'graph_updated', graph: toGraphDto(updated) });
     const { stats } = built;
+    const established = built.claims.filter((c) => c.status === 'established').length;
+    const multi = built.claims.filter((c) => new Set(c.evidence.map((e) => (e.publisher ?? e.url ?? '').toLowerCase())).size > 1).length;
     const content =
-      `Claim timeline ready: **${stats.established} established**, ${stats.pending} unverified, ${built.links.length} connection${built.links.length === 1 ? '' : 's'} ` +
+      `Claim timeline ready: **${established} established**, ${built.claims.length - established} unverified, ${multi} with 2+ independent sources (${corroborated.added.length} added by corroboration), ${built.links.length} connection${built.links.length === 1 ? '' : 's'} ` +
       `(from ${stats.articles} articles). ${SEE_GRAPH}`;
     return { content, sources: [], noHighlight: true };
   }

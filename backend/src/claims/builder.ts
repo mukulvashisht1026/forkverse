@@ -34,7 +34,7 @@ export const MAX_ARTICLES = 24;
 const ARTICLE_CHARS = 5000;
 const CANDIDATE_CONCURRENCY = 6;
 
-async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+export async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const out: R[] = new Array(items.length);
   let next = 0;
   await Promise.all(

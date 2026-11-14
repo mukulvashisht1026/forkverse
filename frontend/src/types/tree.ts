@@ -38,6 +38,10 @@ export interface BranchNode {
   stance?: 'supports' | 'contradicts' | 'context';
   /** Politician view: this article reports an outcome (fulfilled / not / in progress). */
   outcomeReport?: boolean;
+  /** Politician view: this article reports the claim itself (neutral colour). */
+  sourceReport?: boolean;
+  /** Claim view: short relation label, e.g. "Supports", "Reports the claim", "Not fulfilled". */
+  relation?: string;
 }
 
 export type ScrapeEngine =

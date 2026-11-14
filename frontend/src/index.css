@@ -306,3 +306,17 @@ button { color: inherit; }
 .gh-proof-details summary { color: var(--muted); font-size: 11px; cursor: pointer; }
 .gh-proof-details > div { margin-top: 8px; font-size: 12px; }
 .lg-fulfilled i { background: #6fcf97; }
+.lg-source i { background: #7fa6c9; }
+.gh-detail-back { margin-top: 12px; border: 0; background: transparent; color: var(--accent); font-size: 11px; text-align: left; cursor: pointer; padding: 0; }
+.gh-detail-sub { margin: 14px 0 6px; color: var(--muted); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+.gh-detail-children ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.gh-detail-children li button { display: grid; gap: 3px; width: 100%; border: 1px solid var(--border); border-left: 3px solid #8b9baa; border-radius: 3px; background: transparent; color: inherit; padding: 7px 9px; text-align: left; cursor: pointer; }
+.gh-detail-children li button:hover { background: rgba(255,255,255,.04); }
+.gh-detail-children strong { font-size: 12px; font-weight: 500; line-height: 1.35; }
+.gh-rel { font-size: 9px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.gh-detail-meta { color: var(--muted); font-size: 10px; }
+.gh-detail-children .stance-supports { border-left-color: #6fcf97; }
+.gh-detail-children .stance-contradicts { border-left-color: #ff8a73; }
+.gh-detail-children .stance-context { border-left-color: #d1bd91; }
+.gh-detail-children .rel-source { border-left-color: #7fa6c9; }
+.gh-detail-children .rel-source.stance-contradicts { border-left-color: #ff8a73; }

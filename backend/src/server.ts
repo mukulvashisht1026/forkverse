@@ -14,6 +14,7 @@ import { helloRouter } from './routes/hello.js';
 import { investigationsRouter } from './routes/investigations.js';
 import { timelineRouter } from './routes/timeline.js';
 import { buildClaims } from './claims/builder.js';
+import { corroborateClaims, storeCorroboration } from './claims/corroborate.js';
 import { defaultJsonLlm } from './proof/agents.js';
 import { planTopic } from './research/planner.js';
 import { ResearchChatService } from './investigations/chat.js';
@@ -124,7 +125,10 @@ async function main() {
     afterRun: async (id) => {
       const record = await investigations.get(id);
       const built = await buildClaims(record, {});
-      await investigationStore.setClaims(id, { claims: built.claims, links: built.links, entity: built.entity ?? record.entity });
+      // More than one independent source per claim: search Context.dev for each claim.
+      const corroborated = await corroborateClaims(record, built.claims);
+      await storeCorroboration(investigationStore, id, corroborated.added);
+      await investigationStore.setClaims(id, { claims: corroborated.claims, links: built.links, entity: built.entity ?? record.entity });
     },
   });
 
