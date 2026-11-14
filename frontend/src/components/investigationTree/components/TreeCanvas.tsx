@@ -31,6 +31,8 @@ interface TreeCanvasProps {
   onBranchGrowthComplete: (spineIndex: number, branchId: string) => void;
   onContinue: () => void;
   isContinuing: boolean;
+  onViewChange?: (view: ViewTransform) => void;
+  onCanvasReady?: (svg: SVGSVGElement | null) => void;
   /** Evidence/event ids cited by the current answer: these stay lit, everything else dims. */
   highlight?: { evidenceIds: ReadonlySet<string>; eventIds: ReadonlySet<string> } | null;
 }
@@ -303,11 +305,14 @@ export function TreeCanvas({
   onBranchGrowthComplete,
   onContinue,
   isContinuing,
+  onViewChange,
+  onCanvasReady,
   className = '',
   highlight = null,
 }: TreeCanvasProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const worldRef = useRef<SVGGElement>(null);
+  useEffect(() => { onCanvasReady?.(svgRef.current); }, [onCanvasReady]);
 
   const viewRef = useRef<ViewTransform>({ k: 1, x: 0, y: 0 });
   const goalRef = useRef<ViewTransform | null>(null);
@@ -359,6 +364,7 @@ export function TreeCanvas({
     if (!world) return;
     const { x, y, k } = viewRef.current;
     world.setAttribute('transform', `translate(${x} ${y}) scale(${k})`);
+    onViewChange?.({ x, y, k });
   };
 
   const triggerFit = (instant: boolean) => {
@@ -519,10 +525,8 @@ export function TreeCanvas({
         dragMovedRef.current = false;
         goalRef.current = null;
       }}
-      onClick={() => {
-        if (!dragMovedRef.current) {
-          onSetFocus(null);
-        }
+      onClick={(event) => {
+        if (!dragMovedRef.current && event.target === svgRef.current) onSetFocus(null);
       }}
     >
       <defs>

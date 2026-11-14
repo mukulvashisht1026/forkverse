@@ -10,6 +10,8 @@ import { investigationRepository, watchInvestigation, type Investigation, type I
 import { ResearchChat } from './components/ResearchChat';
 import type { InvestigationGraphDto } from '../../contracts/investigations';
 import { investigationEventsToSpineNodes } from './services/investigationGraphAdapter';
+import { NodeCard } from './components/NodeCard';
+import { SPINE_GAP, generateBranchGeometry } from './components/investigationTree/utils/treeMath';
 
 function safeHostname(value: string): string | undefined {
   try { return new URL(value).hostname; } catch { return undefined; }
@@ -52,6 +54,13 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
   const [highlight, setHighlight] = useState<InvestigationHighlight | null>(null);
   const [researchRunning, setResearchRunning] = useState(false);
   const lastRevisionRef = useRef(0);
+
+  /** Open node cards: map of nodeId -> { isBranch: boolean, branchIndex?: number } */
+  const [openNodeCards, setOpenNodeCards] = useState<Map<string, { isBranch: boolean; spineIndex: number; branchIndex?: number }>>(new Map());
+  const [viewTransform, setViewTransform] = useState({ k: 1, x: 0, y: 0 });
+  const [canvasElement, setCanvasElement] = useState<SVGSVGElement | null>(null);
+  const cardOffsets = useRef(new Map<string, { x: number; y: number }>());
+  const [cardRevision, setCardRevision] = useState(0);
 
   const activeNodes = workspaceNodes ?? [];
   // These are editable example prompts, not claims about a configured demo investigation.
@@ -188,8 +197,13 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
 
   const focusTarget = useCallback((target: FocusTarget) => {
     setSelectedIndex(target.i);
-    setPinnedFocus((current) => current?.i === target.i && current.j === target.j ? null : target);
-  }, []);
+    setPinnedFocus(target);
+    const node = activeNodes[target.i];
+    if (node) {
+      const cardId = target.j === undefined ? node.id : `${node.id}:${node.branches[target.j]?.id ?? target.j}`;
+      setOpenNodeCards((cards) => new Map(cards).set(cardId, { isBranch: target.j !== undefined, spineIndex: target.i, branchIndex: target.j }));
+    }
+  }, [activeNodes]);
   const activeFocus = hoverFocus ?? pinnedFocus;
   const focusNode: SpineNode | undefined = pinnedFocus ? activeNodes[pinnedFocus.i] : undefined;
   const focusBranch: BranchNode | undefined = pinnedFocus?.j !== undefined ? focusNode?.branches[pinnedFocus.j] : undefined;
@@ -311,7 +325,7 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
                 {showAllInvestigations ? 'Show fewer investigations' : 'View all investigations'}
                 <span aria-hidden="true">{showAllInvestigations ? '−' : '+'}</span>
               </button>}
-            </> : <p className="gh-muted">No public investigations available yet.</p>
+            </> : <p className="gh-muted">No public investigations available yet.</p>}
         </section>
       </div>
     </main>
@@ -327,21 +341,45 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
           {selectedInvestigation && <ResearchChat key={selectedInvestigation.id} investigationId={selectedInvestigation.id} historyAvailable={!temporaryTimelineContext} disabled={workspaceLoading || Boolean(workspaceError) || temporaryTimelineContext} onGraphUpdated={applyResearchGraph} onShowSources={(evidenceIds, eventIds) => setHighlight({ messageId: 'local', evidenceIds: new Set(evidenceIds), eventIds: new Set(eventIds), final: true })} />}
         </div>
         <section className="gh-graph" aria-label="Evidence graph">
-{workspaceNodes && <TreeCanvasAdapter spine={activeNodes} selectedIndex={selectedIndex} focus={activeFocus} moving={motionOn} fitSignal={workspaceFitSignal} onHoverTarget={setHoverFocus} onSelectTarget={focusTarget} onClearPin={() => setPinnedFocus(null)} onContinue={() => void continueGraph()} isContinuing={continuing} highlight={highlight} />}
+{workspaceNodes && <TreeCanvasAdapter spine={activeNodes} selectedIndex={selectedIndex} focus={activeFocus} moving={motionOn} fitSignal={workspaceFitSignal} onHoverTarget={setHoverFocus} onSelectTarget={focusTarget} onClearPin={() => setPinnedFocus(null)} onContinue={() => void continueGraph()} isContinuing={continuing} highlight={highlight} onViewChange={setViewTransform} onCanvasReady={setCanvasElement} />}
 <div className="gh-graph-label">Evidence graph <span>{activeNodes.length} {activeNodes.length === 1 ? 'event' : 'events'}</span></div>
 <div className="gh-graph-controls">{highlight && <button type="button" className="gh-highlight-clear" onClick={() => setHighlight(null)} title="Show the whole graph again">{highlight.final ? `Showing ${highlight.evidenceIds.size} cited source${highlight.evidenceIds.size === 1 ? '' : 's'}` : 'Citing sources…'} · Clear</button>}<button type="button" onClick={() => setMotionOn((value) => !value)}>{motionOn ? 'Pause motion' : 'Resume motion'}</button><button type="button" onClick={fitGraph}>Fit graph</button></div>
           {workspaceLoading && <div className="gh-graph-state">Loading investigation graph…</div>}
           {workspaceError && <div className="gh-graph-state"><p>{workspaceError}</p><button onClick={() => selectedInvestigation && void openWorkspace(selectedInvestigation)}>Retry</button></div>}
           {!workspaceLoading && !workspaceError && workspaceNodes?.length === 0 && <div className="gh-graph-state">{researchRunning ? 'Researching… evidence will appear here as it is found.' : 'This investigation has no evidence yet.'}</div>}
-          {pinnedFocus && focusTitle && <article className="gh-detail" aria-label="Selected evidence">
-            <div className="gh-detail-head"><span>{focusBranch ? 'Evidence' : 'Event'}</span><button aria-label="Close evidence details" onClick={() => setPinnedFocus(null)}>Close</button></div>
-            <h3>{focusTitle}</h3>
-            {focusDate && <p className="gh-detail-date">{focusDate}</p>}
-            {focusDescription && <p className="gh-detail-description">{focusDescription}</p>}
-            {(focusBranch?.sourceType || sourceName) && <p className="gh-source-label">{sourceName ?? focusBranch?.sourceType}</p>}
-            {sourceUrl && <a href={sourceUrl} target="_blank" rel="noopener noreferrer">Open original source <ArrowUpRight size={14} /></a>}
-          </article>}
-          {workspaceNodes && <SpineNav spine={activeNodes} selectedIndex={selectedIndex} onHoverNode={setHoverFocus} onSelectNode={(index) => { setSelectedIndex(index); setPinnedFocus({ i: index }); }} />}
+
+          {workspaceNodes && <SpineNav spine={activeNodes} selectedIndex={selectedIndex} onHoverNode={setHoverFocus} onSelectNode={(index) => focusTarget({ i: index })} />}
+          {/* Floating node cards */}
+          {workspaceNodes && Array.from(openNodeCards.entries()).map(([nodeId, cardInfo]) => {
+            const spineIdx = cardInfo.spineIndex;
+            const node = activeNodes[spineIdx];
+            if (!node) return null;
+            const isBranch = cardInfo.isBranch;
+            const branchIndex = cardInfo.branchIndex;
+            const targetNode = isBranch && branchIndex !== undefined ? node.branches[branchIndex] : node;
+            if (!targetNode) return null;
+            const worldPos = isBranch && branchIndex !== undefined
+              ? generateBranchGeometry(spineIdx * SPINE_GAP, branchIndex % 2 ? 1 : -1, Math.floor(branchIndex / 2), node.branches[branchIndex].seed, '#75c4c8').tip
+              : { x: spineIdx * SPINE_GAP, y: 0 };
+            const branchCardKey = nodeId;
+            const savedOffset = cardOffsets.current.get(branchCardKey);
+            const nodeRef = { current: canvasElement };
+            return (
+              <NodeCard
+                key={`card-${nodeId}-${isBranch ? 'b' + branchIndex : 's'}`}
+                node={targetNode}
+                isBranch={isBranch}
+                worldPos={worldPos}
+                view={viewTransform}
+                svgRef={nodeRef}
+                offset={savedOffset}
+                revision={cardRevision}
+                onClose={() => { setPinnedFocus({ i: cardInfo.spineIndex, ...(branchIndex === undefined ? {} : { j: branchIndex }) }); }}
+                onDragEnd={(_id, offset) => { cardOffsets.current.set(branchCardKey, offset); setCardRevision((n) => n + 1); }}
+                cardKey={`${nodeId}-${isBranch ? 'b' + branchIndex : 's'}`}
+              />
+            );
+          })}
         </section>
       </div>
     </main>
