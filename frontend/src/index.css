@@ -309,10 +309,10 @@ button { color: inherit; }
 .gh-workspace .itl-tree { background: radial-gradient(ellipse 78% 64% at 50% 56%, #ffffff, #f6f8f6 62%, #eef2ef); }
 .gh-workspace .itl-tree .main-label, .gh-workspace .itl-tree .tip-label { fill: #26312e; color: #26312e; stroke: #fafaf8; }
 .gh-workspace .itl-tree .tip-group.on .tip-core { fill: #247c78; }
-.gh-workspace .node-card { border-color: #d2dad6; background: rgba(255,255,255,.98); }
-.gh-workspace .node-card-header { border-bottom-color: #e3e8e5; }
-.gh-workspace .node-card-title { color: #171c1b; }
-.gh-workspace .node-card-description { color: #394542; }
+.node-card-workspace { border-color: #d2dad6; background: rgba(255,255,255,.98); }
+.node-card-workspace .node-card-header { border-bottom-color: #e3e8e5; }
+.node-card-workspace .node-card-title { color: #171c1b; }
+.node-card-workspace .node-card-description { color: #394542; }
 @media (max-width: 760px) {
   .gh-title-edit-button { opacity: 1; }
   .gh-workspace-title { padding-left: 8px; }
@@ -599,14 +599,8 @@ button { color: inherit; }
 }
 
 @keyframes node-card-enter {
-  from {
-    opacity: 0;
-    transform: scale(0.92) translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 /* Homepage focus: one primary task, with examples and browsing deliberately secondary. */
@@ -674,6 +668,8 @@ button { color: inherit; }
 .node-card-header:active {
   cursor: grabbing;
 }
+.node-card-header { touch-action: none; user-select: none; }
+.node-card { max-width: min(320px, calc(100vw - 16px)); }
 
 .node-card-title-row {
   display: flex;

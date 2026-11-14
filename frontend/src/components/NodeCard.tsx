@@ -1,228 +1,140 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X, ExternalLink, GripVertical } from 'lucide-react';
 import type { SpineNode, BranchNode } from '../types/tree';
+import { clampPosition, positionFromPointer, worldToViewport } from '../utils/cardGeometry';
 
 export interface NodeCardProps {
-  /** The node data (spine node or branch) */
   node: SpineNode | BranchNode;
-  /** Whether this is a branch (evidence) or spine node (event) */
   isBranch: boolean;
-  /** World position of the node (center of spine node or branch tip) */
+  /** SVG/world coordinates, transformed once to viewport CSS pixels for fixed placement. */
   worldPos: { x: number; y: number };
-  /** Current view transform (zoom/pan) */
   view: { k: number; x: number; y: number };
-  /** SVG container element to get screen bounds */
   svgRef: React.RefObject<SVGSVGElement | null>;
-  /** Callback when card requests to close */
+  workspaceRef: React.RefObject<HTMLElement | null>;
   onClose: () => void;
-  /** Saved user position offset from its node */
+  /** Saved offset from the transformed graph anchor, in viewport CSS pixels (not world units). */
   offset?: { x: number; y: number };
-  /** Rerender when parent updates drag offset */
   revision: number;
-  /** Callback when card is dragged to new position */
   onDragEnd?: (nodeId: string, offset: { x: number; y: number }) => void;
-  /** Unique key for this card instance */
   cardKey: string;
 }
 
-/**
- * Floating card that appears next to a node in the graph.
- * - Positioned relative to zoom level
- * - Draggable like a window
- * - Reopens near the node when closed/click outside
- * - Shows source and title as separate elements
- */
-export function NodeCard({
-  node,
-  isBranch,
-  worldPos,
-  view,
-  svgRef,
-  onClose,
-  onDragEnd,
-  offset,
-  revision,
-  cardKey,
-}: NodeCardProps) {
-  const cardRef = useRef<HTMLDivElement>(null);
-  const [isOpen, setIsOpen] = useState(true);
-  const reopenTimer = useRef<number | undefined>(undefined);
-  const [dragState, setDragState] = useState<{
-    isDragging: boolean;
-    startX: number;
-    startY: number;
-    offsetX: number;
-    offsetY: number;
-  }>({ isDragging: false, startX: 0, startY: 0, offsetX: 0, offsetY: 0 });
-  const [screenPos, setScreenPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const currentPosRef = useRef(screenPos);
-  currentPosRef.current = screenPos;
-  const dragOriginRef = useRef({ x: 0, y: 0 });
-  void revision;
-  void cardKey;
+interface DragSession { pointerId: number; start: { x: number; y: number }; origin: { x: number; y: number }; current: { x: number; y: number }; moved: boolean }
+const DRAG_THRESHOLD = 4;
+const DEFAULT_OFFSET = { x: 54, y: -82 };
 
-  // Convert world coordinates to screen coordinates
-  const worldToScreen = (wx: number, wy: number) => {
+/** Floating evidence card. Position/offset contract: viewport CSS pixels, anchored to SVG world point. */
+export function NodeCard({ node, isBranch, worldPos, view, svgRef, workspaceRef, onClose, onDragEnd, offset, revision, cardKey }: NodeCardProps) {
+  const cardRef = useRef<HTMLDivElement>(null);
+  const handleRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<DragSession | null>(null);
+  const draggingRef = useRef(false);
+  const clickGuardRef = useRef(false);
+  const [screenPos, setScreenPos] = useState<{ x: number; y: number } | null>(null);
+  void revision; void cardKey;
+
+  const nodeScreenPosition = useCallback(() => {
     const svg = svgRef.current;
     if (!svg) return { x: 0, y: 0 };
     const rect = svg.getBoundingClientRect();
-    return {
-      x: rect.left + (wx * view.k + view.x),
-      y: rect.top + (wy * view.k + view.y),
-    };
-  };
-  const reopenNearNode = () => {
-    setIsOpen(false);
-    window.clearTimeout(reopenTimer.current);
-    reopenTimer.current = window.setTimeout(() => {
-      const pos = worldToScreen(worldPos.x, worldPos.y);
-      setScreenPos({ x: pos.x + 54 * view.k, y: pos.y - 82 * view.k });
-      setIsOpen(true);
-    }, 450);
-  };
-  useEffect(() => () => window.clearTimeout(reopenTimer.current), []);
+    return worldToViewport(rect, worldPos, view);
+  }, [svgRef, worldPos.x, worldPos.y, view.k, view.x, view.y]);
 
-  // Update screen position when view or worldPos changes
+  const clampToWorkspace = useCallback((point: { x: number; y: number }) => {
+    const card = cardRef.current?.getBoundingClientRect();
+    const workspace = workspaceRef.current?.getBoundingClientRect();
+    if (!card || !workspace) return point;
+    return clampPosition(point, { width: card.width, height: card.height }, workspace);
+  }, [workspaceRef]);
+
+  useLayoutEffect(() => {
+    if (draggingRef.current) return;
+    const anchor = nodeScreenPosition();
+    const saved = offset ?? DEFAULT_OFFSET;
+    setScreenPos(clampToWorkspace({ x: anchor.x + saved.x, y: anchor.y + saved.y }));
+  }, [nodeScreenPosition, offset?.x, offset?.y, clampToWorkspace]);
+
+  // The first placement runs before the portal node exists; clamp again once its real size is measurable.
+  useLayoutEffect(() => {
+    if (!screenPos || draggingRef.current) return;
+    const bounded = clampToWorkspace(screenPos);
+    if (bounded.x !== screenPos.x || bounded.y !== screenPos.y) setScreenPos(bounded);
+  }, [screenPos, clampToWorkspace]);
+
   useEffect(() => {
-    const pos = worldToScreen(worldPos.x, worldPos.y);
-    setScreenPos({ x: pos.x + (offset?.x ?? 54) * view.k, y: pos.y + (offset?.y ?? -82) * view.k });
-  }, [worldPos.x, worldPos.y, view.k, view.x, view.y, offset?.x, offset?.y]);
-
-  // Handle click outside to close
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (cardRef.current && !cardRef.current.contains(e.target as Node)) {
-        reopenNearNode();
-      }
+    const handleResize = () => {
+      if (draggingRef.current || !screenPos) return;
+      setScreenPos(clampToWorkspace(screenPos));
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [worldPos.x, worldPos.y, view.k, view.x, view.y]);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [screenPos, clampToWorkspace]);
 
-  // Handle drag
-  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    if ((e.target as HTMLElement).closest('.node-card-header')) {
-      e.preventDefault();
-      const rect = cardRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      dragOriginRef.current = { x: screenPos.x, y: screenPos.y };
-      setDragState({
-        isDragging: true,
-        startX: e.clientX,
-        startY: e.clientY,
-        offsetX: rect.left - screenPos.x,
-        offsetY: rect.top - screenPos.y,
-      });
+  const finishDrag = useCallback((pointerId: number) => {
+    const session = dragRef.current;
+    if (!session || session.pointerId !== pointerId) return;
+    dragRef.current = null;
+    draggingRef.current = false;
+    if (handleRef.current?.hasPointerCapture(pointerId)) handleRef.current.releasePointerCapture(pointerId);
+    if (session.moved) {
+      clickGuardRef.current = true;
+      const finalPos = session.current;
+      const anchor = nodeScreenPosition();
+      onDragEnd?.(node.id, { x: finalPos.x - anchor.x, y: finalPos.y - anchor.y });
+      window.setTimeout(() => { clickGuardRef.current = false; }, 0);
     }
+  }, [node.id, nodeScreenPosition, onDragEnd]);
+
+  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!event.isPrimary || event.button !== 0 || (event.target as HTMLElement).closest('button,a,input,select,textarea')) return;
+    const rect = cardRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    event.stopPropagation();
+    dragRef.current = { pointerId: event.pointerId, start: { x: event.clientX, y: event.clientY }, origin: { x: rect.left, y: rect.top }, current: { x: rect.left, y: rect.top }, moved: false };
+    handleRef.current?.setPointerCapture(event.pointerId);
   };
 
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!dragState.isDragging) return;
-      const newX = e.clientX - dragState.startX + dragState.offsetX;
-      const newY = e.clientY - dragState.startY + dragState.offsetY;
-      currentPosRef.current = { x: newX, y: newY };
-      setScreenPos({ x: newX, y: newY });
-    };
-    const handleMouseUp = () => {
-      if (dragState.isDragging) {
-        setDragState((prev) => ({ ...prev, isDragging: false }));
-        const nodeScreen = worldToScreen(worldPos.x, worldPos.y);
-        const finalPos = currentPosRef.current;
-        onDragEnd?.(node.id, {
-          x: (finalPos.x - nodeScreen.x) / view.k,
-          y: (finalPos.y - nodeScreen.y) / view.k,
-        });
-      }
-    };
-    if (dragState.isDragging) {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
-    }
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [dragState.isDragging, dragState.startX, dragState.startY, dragState.offsetX, dragState.offsetY, node.id, onDragEnd, screenPos]);
+  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const session = dragRef.current;
+    if (!session || session.pointerId !== event.pointerId) return;
+    const dx = event.clientX - session.start.x, dy = event.clientY - session.start.y;
+    if (!session.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+    session.moved = true; draggingRef.current = true;
+    session.current = clampToWorkspace(positionFromPointer(session.origin, session.start, { x: event.clientX, y: event.clientY }));
+    setScreenPos(session.current);
+  };
 
   const branchNode = isBranch ? node as BranchNode : undefined;
   const spineNode = !isBranch ? node as SpineNode : undefined;
   const sourceLabel = branchNode
     ? branchNode.sourceType.charAt(0).toUpperCase() + branchNode.sourceType.slice(1)
-    : spineNode?.scrapeEngine === 'exa'
-      ? 'Exa AI Search'
-      : spineNode?.scrapeEngine === 'context.dev'
-        ? 'Context.dev live'
-        : spineNode?.scrapeEngine === 'gemini-search'
-          ? 'Live search grounding'
-          : 'Source';
-
+    : spineNode?.scrapeEngine === 'exa' ? 'Exa AI Search'
+      : spineNode?.scrapeEngine === 'context.dev' ? 'Context.dev live'
+        : spineNode?.scrapeEngine === 'gemini-search' ? 'Live search grounding' : 'Source';
   const sourceDomain = branchNode?.sourceDomain;
   const sourceUrl = branchNode?.sourceUrl ?? spineNode?.sourceUrl;
-
-  // Format date
-  const formatDate = (dateStr?: string) => {
-    if (!dateStr || dateStr === 'Live update' || dateStr === 'Live scrape') return null;
-    const date = new Date(dateStr);
-    return Number.isNaN(date.getTime()) ? null : date.toLocaleDateString();
-  };
-
   const publishedAt = branchNode?.publishedAt ?? spineNode?.timestamp;
-  const displayDate = formatDate(publishedAt);
+  const parsedDate = publishedAt && publishedAt !== 'Live update' && publishedAt !== 'Live scrape' ? new Date(publishedAt) : null;
+  const displayDate = parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate.toLocaleDateString() : null;
+  if (!screenPos) return null;
 
-  if (!isOpen) return null;
-
-  // Calculate card position - offset from node position
-  const cardX = screenPos.x;
-  const cardY = screenPos.y;
-
-  return (
-    <div
-      ref={cardRef}
-      className="node-card"
-      style={{
-        left: cardX,
-        top: cardY,
-        zIndex: 100,
-      }}
-      onMouseDown={handleMouseDown}
-    >
-      <div className="node-card-header">
+  return createPortal(
+    <div ref={cardRef} className="node-card node-card-workspace" style={{ left: screenPos.x, top: screenPos.y, zIndex: 100 }}>
+      <div ref={handleRef} className="node-card-header" aria-label="Drag evidence card" onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={(event) => finishDrag(event.pointerId)} onPointerCancel={(event) => finishDrag(event.pointerId)} onLostPointerCapture={(event) => finishDrag(event.pointerId)}>
         <div className="node-card-title-row">
           <span className="node-card-source-type">{sourceLabel}</span>
           {sourceDomain && <span className="node-card-source-domain">{sourceDomain}</span>}
         </div>
-        <button
-          className="node-card-close"
-          onClick={(e) => {
-            e.stopPropagation();
-            reopenNearNode();
-            onClose();
-          }}
-          aria-label="Close card"
-        >
-          <X size={14} />
-        </button>
+        <button className="node-card-close" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); if (!clickGuardRef.current) onClose(); }} aria-label="Close card"><X size={14} /></button>
       </div>
       <div className="node-card-content">
         <h3 className="node-card-title">{node.name}</h3>
         {displayDate && <p className="node-card-date">{displayDate}</p>}
         {node.info && <p className="node-card-description">{node.info}</p>}
-        {sourceUrl && (
-          <a
-            href={sourceUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="node-card-source-link"
-          >
-            <ExternalLink size={12} />
-            Open original source
-          </a>
-        )}
+        {sourceUrl && <a href={sourceUrl} target="_blank" rel="noopener noreferrer" className="node-card-source-link"><ExternalLink size={12} />Open original source</a>}
       </div>
-      <div className="node-card-drag-handle" aria-label="Drag to move">
-        <GripVertical size={14} />
-      </div>
-    </div>
+      <div className="node-card-drag-handle" aria-hidden="true"><GripVertical size={14} /></div>
+    </div>, document.body,
   );
 }
