@@ -16,6 +16,10 @@ import {
   generateSpineSynapses,
   NODE_ACCENTS,
   SPINE_GAP,
+  ORIGIN_STEP,
+  branchOrder,
+  computeSpineLayout,
+  tickLabel,
 } from '../utils/treeMath';
 
 interface TreeCanvasProps {
@@ -326,38 +330,44 @@ export function TreeCanvas({
   const [isDragging, setIsDragging] = useState(false);
 
   const ambientStars = useMemo(() => generateAmbientStars(68, 1979), []);
+  // Timeline layout: event nodes spaced so their articles fit along the line, in date order.
+  const layout = useMemo(() => computeSpineLayout(spine.map((n) => n.branches.length)), [spine]);
   const groundParticles = useMemo(
-    () => generateGroundParticles(spine.length, SPINE_GAP, 7),
-    [spine.length]
+    () => generateGroundParticles(spine.length, SPINE_GAP, 7, layout.end),
+    [spine.length, layout.end]
   );
   const spineSynapses = useMemo(
     () =>
       generateSpineSynapses(
         spine.map((n) => n.branches.length),
         SPINE_GAP,
-        313
+        313,
+        layout.nodeX
       ),
-    [spine]
+    [spine, layout]
   );
 
   const spineGeometries = useMemo(() => {
     return spine.map((node, spineIdx) => {
-      const cx = spineIdx * SPINE_GAP;
+      const cx = layout.nodeX[spineIdx] ?? spineIdx * SPINE_GAP;
       const accent = NODE_ACCENTS[spineIdx % NODE_ACCENTS.length];
       const lensParticles = generateLensParticles(spineIdx * 53 + 11, 14.5, 42);
-      const branches = node.branches.map((b, branchIdx) => ({
-        branch: b,
-        geometry: generateBranchGeometry(
-          cx,
-          branchIdx % 2 ? 1 : -1,
-          Math.floor(branchIdx / 2),
-          b.seed,
-          accent
-        ),
-      }));
+      // Each article sprouts from its own point on the line, ordered by publish date,
+      // alternating above (-1) and below (+1) the line.
+      const rank = branchOrder(node.branches.map((b) => b.publishedAt));
+      const branches = node.branches.map((b, branchIdx) => {
+        const pos = rank[branchIdx] ?? branchIdx;
+        const originX = (layout.originStart[spineIdx] ?? cx) + pos * ORIGIN_STEP;
+        const dir: 1 | -1 = pos % 2 ? 1 : -1;
+        return {
+          branch: b,
+          tick: { x: originX, dir, label: tickLabel(b.publishedAt) },
+          geometry: generateBranchGeometry(cx, dir, Math.floor(pos / 2), b.seed, accent, originX),
+        };
+      });
       return { node, cx, accent, lensParticles, branches };
     });
-  }, [spine]);
+  }, [spine, layout]);
 
   const applyViewToDom = () => {
     const world = worldRef.current;
@@ -501,7 +511,7 @@ export function TreeCanvas({
     return () => svg.removeEventListener('wheel', handleWheel);
   }, []);
 
-  const totalSpineWidth = Math.max(0, spine.length - 1) * SPINE_GAP;
+  const totalSpineWidth = layout.end;
   const isFocusing = focusTarget !== null;
   const isCiting = Boolean(highlight && (highlight.evidenceIds.size > 0 || highlight.eventIds.size > 0));
 
@@ -684,6 +694,17 @@ export function TreeCanvas({
                   isSelected ? 'sel' : ''
                 } ${isNodeCited ? 'cited' : ''}`}
               >
+                {/* Date ticks: where each article meets the timeline (label on the side opposite its branch) */}
+                {branches.map(({ branch, tick }) => (
+                  <g key={`tick-${branch.id}`} className="date-tick" aria-hidden="true">
+                    <line x1={tick.x} x2={tick.x} y1={-5} y2={5} stroke="#d1bd91" strokeWidth={1} opacity={0.55} />
+                    {tick.label && (
+                      <text className="date-tick-label" x={tick.x} y={tick.dir < 0 ? 17 : -9} textAnchor="middle">
+                        {tick.label}
+                      </text>
+                    )}
+                  </g>
+                ))}
                 {branches.map(({ branch, geometry }, branchIdx) => (
                   <BranchView
                     key={branch.id}

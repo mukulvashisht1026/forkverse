@@ -13,3 +13,6 @@
 .itl-tree .citing .branch.cited.role-dispute .tip-core{fill:#ff8a73;stroke:#ffe3dc;filter:drop-shadow(0 0 7px #ff8a73)}
 .itl-tree .citing .branch.cited.role-unreadable{opacity:.4}
 .itl-tree .citing .branch.cited.role-unreadable .tip-core{fill:#3a4652;stroke:#8b9baa;filter:none}
+/* Timeline date ticks under/over each article's origin on the line */
+.itl-tree .date-tick-label{fill:#a3b0bd;font-size:9px;letter-spacing:.02em;opacity:.7;paint-order:stroke;stroke:#02040a;stroke-width:3px;stroke-linejoin:round}
+.itl-tree .citing .tree-group.cited .date-tick{opacity:.45}

@@ -4,6 +4,8 @@ export interface BranchItem {
   info: string;
   seed: number;
   isNew?: boolean;
+  /** ISO date; orders the branch along the timeline line. */
+  publishedAt?: string;
 }
 
 export interface SpineNode {

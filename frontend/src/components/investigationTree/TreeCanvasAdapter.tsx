@@ -27,7 +27,7 @@ export function mapTreeModels(spine: AppSpine[]) {
   return spine.map((node) => ({
     id: node.id, name: node.name, info: node.info,
     branches: node.branches.map((branch) => ({
-      id: branch.id, name: shortLabel(branch.name), info: branch.info, seed: branch.seed,
+      id: branch.id, name: shortLabel(branch.name), info: branch.info, seed: branch.seed, publishedAt: branch.publishedAt,
       isNew: Boolean(branch._animateGrowth || (branch._prog !== undefined && branch._prog < 1)),
     })),
   }));
