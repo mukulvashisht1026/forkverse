@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { ArrowLeft, ArrowUpRight, LoaderCircle } from 'lucide-react';
 import type { FocusTarget, SpineNode, BranchNode } from './types/tree';
@@ -6,11 +6,10 @@ import { useLiveTimeline } from './hooks/useLiveTimeline';
 import { TreeCanvasAdapter } from './components/investigationTree/TreeCanvasAdapter';
 import './components/investigationTree/treeCanvas.css';
 import { SpineNav } from './components/SpineNav';
-import { investigationRepository, type Investigation } from './services/investigations';
+import { investigationRepository, watchInvestigation, type Investigation, type InvestigationHighlight } from './services/investigations';
 import { ResearchChat } from './components/ResearchChat';
 import type { InvestigationGraphDto } from '../../contracts/investigations';
 import { investigationEventsToSpineNodes } from './services/investigationGraphAdapter';
-import { temporaryWorkspaceFromTimelineNode } from './services/createWorkspace';
 
 function asDate(value?: string) {
   if (!value || value === 'Live update' || value === 'Live scrape') return null;
@@ -21,7 +20,7 @@ function asDate(value?: string) {
 export default function App() {
   const [fitSignal, setFitSignal] = useState(0);
   const fitGraph = useCallback(() => setFitSignal((count) => count + 1), []);
-  const { scrapeMainNode, sendPrompt } = useLiveTimeline(fitGraph);
+  const { sendPrompt } = useLiveTimeline(fitGraph);
   const [view, setView] = useState<'home' | 'workspace'>('home');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [hoverFocus, setHoverFocus] = useState<FocusTarget | null>(null);
@@ -41,6 +40,10 @@ export default function App() {
   const [workspaceNodes, setWorkspaceNodes] = useState<SpineNode[] | null>(null);
   const [workspaceFitSignal, setWorkspaceFitSignal] = useState(0);
   const [continuing, setContinuing] = useState(false);
+  /** Graph items cited by the current research answer (pushed over /ws); null = no highlight. */
+  const [highlight, setHighlight] = useState<InvestigationHighlight | null>(null);
+  const [researchRunning, setResearchRunning] = useState(false);
+  const lastRevisionRef = useRef(0);
 
   const activeNodes = workspaceNodes ?? [];
   const topicExamples = [
@@ -92,7 +95,42 @@ export default function App() {
     setView('home');
     setWorkspaceNodes(null);
     setWorkspaceError(null);
+    setHighlight(null);
+    setResearchRunning(false);
+    void loadPublicInvestigations();
   };
+
+  /** Re-fetch the open investigation's graph; ignores responses older than what is shown. */
+  const refreshGraph = useCallback(async (investigationId: string) => {
+    try {
+      const graph = await investigationRepository.getInvestigationGraph(investigationId);
+      if (graph.investigationId !== investigationId || graph.revision < lastRevisionRef.current) return;
+      lastRevisionRef.current = graph.revision;
+      setWorkspaceNodes(graph.nodes);
+    } catch {
+      // best effort; the explicit load path reports errors
+    }
+  }, []);
+
+  // Live updates for a saved investigation: graph growth during research runs, and the
+  // citation highlight pushed while the research chat answers.
+  const liveInvestigationId = view === 'workspace' && !temporaryTimelineContext ? selectedInvestigation?.id : undefined;
+  useEffect(() => {
+    if (!liveInvestigationId) return;
+    let timer: number | undefined;
+    const schedule = () => {
+      if (timer === undefined) timer = window.setTimeout(() => { timer = undefined; void refreshGraph(liveInvestigationId); }, 400);
+    };
+    const stop = watchInvestigation(liveInvestigationId, {
+      onUpdate: (update) => {
+        setResearchRunning(update.runStatus === 'queued' || update.runStatus === 'running');
+        schedule();
+      },
+      onResync: schedule,
+      onHighlight: (next) => setHighlight(next.evidenceIds.size || next.eventIds.size ? next : null),
+    });
+    return () => { stop(); window.clearTimeout(timer); };
+  }, [liveInvestigationId, refreshGraph]);
 
   const openWorkspace = async (investigation: Investigation) => {
     setSelectedInvestigation(investigation);
@@ -102,9 +140,12 @@ export default function App() {
     setWorkspaceError(null);
     setWorkspaceLoading(true);
     setPinnedFocus(null);
+    setHighlight(null);
+    lastRevisionRef.current = 0;
     try {
       const graph = await investigationRepository.getInvestigationGraph(investigation.id);
       if (graph.investigationId !== investigation.id) throw new Error('Investigation graph ID mismatch.');
+      lastRevisionRef.current = graph.revision;
       setWorkspaceNodes(graph.nodes);
       setWorkspaceFitSignal((value) => value + 1);
     } catch (error) {
@@ -124,15 +165,12 @@ export default function App() {
     setCreating(true);
     setCreateError(null);
     try {
-      const result = await scrapeMainNode({ query: cleanTopic, provider: 'auto' });
-      const workspace = temporaryWorkspaceFromTimelineNode(result.node);
-      setSelectedInvestigation(workspace.investigation);
-      setTemporaryTimelineContext(workspace.temporary);
-      setWorkspaceNodes(workspace.nodes);
-      setWorkspaceFitSignal((value) => value + 1);
-      setView('workspace');
+      // Persistent investigation: research runs in the backend and evidence streams in over /ws.
+      const created = await investigationRepository.createInvestigation({ topic: cleanTopic });
+      setTopic('');
+      await openWorkspace(created);
+      setResearchRunning(true);
       setCreateError(null);
-      if (result.notice) window.setTimeout(() => window.alert(result.notice!), 0);
     } catch (error) {
       setCreateError(error instanceof Error ? error.message : 'Investigation creation failed.');
     } finally {
@@ -155,6 +193,8 @@ export default function App() {
 
   const applyResearchGraph = useCallback((event: { type: 'graph_updated'; graph: InvestigationGraphDto }) => {
     if (!selectedInvestigation || event.graph.investigationId !== selectedInvestigation.id) return;
+    if (event.graph.revision < lastRevisionRef.current) return;
+    lastRevisionRef.current = event.graph.revision;
     const nodes = investigationEventsToSpineNodes(event.graph.events);
     setWorkspaceNodes(nodes);
     setWorkspaceFitSignal((value) => value + 1);
@@ -240,15 +280,15 @@ export default function App() {
       <div className="gh-workspace-body">
         <div className="gh-chat-column">
           {temporaryTimelineContext && <p className="gh-context-notice" role="status">Temporary timeline context; not a saved investigation.</p>}
-          {selectedInvestigation && <ResearchChat key={selectedInvestigation.id} investigationId={selectedInvestigation.id} historyAvailable={!temporaryTimelineContext} disabled={workspaceLoading || Boolean(workspaceError) || temporaryTimelineContext} onGraphUpdated={applyResearchGraph} />}
+          {selectedInvestigation && <ResearchChat key={selectedInvestigation.id} investigationId={selectedInvestigation.id} historyAvailable={!temporaryTimelineContext} disabled={workspaceLoading || Boolean(workspaceError) || temporaryTimelineContext} onGraphUpdated={applyResearchGraph} onShowSources={(evidenceIds, eventIds) => setHighlight({ messageId: 'local', evidenceIds: new Set(evidenceIds), eventIds: new Set(eventIds), final: true })} />}
         </div>
         <section className="gh-graph" aria-label="Evidence graph">
-          {workspaceNodes && <TreeCanvasAdapter spine={activeNodes} selectedIndex={selectedIndex} focus={activeFocus} moving={motionOn} fitSignal={workspaceFitSignal} onHoverTarget={setHoverFocus} onSelectTarget={focusTarget} onClearPin={() => setPinnedFocus(null)} onContinue={() => void continueGraph()} isContinuing={continuing} />}
+          {workspaceNodes && <TreeCanvasAdapter spine={activeNodes} selectedIndex={selectedIndex} focus={activeFocus} moving={motionOn} fitSignal={workspaceFitSignal} onHoverTarget={setHoverFocus} onSelectTarget={focusTarget} onClearPin={() => setPinnedFocus(null)} onContinue={() => void continueGraph()} isContinuing={continuing} highlight={highlight} />}
           <div className="gh-graph-label">EVIDENCE GRAPH <span>{activeNodes.length} events</span></div>
-          <div className="gh-graph-controls"><button type="button" onClick={() => setMotionOn((value) => !value)}>{motionOn ? 'Pause motion' : 'Resume motion'}</button><button type="button" onClick={fitGraph}>Fit graph</button></div>
+          <div className="gh-graph-controls">{highlight && <button type="button" className="gh-highlight-clear" onClick={() => setHighlight(null)} title="Show the whole graph again">{highlight.final ? `Showing ${highlight.evidenceIds.size} cited source${highlight.evidenceIds.size === 1 ? '' : 's'}` : 'Citing sources…'} · Clear</button>}<button type="button" onClick={() => setMotionOn((value) => !value)}>{motionOn ? 'Pause motion' : 'Resume motion'}</button><button type="button" onClick={fitGraph}>Fit graph</button></div>
           {workspaceLoading && <div className="gh-graph-state">Loading investigation graph…</div>}
           {workspaceError && <div className="gh-graph-state"><p>{workspaceError}</p><button onClick={() => selectedInvestigation && void openWorkspace(selectedInvestigation)}>Retry</button></div>}
-          {!workspaceLoading && !workspaceError && workspaceNodes?.length === 0 && <div className="gh-graph-state">This investigation has no evidence yet.</div>}
+          {!workspaceLoading && !workspaceError && workspaceNodes?.length === 0 && <div className="gh-graph-state">{researchRunning ? 'Researching… evidence will appear here as it is found.' : 'This investigation has no evidence yet.'}</div>}
           {pinnedFocus && focusTitle && <article className="gh-detail" aria-label="Selected evidence">
             <div className="gh-detail-head"><span>{focusBranch ? 'Evidence' : 'Event'}</span><button aria-label="Close evidence details" onClick={() => setPinnedFocus(null)}>Close</button></div>
             <h3>{focusTitle}</h3>

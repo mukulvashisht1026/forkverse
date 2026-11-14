@@ -71,8 +71,9 @@ export function mapInvestigationGraphDto(dto: InvestigationGraphDto): Investigat
 
 // ---- HTTP adapter (backend: backend/src/routes/investigations.ts) ------------------------
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
-const WS_BASE = import.meta.env.VITE_WS_URL ?? '';
+// Optional chaining: import.meta.env only exists under Vite (not in node:test).
+const API_BASE = import.meta.env?.VITE_API_BASE_URL ?? '';
+const WS_BASE = import.meta.env?.VITE_WS_URL ?? '';
 const RUN_POLL_MS = 1500;
 const RUN_TIMEOUT_MS = 5 * 60_000;
 
@@ -146,6 +147,15 @@ export const investigationRepository: InvestigationApi = {
 
 // ---- live updates over /ws ------------------------------------------------------------
 
+/** Graph items cited by the current research answer (from `investigation:highlight`). */
+export interface InvestigationHighlight {
+  messageId: string;
+  evidenceIds: ReadonlySet<string>;
+  eventIds: ReadonlySet<string>;
+  /** True once the answer is complete (final cited set). Empty sets clear the highlight. */
+  final: boolean;
+}
+
 export interface InvestigationUpdate {
   revision: number;
   runStatus: ResearchRunStatus;
@@ -161,7 +171,12 @@ export interface InvestigationUpdate {
  */
 export function watchInvestigation(
   investigationId: string,
-  handlers: { onUpdate: (update: InvestigationUpdate) => void; onResync?: () => void },
+  handlers: {
+    onUpdate: (update: InvestigationUpdate) => void;
+    onResync?: () => void;
+    /** Citation highlight for this investigation (answer streaming / complete / cleared). */
+    onHighlight?: (highlight: InvestigationHighlight) => void;
+  },
 ): () => void {
   let socket: WebSocket | null = null;
   let closed = false;
@@ -179,14 +194,32 @@ export function watchInvestigation(
       attempt = 0;
     };
     socket.onmessage = (evt) => {
-      let frame: { type?: string; payload?: { investigationId?: string; revision?: number; run?: ResearchRunDto; evidence?: unknown } };
+      let frame: {
+        type?: string;
+        payload?: {
+          investigationId?: string;
+          revision?: number;
+          run?: ResearchRunDto;
+          evidence?: unknown;
+          messageId?: string;
+          evidenceIds?: unknown;
+          eventIds?: unknown;
+          final?: boolean;
+        };
+      };
       try {
         frame = JSON.parse(String(evt.data));
       } catch {
         return;
       }
       const p = frame.payload;
-      if (frame.type !== 'investigation:updated' || !p || p.investigationId !== investigationId) return;
+      if (!p || p.investigationId !== investigationId) return;
+      if (frame.type === 'investigation:highlight') {
+        const ids = (v: unknown) => new Set(Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+        handlers.onHighlight?.({ messageId: String(p.messageId ?? ''), evidenceIds: ids(p.evidenceIds), eventIds: ids(p.eventIds), final: Boolean(p.final) });
+        return;
+      }
+      if (frame.type !== 'investigation:updated') return;
       if (typeof p.revision !== 'number' || p.revision < lastRevision || !p.run) return;
       lastRevision = p.revision;
       handlers.onUpdate({ revision: p.revision, runStatus: p.run.status, addedEvidence: Boolean(p.evidence) });

@@ -22,6 +22,7 @@ export const col = {
   timelineMeta: db.collection<Collections['timeline_meta']>('timeline_meta'),
   investigations: db.collection<Collections['investigations']>('investigations'),
   researchRuns: db.collection<Collections['research_runs']>('research_runs'),
+  chatMessages: db.collection<Collections['chat_messages']>('chat_messages'),
 } as const;
 
 export const newId = (): string => randomUUID();

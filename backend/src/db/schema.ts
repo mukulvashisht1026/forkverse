@@ -1,5 +1,5 @@
 import type { Document, IndexDescription } from 'mongodb';
-import type { InvestigationDoc, ResearchRunDoc } from '../investigations/store.js';
+import type { ChatMessageDoc, InvestigationDoc, ResearchRunDoc } from '../investigations/store.js';
 import type { TimelineMetaDoc, TimelineNodeDoc } from '../timeline/store.js';
 
 /**
@@ -138,6 +138,8 @@ export interface Collections {
   /** Ghostline investigations (graph embedded) and their research runs. */
   investigations: InvestigationDoc;
   research_runs: ResearchRunDoc;
+  /** Research chat messages per investigation (citations embedded). */
+  chat_messages: ChatMessageDoc;
 }
 
 // ---- validators -------------------------------------------------------------
@@ -338,6 +340,20 @@ export const COLLECTIONS: Record<keyof Collections, CollectionSpec> = {
       error: { bsonType: 'object', required: ['code', 'message'] },
     }),
     indexes: [{ key: { investigationId: 1, startedAt: -1 } }, { key: { status: 1 } }],
+  },
+  chat_messages: {
+    validator: schema(['investigationId', 'role', 'content', 'sources', 'createdAt'], {
+      investigationId: str,
+      role: enumOf(['user', 'assistant']),
+      content: str,
+      createdAt: str,
+      runId: str,
+      sources: {
+        bsonType: 'array',
+        items: { bsonType: 'object', required: ['id', 'title', 'url'], properties: { id: str, title: str, url: str } },
+      },
+    }),
+    indexes: [{ key: { investigationId: 1, createdAt: -1, _id: -1 } }],
   },
 };
 

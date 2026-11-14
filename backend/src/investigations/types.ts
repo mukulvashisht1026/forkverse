@@ -105,3 +105,62 @@ export interface InvestigationUpdatedEvent {
   };
   timestamp: IsoDateTime;
 }
+
+// ---- research chat (POST /investigations/:id/research, GET …/messages) ----------------------
+
+export type ChatMessageRole = 'user' | 'assistant';
+export type ResearchActionDto = 'answer_question' | 'extend_graph';
+
+export interface SourceCitationDto {
+  id: string;
+  title: string;
+  url: string;
+  publisher?: string;
+  publishedAt?: IsoDateTime;
+  excerpt?: string;
+  evidenceId?: string;
+  eventId?: string;
+}
+
+export interface ChatMessageDto {
+  id: string;
+  investigationId: InvestigationId;
+  role: ChatMessageRole;
+  content: string;
+  sources: SourceCitationDto[];
+  createdAt: IsoDateTime;
+  runId?: ResearchRunId;
+}
+
+export interface ChatPageDto {
+  investigationId: InvestigationId;
+  items: ChatMessageDto[];
+  nextCursor?: string;
+}
+
+export interface ResearchRequestDto {
+  investigationId: InvestigationId;
+  action: ResearchActionDto;
+  message: string;
+  conversationId?: string;
+}
+
+export type ResearchStreamEventDto =
+  | { type: 'message_start'; messageId: string; investigationId: InvestigationId }
+  | { type: 'token'; text: string }
+  | { type: 'sources'; sources: SourceCitationDto[] }
+  | { type: 'graph_updated'; graph: InvestigationGraphDto }
+  | { type: 'message_complete'; message: ChatMessageDto }
+  | { type: 'error'; error: ApiErrorDto };
+
+export interface InvestigationHighlightEvent {
+  type: 'investigation:highlight';
+  payload: {
+    investigationId: InvestigationId;
+    messageId: string;
+    evidenceIds: string[];
+    eventIds: string[];
+    final: boolean;
+  };
+  timestamp: IsoDateTime;
+}

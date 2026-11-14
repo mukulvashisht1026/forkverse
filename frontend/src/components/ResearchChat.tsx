@@ -2,11 +2,16 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ChatMessageDto, ResearchActionDto, ResearchStreamEventDto, SourceCitationDto } from '../../../contracts/investigations';
 import { getConversation, renderSafeMarkdown, runResearchAction, safeSourceUrl } from '../services/research';
 
-interface Props { investigationId: string; disabled?: boolean; historyAvailable?: boolean; onGraphUpdated: (graph: ResearchStreamEventDto & { type: 'graph_updated' }) => void; }
+interface Props {
+  investigationId: string; disabled?: boolean; historyAvailable?: boolean;
+  onGraphUpdated: (graph: ResearchStreamEventDto & { type: 'graph_updated' }) => void;
+  /** Highlight the graph evidence an answer cited ("Show in graph"). */
+  onShowSources?: (evidenceIds: string[], eventIds: string[]) => void;
+}
 type Message = ChatMessageDto & { pending?: boolean; interrupted?: boolean };
 const localId = () => `local-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-export function ResearchChat({ investigationId, disabled, historyAvailable = true, onGraphUpdated }: Props) {
+export function ResearchChat({ investigationId, disabled, historyAvailable = true, onGraphUpdated, onShowSources }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState('');
   const [action, setAction] = useState<ResearchActionDto>('answer_question');
@@ -130,6 +135,10 @@ export function ResearchChat({ investigationId, disabled, historyAvailable = tru
         {message.pending && <span className="gh-muted">{message.content ? 'Generating…' : 'Researching…'}</span>}
         {message.interrupted && <span className="gh-muted">Response interrupted.</span>}
         {message.sources.map((source) => { const href = safeSourceUrl(source.url); return href ? <a key={source.id} href={href} target="_blank" rel="noopener noreferrer" className="gh-chat-source">{source.publisher ?? source.title}</a> : null; })}
+        {onShowSources && !message.pending && message.sources.some((source) => source.evidenceId) && <button type="button" className="gh-show-in-graph" onClick={() => onShowSources(
+          message.sources.flatMap((source) => source.evidenceId ? [source.evidenceId] : []),
+          [...new Set(message.sources.flatMap((source) => source.eventId ? [source.eventId] : []))],
+        )}>Show {message.sources.filter((source) => source.evidenceId).length} cited in graph</button>}
       </article>)}
       {sendError && <p role="alert" className="gh-error">{sendError}</p>}
     </div>

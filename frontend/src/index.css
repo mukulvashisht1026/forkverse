@@ -170,3 +170,7 @@ button { color: inherit; }
   .gh-graph-controls { top: 7px; right: 8px; }
   .gh-graph-controls button { padding: 5px 6px; font-size: 9px; }
 }
+/* Research chat citations <-> evidence graph highlight */
+.gh-show-in-graph{align-self:flex-start;margin-top:6px;padding:3px 9px;border:1px solid rgba(209,189,145,.45);border-radius:999px;background:transparent;color:#d1bd91;font-size:12px;cursor:pointer}
+.gh-show-in-graph:hover,.gh-show-in-graph:focus-visible{background:rgba(209,189,145,.12)}
+.gh-highlight-clear{border-color:rgba(209,189,145,.6)!important;color:#d1bd91!important}
