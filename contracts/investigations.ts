@@ -87,6 +87,10 @@ export interface SourceCitationDto {
   publisher?: string;
   publishedAt?: IsoDateTime;
   excerpt?: string;
+  /** Graph evidence this citation points to (InvestigationEvidenceDto.id), for highlighting. */
+  evidenceId?: string;
+  /** Event the evidence belongs to (InvestigationEventDto.id). */
+  eventId?: string;
 }
 
 export interface ChatMessageDto {
@@ -128,4 +132,21 @@ export interface ApiErrorDto {
   message: string;
   requestId?: string;
   details?: Record<string, unknown>;
+}
+
+/**
+ * WebSocket frame on /ws: the graph items an answer is citing. Clients viewing this investigation
+ * highlight these evidence branches/events and dim the rest. Empty arrays clear the highlight.
+ */
+export interface InvestigationHighlightEventDto {
+  type: 'investigation:highlight';
+  payload: {
+    investigationId: InvestigationId;
+    messageId: string;
+    evidenceIds: string[];
+    eventIds: string[];
+    /** True for the final set once the answer is complete. */
+    final: boolean;
+  };
+  timestamp: IsoDateTime;
 }

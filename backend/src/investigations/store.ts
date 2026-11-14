@@ -11,6 +11,7 @@
  */
 import type { Collection } from 'mongodb';
 import type {
+  ChatMessageDto,
   InvestigationEventDto,
   InvestigationEvidenceDto,
   InvestigationRecord,
@@ -38,6 +39,15 @@ export interface InvestigationStore {
   activeRun(investigationId: string): Promise<ResearchRunDto | null>;
   /** Mark queued/running runs as failed (they cannot survive a restart). Returns how many. */
   failStaleRuns(reason: string): Promise<number>;
+
+  addMessage(message: ChatMessageDto): Promise<void>;
+  /** Newest `limit` messages older than the cursor, returned oldest-first; nextCursor pages further back. */
+  listMessages(investigationId: string, opts: { limit: number; cursor?: string }): Promise<{ items: ChatMessageDto[]; nextCursor?: string }>;
+}
+
+/** Message cursor: (createdAt, id) of the oldest message on the current page. */
+function encodeMessageCursor(m: Pick<ChatMessageDto, 'createdAt' | 'id'>): string {
+  return Buffer.from(JSON.stringify({ u: m.createdAt, i: m.id })).toString('base64url');
 }
 
 // ---- cursor: opaque to clients, (updatedAt desc, id desc) keyset -------------
@@ -68,6 +78,7 @@ const nowIso = () => new Date().toISOString();
 
 export type InvestigationDoc = Omit<InvestigationRecord, 'id'> & { _id: string };
 export type ResearchRunDoc = Omit<ResearchRunDto, 'id'> & { _id: string };
+export type ChatMessageDoc = Omit<ChatMessageDto, 'id'> & { _id: string };
 
 const fromDoc = ({ _id, ...rest }: InvestigationDoc): InvestigationRecord => ({ id: _id, ...rest });
 const runFromDoc = ({ _id, ...rest }: ResearchRunDoc): ResearchRunDto => ({ id: _id, ...rest });
@@ -76,7 +87,29 @@ export class MongoInvestigationStore implements InvestigationStore {
   constructor(
     private investigations: Collection<InvestigationDoc>,
     private runs: Collection<ResearchRunDoc>,
+    private messages?: Collection<ChatMessageDoc>,
   ) {}
+
+  private messageCol(): Collection<ChatMessageDoc> {
+    if (!this.messages) throw new Error('chat_messages collection not configured');
+    return this.messages;
+  }
+
+  async addMessage({ id, ...rest }: ChatMessageDto) {
+    await this.messageCol().insertOne({ _id: id, ...rest });
+  }
+
+  async listMessages(investigationId: string, { limit, cursor }: { limit: number; cursor?: string }) {
+    const c = cursor ? decodeCursor(cursor) : null;
+    const docs = await this.messageCol()
+      .find({ investigationId, ...(c && { $or: [{ createdAt: { $lt: c.u } }, { createdAt: c.u, _id: { $lt: c.i } }] }) })
+      .sort({ createdAt: -1, _id: -1 })
+      .limit(limit + 1)
+      .toArray();
+    const page = docs.slice(0, limit).map(({ _id, ...rest }) => ({ id: _id, ...rest }));
+    const oldest = page.at(-1);
+    return { items: page.reverse(), ...(docs.length > limit && oldest && { nextCursor: encodeMessageCursor(oldest) }) };
+  }
 
   async create({ id, ...rest }: InvestigationRecord) {
     await this.investigations.insertOne({ _id: id, ...rest });
@@ -163,6 +196,22 @@ export class MongoInvestigationStore implements InvestigationStore {
 export class MemoryInvestigationStore implements InvestigationStore {
   private records = new Map<string, InvestigationRecord>();
   private runs = new Map<string, ResearchRunDto>();
+  private messages: ChatMessageDto[] = [];
+
+  async addMessage(message: ChatMessageDto) {
+    this.messages.push(structuredClone(message));
+  }
+
+  async listMessages(investigationId: string, { limit, cursor }: { limit: number; cursor?: string }) {
+    const c = cursor ? decodeCursor(cursor) : null;
+    const older = this.messages
+      .filter((m) => m.investigationId === investigationId)
+      .filter((m) => !c || m.createdAt < c.u || (m.createdAt === c.u && m.id < c.i))
+      .sort((a, b) => (a.createdAt === b.createdAt ? b.id.localeCompare(a.id) : b.createdAt.localeCompare(a.createdAt)));
+    const page = older.slice(0, limit).map((m) => structuredClone(m));
+    const oldest = page.at(-1);
+    return { items: page.reverse(), ...(older.length > limit && oldest && { nextCursor: encodeMessageCursor(oldest) }) };
+  }
 
   async create(record: InvestigationRecord) {
     this.records.set(record.id, structuredClone(record));

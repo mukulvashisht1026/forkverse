@@ -2,11 +2,16 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ChatMessageDto, ResearchActionDto, ResearchStreamEventDto, SourceCitationDto } from '../../../contracts/investigations';
 import { getConversation, renderSafeMarkdown, runResearchAction, safeSourceUrl } from '../services/research';
 
-interface Props { investigationId: string; disabled?: boolean; historyAvailable?: boolean; onGraphUpdated: (graph: ResearchStreamEventDto & { type: 'graph_updated' }) => void; }
+interface Props {
+  investigationId: string; disabled?: boolean; historyAvailable?: boolean;
+  onGraphUpdated: (graph: ResearchStreamEventDto & { type: 'graph_updated' }) => void;
+  /** Highlight the graph evidence an answer cited ("Show in graph"). */
+  onShowSources?: (evidenceIds: string[], eventIds: string[]) => void;
+}
 type Message = ChatMessageDto & { pending?: boolean; interrupted?: boolean };
 const localId = () => `local-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-export function ResearchChat({ investigationId, disabled, historyAvailable = true, onGraphUpdated }: Props) {
+export function ResearchChat({ investigationId, disabled, historyAvailable = true, onGraphUpdated, onShowSources }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState('');
   const [action, setAction] = useState<ResearchActionDto>('answer_question');
@@ -20,7 +25,15 @@ export function ResearchChat({ investigationId, disabled, historyAvailable = tru
   const generation = useRef(0);
   const currentId = useRef(investigationId);
   const historyRef = useRef<AbortController | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const stickToBottom = useRef(true);
   currentId.current = investigationId;
+
+  // Follow the conversation (new messages, streamed tokens) unless the reader scrolled up.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
+  }, [messages, sending]);
 
   const loadHistory = useCallback(async (cursor?: string) => {
     const id = investigationId;
@@ -68,7 +81,7 @@ export function ResearchChat({ investigationId, disabled, historyAvailable = tru
     if (!historyAvailable) { setSendError('Research chat is not available for this temporary timeline context.'); return; }
     if (!prompt || sending || loadingHistory || disabled) return;
     const id = investigationId; const epoch = generation.current; const controller = new AbortController();
-    requestRef.current = controller; setSending(true); setSendError(''); setDraft('');
+    requestRef.current = controller; setSending(true); setSendError(''); setDraft(''); stickToBottom.current = true;
     const userMessage: Message = { id: localId(), investigationId: id, role: 'user', content: prompt, sources: [], createdAt: new Date().toISOString(), pending: true };
     const assistantId = localId();
     setMessages((items) => [...items, userMessage, { id: assistantId, investigationId: id, role: 'assistant', content: '', sources: [], createdAt: new Date().toISOString(), pending: true }]);
@@ -100,8 +113,8 @@ export function ResearchChat({ investigationId, disabled, historyAvailable = tru
   };
 
   return <aside className="gh-research" aria-label="Investigation research chat">
-    <div className="gh-chat-heading"><h2>Research</h2><p>Ask about this investigation or extend its evidence graph.</p></div>
-    <div className="gh-chat-messages" aria-live="polite" aria-busy={loadingHistory || sending}>
+<div className="gh-chat-heading"><h2>Research</h2><p>Investigation-scoped conversation</p></div>
+<div className="gh-chat-messages" ref={scrollRef} onScroll={(event) => { const el = event.currentTarget; stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80; }} aria-live="polite" aria-busy={loadingHistory || sending}>
       {loadingHistory && <p className="gh-muted">Loading conversation…</p>}
       {historyError && <div role="alert" className="gh-library-unavailable"><p>{historyError}</p><button type="button" onClick={() => void loadHistory()}>Retry history</button></div>}
       {!loadingHistory && !historyError && messages.length === 0 && <p className="gh-chat-intro">Ask a question about this investigation, or extend the graph with a new research angle.</p>}
@@ -114,7 +127,8 @@ export function ResearchChat({ investigationId, disabled, historyAvailable = tru
             if (part.type === 'citation') {
               const source = message.sources.find((item) => item.id === part.citationId);
               const href = source && safeSourceUrl(source.url);
-              return href ? <a key={tokenIndex} href={href} target="_blank" rel="noopener noreferrer" title={source.title}>{part.text}</a> : <span key={tokenIndex} title="Source metadata unavailable or unsafe">{part.text}</span>;
+              const label = (part.citationId ?? '').replace(/^S/i, '');
+              return href ? <a key={tokenIndex} className="gh-cite" href={href} target="_blank" rel="noopener noreferrer" title={`${source.title}${source.publisher ? ` · ${source.publisher}` : ''}`}>{label}</a> : <span key={tokenIndex} className="gh-cite gh-cite-missing" title="Source metadata unavailable or unsafe">{label}</span>;
             }
             if (part.type === 'strong') return <strong key={tokenIndex}>{part.text}</strong>;
             if (part.type === 'emphasis') return <em key={tokenIndex}>{part.text}</em>;
@@ -123,22 +137,26 @@ export function ResearchChat({ investigationId, disabled, historyAvailable = tru
           });
           if (block.type === 'heading') return <div key={index} className={`gh-markdown-h${block.level}`}>{children}</div>;
           if (block.type === 'quote') return <blockquote key={index}>{children}</blockquote>;
-          if (block.type === 'list-item') return <div key={index} role="listitem" className="gh-markdown-list-item">{block.ordered ? '• ' : '• '}{children}</div>;
+          if (block.type === 'list-item') return <div key={index} role="listitem" className="gh-markdown-list-item">{children}</div>;
           if (block.type === 'code') return <pre key={index}><code>{block.text}</code></pre>;
           return <p key={index}>{children}</p>;
         })}</div>
         {message.pending && <span className="gh-muted">{message.content ? 'Generating…' : 'Researching…'}</span>}
         {message.interrupted && <span className="gh-muted">Response interrupted.</span>}
-        {message.sources.map((source) => { const href = safeSourceUrl(source.url); return href ? <a key={source.id} href={href} target="_blank" rel="noopener noreferrer" className="gh-chat-source">{source.publisher ?? source.title}</a> : null; })}
+        {message.sources.length > 0 && <div className="gh-chat-sources"><span className="gh-chat-sources-label">Sources</span>{message.sources.map((source) => { const href = safeSourceUrl(source.url); return href ? <a key={source.id} href={href} target="_blank" rel="noopener noreferrer" className="gh-chat-source" title={source.title}><b>{source.id.replace(/^S/i, '')}</b>{source.publisher ?? source.title}</a> : null; })}</div>}
+        {onShowSources && !message.pending && message.sources.some((source) => source.evidenceId) && <button type="button" className="gh-show-in-graph" onClick={() => onShowSources(
+          message.sources.flatMap((source) => source.evidenceId ? [source.evidenceId] : []),
+          [...new Set(message.sources.flatMap((source) => source.eventId ? [source.eventId] : []))],
+        )}>Show {message.sources.filter((source) => source.evidenceId).length} cited in graph</button>}
       </article>)}
       {sendError && <p role="alert" className="gh-error">{sendError}</p>}
     </div>
     {sending && <div className="gh-chat-stop"><button type="button" onClick={() => requestRef.current?.abort()}>Stop response</button></div>}
     <div className="gh-chat-composer-wrap">
     <form className="gh-composer" onSubmit={submit}>
-      <label htmlFor="research-action">Research mode</label><select id="research-action" value={action} onChange={(event) => setAction(event.target.value as ResearchActionDto)} disabled={sending || loadingHistory || disabled}>
+<div className="gh-composer-row"><label htmlFor="research-action">Action</label><select id="research-action" value={action} onChange={(event) => setAction(event.target.value as ResearchActionDto)} disabled={sending || loadingHistory || disabled}>
         <option value="answer_question">Answer question</option><option value="extend_graph">Extend evidence graph</option>
-      </select>
+      </select></div>
       <textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={action === 'answer_question' ? 'Ask about this investigation…' : 'What should the evidence graph explore next?'} rows={3} disabled={sending || loadingHistory || disabled} aria-label="Research prompt" />
       <button type="submit" className="gh-primary" disabled={sending || disabled || !draft.trim()}>{sending ? 'Researching…' : action === 'answer_question' ? 'Ask question' : 'Extend graph'}</button>
     </form>

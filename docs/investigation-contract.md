@@ -32,6 +32,17 @@ The backend now implements this contract (`backend/src/investigations/`, `backen
 
 Errors are `ApiErrorDto`: `invalid_topic` / `invalid_request` (400), `investigation_not_found` / `run_not_found` (404), `run_in_progress` (409), and `requestId` is set.
 
+Research chat (RAG over the graph), implemented in `backend/src/investigations/chat.ts`:
+
+| Method and path | Response |
+|---|---|
+| `GET /api/investigations/:id/messages?cursor=…` | `ChatPageDto`: the newest 30 messages, oldest-first. `nextCursor` pages to older messages |
+| `POST /api/investigations/:id/research` `ResearchRequestDto` | `text/event-stream` of `ResearchStreamEventDto`: `message_start`, `token`*, `graph_updated` (extend only), `sources`, `message_complete`, or `error`. Validation failures (404, 400, 409) return plain JSON before the stream starts |
+
+- `answer_question`: the backend loads the investigation graph from the DB and ranks its evidence against the question (lexical scoring over title, excerpt, publisher and the parent event; broad questions with no match get coverage across events). The top 10 become sources `S1..S10`. The model answers only from them, cites with `[[source:Sn]]`, and ends with a cited `### Conclusions` section. Citations to unknown labels are stripped. `sources` and the stored message contain only the cited subset, each with `evidenceId` and `eventId`.
+- `extend_graph`: starts a research run (409 if one is active), streams progress, emits `graph_updated` with the new graph, and cites the newly added evidence.
+- Highlight: the backend broadcasts `InvestigationHighlightEventDto` (`investigation:highlight` with `{investigationId, messageId, evidenceIds, eventIds, final}`) on `/ws`. An empty frame at `message_start` clears the previous highlight. A frame is sent each time the answer cites a new source, and a final frame carries exactly the cited set. The Workspace lights those branches and events and dims the rest. Each answer has a "Show N cited in graph" button that re-applies its highlight from the stored citations.
+
 Behaviour:
 - Each run appends one event (title = run topic) and attaches every article found as evidence. Title, URL, source and date come only from search tool output. The agent's closing summary becomes `event.summary`. Earlier events and evidence are never removed, and articles already present are skipped.
 - Every graph change increments `revision` and `updatedAt`.

@@ -31,6 +31,8 @@ interface TreeCanvasProps {
   onBranchGrowthComplete: (spineIndex: number, branchId: string) => void;
   onContinue: () => void;
   isContinuing: boolean;
+  /** Evidence/event ids cited by the current answer: these stay lit, everything else dims. */
+  highlight?: { evidenceIds: ReadonlySet<string>; eventIds: ReadonlySet<string> } | null;
 }
 
 interface BranchViewProps {
@@ -41,6 +43,7 @@ interface BranchViewProps {
   accent: string;
   isGroupFocused: boolean;
   isTipHot: boolean;
+  isCited: boolean;
   isPaused: boolean;
   dragMovedRef: React.RefObject<boolean>;
   onSelectBranch: (spineIndex: number, branchIndex: number) => void;
@@ -56,6 +59,7 @@ function BranchView({
   accent,
   isGroupFocused,
   isTipHot,
+  isCited,
   isPaused,
   dragMovedRef,
   onSelectBranch,
@@ -151,7 +155,7 @@ function BranchView({
   const targetFocus: FocusTarget = { spineIndex, branchIndex };
 
   return (
-    <g transform={`translate(${geometry.points[0].x} ${geometry.points[0].y}) scale(${geometry.depthScale}) translate(${-geometry.points[0].x} ${-geometry.points[0].y})`}>
+    <g className={`branch ${isCited ? 'cited' : ''}`} transform={`translate(${geometry.points[0].x} ${geometry.points[0].y}) scale(${geometry.depthScale}) translate(${-geometry.points[0].x} ${-geometry.points[0].y})`}>
       {/* Living-Tree mist stipple + neural-scan tangent filaments & micro-dendrites */}
       <g ref={mistGroupRef} style={{ transition: 'opacity 0.35s ease' }}>
         {geometry.filaments.map((strand, idx) => (
@@ -300,6 +304,7 @@ export function TreeCanvas({
   onContinue,
   isContinuing,
   className = '',
+  highlight = null,
 }: TreeCanvasProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const worldRef = useRef<SVGGElement>(null);
@@ -493,6 +498,7 @@ export function TreeCanvas({
 
   const totalSpineWidth = Math.max(0, spine.length - 1) * SPINE_GAP;
   const isFocusing = focusTarget !== null;
+  const isCiting = Boolean(highlight && (highlight.evidenceIds.size > 0 || highlight.eventIds.size > 0));
 
   return (
     <svg
@@ -550,7 +556,7 @@ export function TreeCanvas({
       <g
         ref={worldRef}
         id="world"
-        className={isFocusing ? 'focusing' : undefined}
+        className={[isFocusing ? 'focusing' : '', isCiting ? 'citing' : ''].filter(Boolean).join(' ') || undefined}
       >
         {/* Living Tree horizon particle scatter + neural waveform envelope & harmonic arcs */}
         <g aria-hidden="true" className="spine-layer">
@@ -662,13 +668,16 @@ export function TreeCanvas({
             const isNodeHot =
               isGroupOn && focusTarget?.branchIndex === undefined;
             const nodeNum = String(spineIdx + 1).padStart(2, '0');
+            const isNodeCited =
+              isCiting &&
+              (highlight!.eventIds.has(node.id) || node.branches.some((b) => highlight!.evidenceIds.has(b.id)));
 
             return (
               <g
                 key={node.id}
                 className={`tree-group ${isGroupOn ? 'on' : ''} ${
                   isSelected ? 'sel' : ''
-                }`}
+                } ${isNodeCited ? 'cited' : ''}`}
               >
                 {branches.map(({ branch, geometry }, branchIdx) => (
                   <BranchView
@@ -682,6 +691,7 @@ export function TreeCanvas({
                     isTipHot={
                       isGroupOn && focusTarget?.branchIndex === branchIdx
                     }
+                    isCited={isCiting && highlight!.evidenceIds.has(branch.id)}
                     isPaused={isPaused}
                     dragMovedRef={dragMovedRef}
                     onSelectBranch={onSelectBranch}

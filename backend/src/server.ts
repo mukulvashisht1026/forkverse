@@ -13,6 +13,7 @@ import { healthRouter } from './routes/health.js';
 import { helloRouter } from './routes/hello.js';
 import { investigationsRouter } from './routes/investigations.js';
 import { timelineRouter } from './routes/timeline.js';
+import { ResearchChatService } from './investigations/chat.js';
 import { InvestigationService } from './investigations/service.js';
 import { MemoryInvestigationStore, MongoInvestigationStore, type InvestigationStore } from './investigations/store.js';
 import { closeContextMcp } from './agent/tools/contextMcp.js';
@@ -28,9 +29,11 @@ export interface ServerDeps {
   corsOrigins?: string[];
   /** Investigation API; routes are mounted only when provided. */
   investigations?: InvestigationService;
+  /** Research chat (RAG) over investigations; needs `investigations`. */
+  chat?: ResearchChatService;
 }
 
-export function buildServer({ store, hub, investigations, corsOrigins = config.CORS_ORIGINS }: ServerDeps) {
+export function buildServer({ store, hub, investigations, chat, corsOrigins = config.CORS_ORIGINS }: ServerDeps) {
   const app = express();
   app.disable('x-powered-by');
   // Never log credentials (browsers send cookies for every app on localhost).
@@ -48,7 +51,7 @@ export function buildServer({ store, hub, investigations, corsOrigins = config.C
   api.use(helloRouter);
   api.use(chatRouter);
   api.use(timelineRouter({ store, hub }));
-  if (investigations) api.use(investigationsRouter(investigations));
+  if (investigations) api.use(investigationsRouter(investigations, chat));
 
   // Caddy and the Vite dev proxy strip `/api`; `/api/*` is also served for clients that
   // point VITE_API_BASE_URL straight at the backend.
@@ -102,7 +105,7 @@ async function main() {
 
   const investigationStore: InvestigationStore = config.TIMELINE_MOCK
     ? new MemoryInvestigationStore()
-    : new MongoInvestigationStore(col.investigations, col.researchRuns);
+    : new MongoInvestigationStore(col.investigations, col.researchRuns, col.chatMessages);
   // Runs cannot survive a restart: record any that were in flight as failed. Runs in the
   // background so startup never waits on the database.
   void investigationStore
@@ -111,7 +114,9 @@ async function main() {
     .catch((err) => logger.error({ err }, 'could not clean up stale research runs'));
   const investigations = new InvestigationService({ store: investigationStore, publish: (e) => hub.broadcast(e) });
 
-  const server = createHttpServer({ store, hub, investigations });
+  const chat = new ResearchChatService({ store: investigationStore, investigations, publish: (e) => hub.broadcast(e) });
+
+  const server = createHttpServer({ store, hub, investigations, chat });
   server.listen(config.PORT, '0.0.0.0', () => {
     logger.info({ port: config.PORT, mockTimeline: config.TIMELINE_MOCK }, 'server listening (HTTP + WebSocket /ws)');
   });
