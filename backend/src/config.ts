@@ -1,0 +1,35 @@
+import { z } from 'zod';
+
+const EnvSchema = z.object({
+  DATABASE_URL: z.string().url(),
+  PORT: z.coerce.number().int().default(3000),
+  LOG_LEVEL: z.string().default('info'),
+  PUBLIC_BASE_URL: z.string().default('http://localhost:3000'),
+  DEBUG_RAW_DIR: z.string().default('./debug'),
+
+  CONTEXT_DEV_API_KEY: z.string().default(''),
+  CONTEXT_DEV_BASE_URL: z.string().url().default('https://api.context.dev/v1'),
+  CONTEXT_DEV_CONCURRENCY: z.coerce.number().int().min(1).max(50).default(10),
+
+  LLM_BASE_URL: z.string().default(''),
+  LLM_API_KEY: z.string().default(''),
+  LLM_MODEL: z.string().default(''),
+
+  EMBEDDING_PROVIDER: z.enum(['router', 'python_service']).default('router'),
+  EMBEDDING_MODEL: z.string().default(''),
+  EMBEDDING_DIM: z.coerce.number().int().positive().default(1536),
+  EMBEDDING_SERVICE_URL: z.string().default('http://embedder:8000'),
+});
+
+export type Config = z.infer<typeof EnvSchema>;
+
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
+  const parsed = EnvSchema.safeParse(env);
+  if (!parsed.success) {
+    const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+    throw new Error(`Invalid environment: ${issues}`);
+  }
+  return parsed.data;
+}
+
+export const config = loadConfig();
