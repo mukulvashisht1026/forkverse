@@ -78,6 +78,7 @@ export function applyTimelineEvent(
 
   switch (event.type) {
     case 'timeline:init': {
+      if (event.payload.version < state.version) return state;
       return {
         nodes: event.payload.nodes.map((n) => ({
           ...n,
@@ -114,6 +115,7 @@ export function applyTimelineEvent(
       if (existingIdx >= 0) {
         return {
           ...state,
+          nodes: state.nodes.map((node, index) => index === existingIdx ? animatedNode : node),
           version: Math.max(state.version, event.payload.version),
           updatedAt: event.timestamp,
           lastMessage: nextMessage,
@@ -184,8 +186,10 @@ export function applyTimelineEvent(
       let changed = false;
       const nextNodes = state.nodes.map((n) => {
         if (n.id !== nodeId) return n;
-        if (n.branches.some((b) => b.id === branch.id)) {
-          return n;
+        const existingIndex = n.branches.findIndex((b) => b.id === branch.id);
+        if (existingIndex >= 0) {
+          changed = true;
+          return { ...n, branches: n.branches.map((item, index) => index === existingIndex ? { ...branch, _prog: item._prog ?? 1, _animateGrowth: false } : item) };
         }
         changed = true;
         return {

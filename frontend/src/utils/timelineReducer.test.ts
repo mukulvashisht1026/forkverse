@@ -56,6 +56,12 @@ test('resolveApiUrl and resolveWsUrl support same-origin and external backend ba
   );
 });
 
+test('older init snapshot cannot roll back newer websocket state', () => {
+  const current = applyTimelineEvent(emptyState, { type: 'timeline:init', payload: { nodes: [sampleNode('n', 'new')], version: 3, updatedAt: 'new' }, timestamp: 'new' });
+  const stale = applyTimelineEvent(current, { type: 'timeline:init', payload: { nodes: [], version: 2, updatedAt: 'old' }, timestamp: 'old' });
+  assert.equal(stale, current);
+});
+
 test('applyTimelineEvent handles init and idempotent node:created / branch:created', () => {
   const s1 = applyTimelineEvent(emptyState, {
     type: 'timeline:init',

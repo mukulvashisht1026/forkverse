@@ -8,7 +8,7 @@
  * Every mutation bumps the global timeline version, which the frontend uses for ordering.
  */
 import type { Collection } from 'mongodb';
-import { buildBranch, buildNode, patchNode, TimelineError, upsertBranch } from './model.js';
+import { buildBranch, buildNode, patchNode, TimelineError } from './model.js';
 import type { BranchNode, CreateBranchPayload, CreateNodePayload, SpineNode, TimelineSnapshot } from './types.js';
 
 export interface TimelineStore {
@@ -89,9 +89,10 @@ export class MongoTimelineStore implements TimelineStore {
     const current = await this.getNode(nodeId);
     if (!current) throw notFound('Node', nodeId);
     const next = patchNode(current, patch);
-    const { id: _id, ...rest } = next;
-    await this.nodes.updateOne({ _id: nodeId }, { $set: rest });
-    return { node: next, version: await this.bump() };
+    const { id: _nodeId, branches: _branches, ...rest } = next;
+    const result = await this.nodes.updateOne({ _id: nodeId }, { $set: rest });
+    if (!result.matchedCount) throw notFound('Node', nodeId);
+    return { node: { ...next, branches: (await this.getNode(nodeId))?.branches ?? current.branches }, version: await this.bump() };
   }
 
   async deleteNode(nodeId: string) {
@@ -104,9 +105,27 @@ export class MongoTimelineStore implements TimelineStore {
     const node = await this.getNode(nodeId);
     if (!node) throw notFound('Node', nodeId);
     const branch = buildBranch(node, input);
-    node.branches = upsertBranch(node.branches, branch);
-    await this.nodes.updateOne({ _id: nodeId }, { $set: { branches: node.branches } });
-    return { node, branch, version: await this.bump() };
+    const existing = await this.nodes.updateOne(
+      { _id: nodeId, 'branches.id': branch.id },
+      { $set: { 'branches.$': branch } },
+    );
+    if (!existing.matchedCount) {
+      const appended = await this.nodes.updateOne(
+        { _id: nodeId, 'branches.id': { $ne: branch.id } },
+        { $push: { branches: branch } },
+      );
+      if (!appended.matchedCount) {
+        const latest = await this.getNode(nodeId);
+        if (!latest) throw notFound('Node', nodeId);
+        await this.nodes.updateOne(
+          { _id: nodeId, 'branches.id': branch.id },
+          { $set: { 'branches.$': branch } },
+        );
+      }
+    }
+    const updated = await this.getNode(nodeId);
+    if (!updated) throw notFound('Node', nodeId);
+    return { node: updated, branch, version: await this.bump() };
   }
 
   async deleteBranch(nodeId: string, branchId: string) {
@@ -171,7 +190,9 @@ export class MemoryTimelineStore implements TimelineStore {
     const node = this.nodes.find((n) => n.id === nodeId);
     if (!node) throw notFound('Node', nodeId);
     const branch = buildBranch(node, input);
-    node.branches = upsertBranch(node.branches, branch);
+    const index = node.branches.findIndex((item) => item.id === branch.id);
+    if (index < 0) node.branches.push(branch);
+    else node.branches[index] = branch;
     return { node: structuredClone(node), branch: structuredClone(branch), version: this.bump() };
   }
 

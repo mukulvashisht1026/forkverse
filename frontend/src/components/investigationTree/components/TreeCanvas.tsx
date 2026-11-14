@@ -26,6 +26,7 @@ interface TreeCanvasProps {
   className?: string;
   fitRequest: { id: number; instant: boolean };
   onSelectNode: (index: number) => void;
+  onSelectBranch: (spineIndex: number, branchIndex: number) => void;
   onSetFocus: (target: FocusTarget | null) => void;
   onBranchGrowthComplete: (spineIndex: number, branchId: string) => void;
   onContinue: () => void;
@@ -42,7 +43,7 @@ interface BranchViewProps {
   isTipHot: boolean;
   isPaused: boolean;
   dragMovedRef: React.RefObject<boolean>;
-  onSelectNode: (index: number) => void;
+  onSelectBranch: (spineIndex: number, branchIndex: number) => void;
   onSetFocus: (target: FocusTarget | null) => void;
   onGrowthComplete: (spineIndex: number, branchId: string) => void;
 }
@@ -57,7 +58,7 @@ function BranchView({
   isTipHot,
   isPaused,
   dragMovedRef,
-  onSelectNode,
+  onSelectBranch,
   onSetFocus,
   onGrowthComplete,
 }: BranchViewProps) {
@@ -255,13 +256,13 @@ function BranchView({
         onClick={(e) => {
           e.stopPropagation();
           if (!dragMovedRef.current) {
-            onSelectNode(spineIndex);
+            onSelectBranch(spineIndex, branchIndex);
           }
         }}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
-            onSelectNode(spineIndex);
+            onSelectBranch(spineIndex, branchIndex);
           }
         }}
       >
@@ -293,6 +294,7 @@ export function TreeCanvas({
   isPaused,
   fitRequest,
   onSelectNode,
+  onSelectBranch,
   onSetFocus,
   onBranchGrowthComplete,
   onContinue,
@@ -682,7 +684,7 @@ export function TreeCanvas({
                     }
                     isPaused={isPaused}
                     dragMovedRef={dragMovedRef}
-                    onSelectNode={onSelectNode}
+                    onSelectBranch={onSelectBranch}
                     onSetFocus={onSetFocus}
                     onGrowthComplete={onBranchGrowthComplete}
                   />

@@ -12,6 +12,10 @@ import type { InvestigationGraphDto } from '../../contracts/investigations';
 import { investigationEventsToSpineNodes } from './services/investigationGraphAdapter';
 import { temporaryWorkspaceFromTimelineNode } from './services/createWorkspace';
 
+function safeHostname(value: string): string | undefined {
+  try { return new URL(value).hostname; } catch { return undefined; }
+}
+
 function asDate(value?: string) {
   if (!value || value === 'Live update' || value === 'Live scrape') return null;
   const date = new Date(value);
@@ -19,8 +23,8 @@ function asDate(value?: string) {
 }
 
 export default function App() {
-  const [fitSignal, setFitSignal] = useState(0);
-  const fitGraph = useCallback(() => setFitSignal((count) => count + 1), []);
+  const [workspaceFitSignal, setWorkspaceFitSignal] = useState(0);
+  const fitGraph = useCallback(() => setWorkspaceFitSignal((count) => count + 1), []);
   const { scrapeMainNode, sendPrompt } = useLiveTimeline(fitGraph);
   const [view, setView] = useState<'home' | 'workspace'>('home');
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -39,7 +43,6 @@ export default function App() {
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [workspaceNodes, setWorkspaceNodes] = useState<SpineNode[] | null>(null);
-  const [workspaceFitSignal, setWorkspaceFitSignal] = useState(0);
   const [continuing, setContinuing] = useState(false);
 
   const activeNodes = workspaceNodes ?? [];
@@ -150,7 +153,7 @@ export default function App() {
   const focusTitle = focusBranch?.name ?? focusNode?.name;
   const focusDescription = focusBranch?.info ?? focusNode?.info;
   const sourceUrl = focusBranch?.sourceUrl ?? focusNode?.sourceUrl;
-  const sourceName = focusBranch?.sourceDomain ?? (sourceUrl ? new URL(sourceUrl).hostname : undefined);
+  const sourceName = focusBranch?.sourceDomain ?? (sourceUrl ? safeHostname(sourceUrl) : undefined);
   const focusDate = asDate(focusBranch?.publishedAt ?? focusNode?.timestamp);
 
   const applyResearchGraph = useCallback((event: { type: 'graph_updated'; graph: InvestigationGraphDto }) => {

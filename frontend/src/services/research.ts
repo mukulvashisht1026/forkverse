@@ -43,23 +43,26 @@ export async function runResearchAction(input: ResearchRequestDto, signal: Abort
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let completed = false;
   const dispatch = (frame: string) => {
     const data = frame.split(/\r?\n/).filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trim()).join('\n');
     if (!data) return;
     let event: ResearchStreamEventDto;
     try { event = JSON.parse(data) as ResearchStreamEventDto; } catch { throw new ResearchApiError('Backend sent malformed research stream data.', 'invalid_stream'); }
     onEvent(event);
+    if (event.type === 'message_complete') completed = true;
     if (event.type === 'error') throw new ResearchApiError(event.error.message, event.error.code);
   };
   try {
     while (true) {
       const { value, done } = await readWithAbort(reader, signal);
-      buffer += decoder.decode(value, { stream: !done }).replace(/\r\n/g, '\n');
-      const frames = buffer.split('\n\n'); buffer = frames.pop() ?? '';
+      buffer += decoder.decode(value, { stream: !done });
+      const frames = buffer.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n\n'); buffer = frames.pop() ?? '';
       frames.forEach(dispatch);
       if (done) break;
     }
     if (buffer.trim()) dispatch(buffer);
+    if (!completed) throw new ResearchApiError('Research stream ended before completion.', 'incomplete_stream');
   } catch (error) {
     if (signal.aborted) { await reader.cancel().catch(() => undefined); throw error; }
     throw error;
