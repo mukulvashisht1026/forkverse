@@ -2,7 +2,7 @@ import { z } from 'zod';
 import 'dotenv/config';
 const EnvSchema = z.object({
   MONGODB_URI: z.string().regex(/^mongodb(\+srv)?:\/\//, 'must be a mongodb:// or mongodb+srv:// URI'),
-  MONGODB_DB: z.string().default('tracewire'),
+  MONGODB_DB: z.string().default('forkverse'), // existing Atlas database (kept after the TRACEWIRE rename)
   PORT: z.coerce.number().int().default(3000),
   // Comma-separated browser origins allowed to call the REST API cross-origin, e.g. the
   // Azure Static Web Apps URL. Empty = no CORS headers (same-origin / dev proxy only).
