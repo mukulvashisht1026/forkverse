@@ -4,8 +4,8 @@
 # - Tests/typechecks must pass before anything is deployed.
 # - "Run workflow" (workflow_dispatch) deploys both regardless of changes.
 #
-# Auth: GitHub OIDC -> user-assigned managed identity `tracewire-github-deploy`
-# (Contributor on resource group tracewire-rg; federated credential trusts only
+# Auth: GitHub OIDC -> user-assigned managed identity `forkverse-github-deploy`
+# (Contributor on resource group forkverse-rg; federated credential trusts only
 # refs/heads/main of this repo). No Azure passwords are stored in GitHub.
 # Repo secrets: AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID.
 
@@ -26,11 +26,11 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  RG: tracewire-rg
-  ACR: tracewireacrqb1xft
-  APP: tracewire-backend
-  BACKEND_FQDN: tracewire-backend.orangebeach-cf28400b.germanywestcentral.azurecontainerapps.io
-  SA: tracewirewebqb1xft
+  RG: forkverse-rg
+  ACR: forkverseacrqb1xft
+  APP: forkverse-backend
+  BACKEND_FQDN: forkverse-backend.orangebeach-cf28400b.germanywestcentral.azurecontainerapps.io
+  SA: forkversewebqb1xft
   NODE_VERSION: '22'
 
 jobs:
@@ -76,7 +76,7 @@ jobs:
 
       - name: Build and push image
         run: |
-          IMG="$ACR.azurecr.io/tracewire-backend:${GITHUB_SHA::12}"
+          IMG="$ACR.azurecr.io/forkverse-backend:${GITHUB_SHA::12}"
           echo "IMG=$IMG" >> "$GITHUB_ENV"
           az acr login -n "$ACR"
           docker build --platform linux/amd64 -t "$IMG" .

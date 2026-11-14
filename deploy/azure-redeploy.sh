@@ -14,10 +14,10 @@
 # Override names with env vars if your resources differ.
 set -euo pipefail
 
-RG="${RG:-tracewire-rg}"
-ACR="${ACR:-tracewireacrqb1xft}"
-APP="${APP:-tracewire-backend}"
-SA="${SA:-tracewirewebqb1xft}"
+RG="${RG:-forkverse-rg}"
+ACR="${ACR:-forkverseacrqb1xft}"
+APP="${APP:-forkverse-backend}"
+SA="${SA:-forkversewebqb1xft}"
 TARGET="${1:-all}"
 
 cd "$(dirname "$0")/.."
@@ -28,7 +28,7 @@ WEB="${WEB%/}"
 
 if [[ "$TARGET" == "all" || "$TARGET" == "backend" ]]; then
   TAG="v$(date +%Y%m%d%H%M%S)"
-  IMG="$ACR.azurecr.io/tracewire-backend:$TAG"
+  IMG="$ACR.azurecr.io/forkverse-backend:$TAG"
   echo "==> backend: building $IMG"
   docker build --platform linux/amd64 -t "$IMG" ./backend
   az acr login -n "$ACR" >/dev/null
