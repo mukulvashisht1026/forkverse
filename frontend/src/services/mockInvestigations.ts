@@ -1,8 +1,8 @@
-import type { InvestigationGraph, InvestigationRepository, Investigation } from './investigations';
+import type { ClaimLink, InvestigationGraph, InvestigationRepository, Investigation } from './investigations';
 import type { BranchNode, SpineNode } from '../types/tree';
 
-const STORAGE_KEY = 'tracewire.mock-investigations.v1';
-type StoredGraph = Investigation & { nodes: SpineNode[] };
+const STORAGE_KEY = 'tracewire.mock-investigations.v2';
+type StoredGraph = Investigation & { nodes: SpineNode[]; claimNodes?: SpineNode[]; claimLinks?: ClaimLink[]; entity?: string; mode?: 'news' | 'politician' };
 
 const branch = (id: string, name: string, info: string, sourceDomain: string, seed: number): BranchNode => ({
   id, name, info, sourceType: 'news', sourceDomain, sourceUrl: `https://${sourceDomain}`, seed,
@@ -18,8 +18,24 @@ const node = (id: string, name: string, info: string, index: number): SpineNode 
   ],
 });
 
+const aiClaimNodes: SpineNode[] = [
+  { ...node('demo-claim-ai-1', 'EU adopts a risk-based AI Act', 'The regulation classifies AI systems by risk and sets obligations for providers and deployers.', 0), claimStatus: 'established', branches: [
+    { ...branch('demo-claim-ai-1-source', 'AI Act enters into force', 'The official regulation establishes a risk-based framework.', 'eur-lex.europa.eu', 401), sourceUrl: 'https://eur-lex.europa.eu/', stance: 'supports', relation: 'Official source' },
+    { ...branch('demo-claim-ai-1-report', 'Parliament approves the AI Act', 'Coverage reports the final parliamentary vote.', 'europarl.europa.eu', 402), sourceUrl: 'https://www.europarl.europa.eu/', stance: 'supports', relation: 'Reports adoption' },
+  ] },
+  { ...node('demo-claim-ai-2', 'High-risk systems face new obligations', 'The rules require risk management, documentation, and human oversight for designated systems.', 1), claimStatus: 'established', branches: [
+    { ...branch('demo-claim-ai-2-source', 'High-risk obligations clarified', 'A public authority summarizes the obligations for high-risk systems.', 'digital-strategy.ec.europa.eu', 403), sourceUrl: 'https://digital-strategy.ec.europa.eu/', stance: 'supports', relation: 'Explains obligations' },
+  ] },
+  { ...node('demo-claim-ai-3', 'Implementation deadlines may be delayed', 'A hypothetical pending claim included to preview the unverified lane.', 2), claimStatus: 'pending', disputed: true, branches: [
+    { ...branch('demo-claim-ai-3-report', 'Industry group calls for more time', 'A sample source raises concerns about implementation timelines.', 'example.org', 404), stance: 'context', relation: 'Context only' },
+  ] },
+];
+const aiClaimLinks: ClaimLink[] = [
+  { from: 'demo-claim-ai-1', to: 'demo-claim-ai-2', type: 'evolution', basis: 'stated', description: 'The obligations follow from the adopted regulation.' },
+];
+
 const seedGraphs: StoredGraph[] = [
-  { id: 'demo-ai-regulation', title: 'European AI regulation', description: 'Policy decisions and technology developments in AI governance.', createdAt: '2026-05-12T10:00:00.000Z', updatedAt: '2026-05-14T10:00:00.000Z', nodes: [
+  { id: 'demo-ai-regulation', title: 'European AI regulation', description: 'Policy decisions and technology developments in AI governance.', createdAt: '2026-05-12T10:00:00.000Z', updatedAt: '2026-05-14T10:00:00.000Z', entity: 'European Union', mode: 'news', claimNodes: aiClaimNodes, claimLinks: aiClaimLinks, nodes: [
     node('ai-1', 'AI Act proposal introduced', 'The European Commission proposed a risk-based framework for artificial intelligence.', 0),
     node('ai-2', 'Parliament adopts negotiating position', 'Lawmakers refined obligations for high-risk systems and foundation models.', 1),
     node('ai-3', 'AI Act enters into force', 'The final regulation established a phased implementation timeline.', 2),
@@ -52,7 +68,9 @@ function read(): StoredGraph[] {
 let graphs = read();
 function persist() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(graphs)); } catch { /* demo remains usable in memory */ } }
 function metadata({ nodes: _nodes, ...item }: StoredGraph): Investigation { return item; }
-function graph(item: StoredGraph): InvestigationGraph { return { investigationId: item.id, revision: 1, nodes: structuredClone(item.nodes) }; }
+function graph(item: StoredGraph): InvestigationGraph {
+  return { investigationId: item.id, revision: 1, nodes: structuredClone(item.nodes), ...(item.claimNodes && { claimNodes: structuredClone(item.claimNodes) }), ...(item.claimLinks && { claimLinks: structuredClone(item.claimLinks) }), ...(item.entity && { entity: item.entity }), ...(item.mode && { mode: item.mode }) };
+}
 
 export const mockInvestigationRepository: InvestigationRepository = {
   async listPublicInvestigations() { return graphs.map(metadata).sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '')); },
