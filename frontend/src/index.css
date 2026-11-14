@@ -780,6 +780,28 @@ button { color: inherit; }
   cursor: grabbing;
 }
 
+/* Workspace uses a full graph canvas with the complete Research panel floating above it. */
+.gh-workspace-body { position: relative; display: block; overflow: hidden; }
+.gh-workspace-body > .gh-graph { position: absolute; inset: 0; z-index: 0; }
+.gh-chat-window {
+  position: absolute; z-index: 8; display: flex; width: min(352px, calc(100% - 24px)); height: min(680px, calc(100% - 24px));
+  min-height: 0; flex-direction: column; overflow: hidden; border: 1px solid var(--ws-border); border-radius: 9px;
+  background: var(--ws-panel); box-shadow: 0 12px 32px rgba(20, 30, 26, .18); pointer-events: auto;
+}
+.gh-chat-window-handle {
+  display: flex; min-height: 35px; flex: 0 0 35px; align-items: center; gap: 8px; border-bottom: 1px solid var(--ws-border);
+  background: var(--ws-panel-raised); padding: 0 11px; color: var(--ws-text); cursor: grab; touch-action: none; user-select: none;
+}
+.gh-chat-window-handle:active { cursor: grabbing; }
+.gh-chat-window-handle > span:nth-of-type(1) { font-size: 12px; font-weight: 600; }
+.gh-chat-window-hint { margin-left: auto; color: var(--ws-muted); font-size: 10px; }
+.gh-chat-window-body { display: flex; min-width: 0; min-height: 0; flex: 1 1 auto; flex-direction: column; overflow: hidden; }
+.gh-chat-window-body > .gh-chat-column { display: flex; min-width: 0; min-height: 0; flex: 1 1 auto; flex-direction: column; overflow: hidden; border: 0; background: var(--ws-panel); }
+@media (max-width: 760px) {
+  .gh-chat-window { width: min(352px, calc(100% - 24px)); height: min(680px, calc(100% - 24px)); }
+  .gh-chat-window-hint { display: none; }
+}
+
 /* Responsive adjustments */
 @media (max-width: 760px) {
   .node-card {

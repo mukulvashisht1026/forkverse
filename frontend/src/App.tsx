@@ -13,6 +13,7 @@ import { MockResearchChat } from './components/MockResearchChat';
 import type { InvestigationGraphDto } from '../../contracts/investigations';
 import { investigationEventsToSpineNodes } from './services/investigationGraphAdapter';
 import { NodeCard } from './components/NodeCard';
+import { DraggableChatPanel } from './components/DraggableChatPanel';
 import { SPINE_GAP, generateBranchGeometry } from './components/investigationTree/utils/treeMath';
 
 function HomeTypography() {
@@ -461,13 +462,15 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
 <button className="gh-back" onClick={returnHome} aria-label="Back to investigations"><ArrowLeft size={16} /><span className="gh-topbar-brand">TRACEWIRE</span></button>
         <div className="gh-title-edit">{editingTitle ? <input autoFocus maxLength={120} value={titleDraft} aria-label="Graph title" onChange={(event) => setTitleDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); } if (event.key === 'Escape') { setTitleDraft(selectedInvestigation?.title ?? ''); event.currentTarget.blur(); } }} onBlur={() => void saveTitle()} /> : <><span className="gh-workspace-title" title={selectedInvestigation?.title}>{selectedInvestigation?.title ?? 'Investigation'}</span><button type="button" className="gh-title-edit-button" aria-label="Edit graph title" onClick={() => { setTitleDraft(selectedInvestigation?.title ?? ''); setEditingTitle(true); }}><Pencil size={14} /></button></>}</div>
       </header>
-      <div className="gh-workspace-body">
+      <div className="gh-workspace-body" ref={workspaceBodyRef}>
+        <DraggableChatPanel workspaceRef={workspaceBodyRef}>
         <div className="gh-chat-column">
           {temporaryTimelineContext && <p className="gh-context-notice" role="status">Temporary timeline context; not a saved investigation.</p>}
           {selectedInvestigation && (mockMode
             ? <MockResearchChat key={selectedInvestigation.id} onAddEvent={async (prompt) => { const graph = await repository.extendInvestigation(selectedInvestigation.id, { topic: prompt }); setWorkspaceNodes(graph.nodes); setWorkspaceFitSignal((value) => value + 1); }} />
             : <ResearchChat key={selectedInvestigation.id} investigationId={selectedInvestigation.id} historyAvailable={!temporaryTimelineContext} disabled={workspaceLoading || Boolean(workspaceError) || temporaryTimelineContext} onGraphUpdated={applyResearchGraph} onShowSources={(evidenceIds, eventIds) => setHighlight({ messageId: 'local', evidenceIds: new Set(evidenceIds), eventIds: new Set(eventIds), final: true })} />)}
         </div>
+        </DraggableChatPanel>
         <section className="gh-graph" aria-label="Evidence graph">
 {workspaceNodes && <TreeCanvasAdapter spine={activeNodes} selectedIndex={selectedIndex} focus={activeFocus} moving={motionOn} fitSignal={workspaceFitSignal} onHoverTarget={setHoverFocus} onSelectTarget={focusTarget} onClearPin={() => setPinnedFocus(null)} onContinue={() => void continueGraph()} isContinuing={continuing} highlight={highlight} onViewChange={setViewTransform} onCanvasReady={setCanvasElement} />}
 <div className="gh-graph-label">Evidence graph <span>{activeNodes.length} {activeNodes.length === 1 ? 'event' : 'events'}</span></div>
