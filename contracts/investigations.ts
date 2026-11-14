@@ -77,6 +77,52 @@ export interface PublicInvestigationsResponseDto {
   nextCursor?: string;
 }
 
+export type ChatMessageRole = 'user' | 'assistant';
+export type ResearchActionDto = 'answer_question' | 'extend_graph';
+
+export interface SourceCitationDto {
+  id: string;
+  title: string;
+  url: string;
+  publisher?: string;
+  publishedAt?: IsoDateTime;
+  excerpt?: string;
+}
+
+export interface ChatMessageDto {
+  id: string;
+  investigationId: InvestigationId;
+  role: ChatMessageRole;
+  content: string;
+  sources: SourceCitationDto[];
+  createdAt: IsoDateTime;
+  runId?: ResearchRunId;
+}
+
+/** GET /api/investigations/{investigationId}/messages?cursor={opaqueCursor}; items ordered oldest-first within page. */
+export interface ChatPageDto {
+  investigationId: InvestigationId;
+  items: ChatMessageDto[];
+  nextCursor?: string;
+}
+
+/** POST /api/investigations/{investigationId}/research; accepts text/event-stream. */
+export interface ResearchRequestDto {
+  investigationId: InvestigationId;
+  action: ResearchActionDto;
+  message: string;
+  conversationId?: string;
+}
+
+/** SSE data JSON frames. Emit message_start, token* / sources?, then message_complete; errors use error frame. */
+export type ResearchStreamEventDto =
+  | { type: 'message_start'; messageId: string; investigationId: InvestigationId }
+  | { type: 'token'; text: string }
+  | { type: 'sources'; sources: SourceCitationDto[] }
+  | { type: 'graph_updated'; graph: InvestigationGraphDto }
+  | { type: 'message_complete'; message: ChatMessageDto }
+  | { type: 'error'; error: ApiErrorDto };
+
 export interface ApiErrorDto {
   code: string;
   message: string;

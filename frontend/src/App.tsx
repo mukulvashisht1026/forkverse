@@ -1,17 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { ArrowLeft, ArrowUpRight, LoaderCircle } from 'lucide-react';
 import type { FocusTarget, SpineNode, BranchNode } from './types/tree';
 import { useLiveTimeline } from './hooks/useLiveTimeline';
-import { TreeMapCanvas } from './components/TreeMapCanvas';
+import { TreeCanvasAdapter } from './components/investigationTree/TreeCanvasAdapter';
+import './components/investigationTree/treeCanvas.css';
 import { SpineNav } from './components/SpineNav';
-import { investigationRepository, watchInvestigation, type Investigation } from './services/investigations';
-
-interface ChatEntry {
-  id: number;
-  role: 'user' | 'system';
-  text: string;
-}
+import { investigationRepository, type Investigation } from './services/investigations';
+import { ResearchChat } from './components/ResearchChat';
+import type { InvestigationGraphDto } from '../../contracts/investigations';
+import { investigationEventsToSpineNodes } from './services/investigationGraphAdapter';
+import { temporaryWorkspaceFromTimelineNode } from './services/createWorkspace';
 
 function asDate(value?: string) {
   if (!value || value === 'Live update' || value === 'Live scrape') return null;
@@ -22,32 +21,43 @@ function asDate(value?: string) {
 export default function App() {
   const [fitSignal, setFitSignal] = useState(0);
   const fitGraph = useCallback(() => setFitSignal((count) => count + 1), []);
-  useLiveTimeline(fitGraph);
+  const { scrapeMainNode, sendPrompt } = useLiveTimeline(fitGraph);
   const [view, setView] = useState<'home' | 'workspace'>('home');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [hoverFocus, setHoverFocus] = useState<FocusTarget | null>(null);
   const [pinnedFocus, setPinnedFocus] = useState<FocusTarget | null>(null);
   const [motionOn, setMotionOn] = useState(() => !window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   const [topic, setTopic] = useState('');
+  const [exampleOffset, setExampleOffset] = useState(0);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [investigations, setInvestigations] = useState<Investigation[]>([]);
   const [libraryLoading, setLibraryLoading] = useState(true);
   const [libraryError, setLibraryError] = useState<string | null>(null);
   const [selectedInvestigation, setSelectedInvestigation] = useState<Investigation | null>(null);
+  const [temporaryTimelineContext, setTemporaryTimelineContext] = useState(false);
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [workspaceNodes, setWorkspaceNodes] = useState<SpineNode[] | null>(null);
   const [workspaceFitSignal, setWorkspaceFitSignal] = useState(0);
-  const [chatText, setChatText] = useState('');
-  const [chatBusy, setChatBusy] = useState(false);
-  const [chatError, setChatError] = useState<string | null>(null);
-  const [chatEntries, setChatEntries] = useState<ChatEntry[]>([]);
-  /** A research run is queued/running for the open investigation (from create, extend or /ws). */
-  const [runActive, setRunActive] = useState(false);
-  const lastRevisionRef = useRef(0);
+  const [continuing, setContinuing] = useState(false);
 
   const activeNodes = workspaceNodes ?? [];
+  const topicExamples = [
+    'US tariffs and international trade policy',
+    'European AI regulation and its global impact',
+    'Global lithium supply chains',
+    'The international dispute over Arctic shipping routes',
+    'How central banks are responding to inflation',
+    'A public figure’s documented political statements',
+  ];
+  const visibleExamples = Array.from({ length: 3 }, (_, index) => topicExamples[(exampleOffset + index) % topicExamples.length]);
+
+  useEffect(() => {
+    if (topic || creating) return;
+    const timer = window.setInterval(() => setExampleOffset((offset) => (offset + 1) % topicExamples.length), 7000);
+    return () => window.clearInterval(timer);
+  }, [topic, creating, topicExamples.length]);
 
   const loadPublicInvestigations = useCallback(async () => {
     setLibraryLoading(true);
@@ -82,60 +92,19 @@ export default function App() {
     setView('home');
     setWorkspaceNodes(null);
     setWorkspaceError(null);
-    setChatText('');
-    setRunActive(false);
-    void loadPublicInvestigations();
   };
-
-  /** Re-fetch the open investigation's graph; ignores responses older than what is shown. */
-  const refreshGraph = useCallback(async (investigationId: string) => {
-    try {
-      const graph = await investigationRepository.getInvestigationGraph(investigationId);
-      if (graph.investigationId !== investigationId || graph.revision < lastRevisionRef.current) return;
-      lastRevisionRef.current = graph.revision;
-      setWorkspaceNodes((previous) => {
-        const before = previous?.reduce((n, node) => n + 1 + node.branches.length, 0) ?? 0;
-        const after = graph.nodes.reduce((n, node) => n + 1 + node.branches.length, 0);
-        if (after > before) fitGraph();
-        return graph.nodes;
-      });
-    } catch {
-      // Live refresh is best effort; the explicit load path reports errors.
-    }
-  }, [fitGraph]);
-
-  // Live updates for the open investigation: refresh the graph as evidence arrives (throttled).
-  const openInvestigationId = view === 'workspace' ? selectedInvestigation?.id : undefined;
-  useEffect(() => {
-    if (!openInvestigationId) return;
-    let timer: number | undefined;
-    const schedule = () => {
-      if (timer === undefined) timer = window.setTimeout(() => { timer = undefined; void refreshGraph(openInvestigationId); }, 400);
-    };
-    const stop = watchInvestigation(openInvestigationId, {
-      onUpdate: (update) => {
-        setRunActive(update.runStatus === 'queued' || update.runStatus === 'running');
-        schedule();
-      },
-      onResync: schedule,
-    });
-    return () => { stop(); window.clearTimeout(timer); };
-  }, [openInvestigationId, refreshGraph]);
 
   const openWorkspace = async (investigation: Investigation) => {
     setSelectedInvestigation(investigation);
+    setTemporaryTimelineContext(false);
     setView('workspace');
     setWorkspaceNodes(null);
     setWorkspaceError(null);
     setWorkspaceLoading(true);
-    setChatEntries([]);
-    setChatError(null);
     setPinnedFocus(null);
-    lastRevisionRef.current = 0;
     try {
       const graph = await investigationRepository.getInvestigationGraph(investigation.id);
       if (graph.investigationId !== investigation.id) throw new Error('Investigation graph ID mismatch.');
-      lastRevisionRef.current = graph.revision;
       setWorkspaceNodes(graph.nodes);
       setWorkspaceFitSignal((value) => value + 1);
     } catch (error) {
@@ -155,10 +124,15 @@ export default function App() {
     setCreating(true);
     setCreateError(null);
     try {
-      const created = await investigationRepository.createInvestigation({ topic: cleanTopic });
-      setTopic('');
-      await openWorkspace(created);
-      setRunActive(true); // research continues in the background; evidence streams in over /ws
+      const result = await scrapeMainNode({ query: cleanTopic, provider: 'auto' });
+      const workspace = temporaryWorkspaceFromTimelineNode(result.node);
+      setSelectedInvestigation(workspace.investigation);
+      setTemporaryTimelineContext(workspace.temporary);
+      setWorkspaceNodes(workspace.nodes);
+      setWorkspaceFitSignal((value) => value + 1);
+      setView('workspace');
+      setCreateError(null);
+      if (result.notice) window.setTimeout(() => window.alert(result.notice!), 0);
     } catch (error) {
       setCreateError(error instanceof Error ? error.message : 'Investigation creation failed.');
     } finally {
@@ -179,29 +153,41 @@ export default function App() {
   const sourceName = focusBranch?.sourceDomain ?? (sourceUrl ? new URL(sourceUrl).hostname : undefined);
   const focusDate = asDate(focusBranch?.publishedAt ?? focusNode?.timestamp);
 
-  const submitResearch = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const prompt = chatText.trim();
-    if (!prompt || chatBusy || !selectedInvestigation) return;
-    setChatBusy(true);
-    setChatError(null);
-    setRunActive(true);
-    setChatEntries((entries) => [...entries, { id: Date.now(), role: 'user', text: prompt }]);
+  const applyResearchGraph = useCallback((event: { type: 'graph_updated'; graph: InvestigationGraphDto }) => {
+    if (!selectedInvestigation || event.graph.investigationId !== selectedInvestigation.id) return;
+    const nodes = investigationEventsToSpineNodes(event.graph.events);
+    setWorkspaceNodes(nodes);
+    setWorkspaceFitSignal((value) => value + 1);
+  }, [selectedInvestigation]);
+
+  const continueGraph = async () => {
+    if (continuing || !selectedInvestigation || activeNodes.length === 0) return;
+    const lastNode = activeNodes[activeNodes.length - 1];
+    const context = activeNodes.slice(-3).map((node) => node.name).join('; ');
+    setContinuing(true);
     try {
-      const graph = await investigationRepository.extendInvestigation(selectedInvestigation.id, { topic: prompt });
-      if (graph.investigationId !== selectedInvestigation.id) throw new Error('Research update returned a different investigation.');
-      if (graph.revision >= lastRevisionRef.current) {
-        lastRevisionRef.current = graph.revision;
-        setWorkspaceNodes(graph.nodes);
+      const result = await sendPrompt({
+        prompt: `Continue this investigation after "${lastNode.name}". Research the next significant related event. Context: ${context}`,
+        mode: 'new-node', selectedNodeId: lastNode.id, selectedNodeName: lastNode.name, provider: 'auto',
+      });
+      if (result.node) {
+        setWorkspaceNodes((nodes) => {
+          const current = nodes ?? [];
+          if (current.some((node) => node.id === result.node!.id)) return current;
+          const node = result.branches?.length
+            ? { ...result.node!, branches: [...result.node!.branches, ...result.branches.filter((branch) => !result.node!.branches.some((existing) => existing.id === branch.id))] }
+            : result.node!;
+          return [...current, node];
+        });
+        setSelectedIndex(activeNodes.length);
+        setWorkspaceFitSignal((value) => value + 1);
+      } else if (result.message) {
+        window.alert(result.message);
       }
-      setWorkspaceFitSignal((value) => value + 1);
-      setChatEntries((entries) => [...entries, { id: Date.now(), role: 'system', text: 'Investigation updated.' }]);
-      setChatText('');
     } catch (error) {
-      setChatError(error instanceof Error ? error.message : 'Investigation update failed.');
+      window.alert(error instanceof Error ? error.message : 'Could not continue research.');
     } finally {
-      setChatBusy(false);
-      setRunActive(false);
+      setContinuing(false);
     }
   };
 
@@ -210,20 +196,33 @@ export default function App() {
       <div className="gh-home-content">
         <div className="gh-brand"><span className="gh-mark">G</span><span>GHOSTLINE</span></div>
         <section className="gh-create">
-          <p className="gh-eyebrow">LIVING EVIDENCE INTELLIGENCE</p>
           <h1>What would you like to investigate?</h1>
           <p className="gh-lede">Explore a topic through connected events and evidence.</p>
           <form onSubmit={createInvestigation} className="gh-form">
-            <label>Research topic<textarea value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="e.g. US tariffs and international trade policy" rows={3} disabled={creating} /></label>
-            {createError && <p role="alert" className="gh-error">{createError}</p>}
-            <button className="gh-primary" type="submit" disabled={creating}>{creating ? <><LoaderCircle className="gh-spin" size={16} /> Starting investigation…</> : 'Start investigation'}</button>
-            {creating && <p className="gh-hint">Creating a persistent investigation…</p>}
+            <label className="gh-topic-label" htmlFor="research-topic">Research topic</label>
+            <div className="gh-research-composer">
+              <textarea id="research-topic" value={topic} onChange={(e) => { setTopic(e.target.value); setCreateError(null); }} placeholder="e.g. US tariffs and international trade policy" rows={3} disabled={creating} aria-describedby={createError ? 'topic-error' : undefined} />
+              <div className="gh-composer-footer">
+                <span className="gh-composer-note">Open-ended research · sources and events</span>
+                <button className="gh-primary" type="submit" disabled={creating || !topic.trim()}>{creating ? <><LoaderCircle className="gh-spin" size={15} /> Starting…</> : <>Start investigation <ArrowUpRight size={15} /></>}</button>
+              </div>
+            </div>
+            {createError && <p id="topic-error" role="alert" className="gh-error">{createError}</p>}
+            {creating && <p className="gh-hint">Starting live research…</p>}
+            <div className="gh-example-picker" aria-label="Topic examples">
+              <span className="gh-example-label">For example</span>
+              <div className="gh-example-list">
+                {visibleExamples.map((example) => <button className="gh-example-chip" type="button" key={example} disabled={creating} onClick={() => { setTopic(example); setCreateError(null); }} title="Fill research topic">
+                  <span>{example}</span>
+                </button>)}
+              </div>
+            </div>
           </form>
         </section>
         <section className="gh-existing">
           <div className="gh-section-heading"><h2>Explore investigations</h2></div>
           <p className="gh-library-lede">Browse existing public research.</p>
-          {libraryLoading ? <p className="gh-muted">Loading public investigations…</p> : libraryError ? <div className="gh-load-error"><p>{libraryError}</p><button type="button" onClick={() => void loadPublicInvestigations()}>Retry</button></div> : investigations.length ? investigations.map((item) => (
+          {libraryLoading ? <p className="gh-muted">Loading public investigations…</p> : libraryError ? <div className="gh-library-unavailable"><p>Public investigations are temporarily unavailable.</p><button type="button" onClick={() => void loadPublicInvestigations()}>Retry</button></div> : investigations.length ? investigations.map((item) => (
             <button className="gh-investigation" key={item.id} onClick={() => void openWorkspace(item)}>
               <span className="gh-investigation-copy"><strong>{item.title}</strong>{item.description && <span>{item.description}</span>}</span>
               <span className="gh-investigation-meta">{asDate(item.updatedAt ?? item.createdAt) ?? ''}<ArrowUpRight size={16} /></span>
@@ -239,26 +238,17 @@ export default function App() {
         <span className="gh-workspace-title" title={selectedInvestigation?.title}>{selectedInvestigation?.title ?? 'Investigation'}</span>
       </header>
       <div className="gh-workspace-body">
-        <aside className="gh-research" aria-label="Research chat">
-          <div className="gh-chat-heading"><h2>Research</h2><p>{selectedInvestigation?.title}</p></div>
-          <div className="gh-chat-messages" aria-live="polite">
-            {!chatEntries.length && <p className="gh-chat-intro">Continue this investigation with additional research. New evidence is added to the graph as it is found.</p>}
-            {chatEntries.map((entry) => <div className={`gh-chat-message ${entry.role}`} key={entry.id}>{entry.text}</div>)}
-            {chatError && <p className="gh-error">{chatError}</p>}
-            {(chatBusy || runActive) && <p className="gh-muted">Researching… evidence appears in the graph as it is found.</p>}
-          </div>
-          <form className="gh-composer" onSubmit={submitResearch}>
-            <textarea value={chatText} onChange={(e) => setChatText(e.target.value)} placeholder="What should this investigation explore next?" rows={3} disabled={chatBusy || runActive || workspaceLoading || Boolean(workspaceError)} aria-label="Extend investigation" />
-            <button type="submit" className="gh-primary" disabled={chatBusy || runActive || workspaceLoading || !chatText.trim() || Boolean(workspaceError)}>{chatBusy ? 'Updating…' : 'Continue research'}</button>
-          </form>
-        </aside>
+        <div className="gh-chat-column">
+          {temporaryTimelineContext && <p className="gh-context-notice" role="status">Temporary timeline context; not a saved investigation.</p>}
+          {selectedInvestigation && <ResearchChat key={selectedInvestigation.id} investigationId={selectedInvestigation.id} historyAvailable={!temporaryTimelineContext} disabled={workspaceLoading || Boolean(workspaceError) || temporaryTimelineContext} onGraphUpdated={applyResearchGraph} />}
+        </div>
         <section className="gh-graph" aria-label="Evidence graph">
-          {workspaceNodes && <TreeMapCanvas spine={activeNodes} selectedIndex={selectedIndex} focus={activeFocus} moving={motionOn} fitSignal={fitSignal} onHoverTarget={setHoverFocus} onSelectTarget={focusTarget} onClearPin={() => setPinnedFocus(null)} />}
+          {workspaceNodes && <TreeCanvasAdapter spine={activeNodes} selectedIndex={selectedIndex} focus={activeFocus} moving={motionOn} fitSignal={workspaceFitSignal} onHoverTarget={setHoverFocus} onSelectTarget={focusTarget} onClearPin={() => setPinnedFocus(null)} onContinue={() => void continueGraph()} isContinuing={continuing} />}
           <div className="gh-graph-label">EVIDENCE GRAPH <span>{activeNodes.length} events</span></div>
           <div className="gh-graph-controls"><button type="button" onClick={() => setMotionOn((value) => !value)}>{motionOn ? 'Pause motion' : 'Resume motion'}</button><button type="button" onClick={fitGraph}>Fit graph</button></div>
           {workspaceLoading && <div className="gh-graph-state">Loading investigation graph…</div>}
           {workspaceError && <div className="gh-graph-state"><p>{workspaceError}</p><button onClick={() => selectedInvestigation && void openWorkspace(selectedInvestigation)}>Retry</button></div>}
-          {!workspaceLoading && !workspaceError && workspaceNodes?.length === 0 && <div className="gh-graph-state">{runActive ? 'Researching… evidence will appear here as it is found.' : 'This investigation has no evidence yet.'}</div>}
+          {!workspaceLoading && !workspaceError && workspaceNodes?.length === 0 && <div className="gh-graph-state">This investigation has no evidence yet.</div>}
           {pinnedFocus && focusTitle && <article className="gh-detail" aria-label="Selected evidence">
             <div className="gh-detail-head"><span>{focusBranch ? 'Evidence' : 'Event'}</span><button aria-label="Close evidence details" onClick={() => setPinnedFocus(null)}>Close</button></div>
             <h3>{focusTitle}</h3>

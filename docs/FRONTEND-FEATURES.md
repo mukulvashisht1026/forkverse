@@ -1,0 +1,18 @@
+# Ghostline frontend capabilities
+
+## Ready in frontend
+
+- Topic entry, example prompts, timeline library loading/empty/retry states, workspace navigation. Current list reads global `/api/timeline`; it is not a public persisted investigation library.
+- Interactive evidence graph with event/evidence selection, source links, graph fitting, motion toggle, and existing timeline live updates.
+- Topic submission continues to create a live global timeline node and opens its graph workspace. UI labels it temporary and does not claim durable investigation persistence; investigation chat can return backend-unavailable for this timeline node ID until backend issues stable investigation IDs.
+- Workspace uses `ResearchChat`: investigation-scoped paginated history, retry/loading/empty/error states, progressive SSE assistant text, safe Markdown subset (headings, paragraphs, bold/italic, inline links, unordered/ordered list items, block quotes, fenced code, horizontal rules), message-specific citation links, response cancellation with partial output marked interrupted, and distinct **Answer question** / **Extend evidence graph** actions. Raw HTML is text, not markup; only HTTP(S) links open. History and active requests abort on investigation change/unmount; stale/wrong-investigation callbacks ignored; paginated pages deduplicate by message ID. `graph_updated` events update graph only for selected investigation.
+- Wire DTOs cover investigation graph, run, chat history/messages, source citations, request actions, SSE events, structured errors. Client surfaces unsupported endpoints/errors; it does not fake success or fall back to global timeline.
+- Graph canvas's separate Continue affordance retains existing legacy live-timeline continuation flow. This is distinct from new `extend_graph` research request. Creation flow remains existing legacy live scrape, not durable investigation creation.
+
+## Backend dependency / production URL
+
+Investigation endpoints remain proposal only in current backend/docs. Required conversation (`GET /api/investigations/{id}/messages`) and research (`POST /api/investigations/{id}/research`, SSE) endpoints are not implemented, so chat will show backend error (including 404) until deployed. Do not claim persistent chat, RAG, citation-grounded answers, or durable graph extensions are live before matching backend ships.
+
+The shared investigation chat contract is explicit: `GET /api/investigations/{investigationId}/messages?cursor={opaqueCursor}` returns `ChatPageDto` pages with investigation ID and oldest-first messages; `POST /api/investigations/{investigationId}/research` accepts `ResearchRequestDto` and responds `text/event-stream` frames whose `data:` JSON payloads are `message_start`, `token`, `sources`, `graph_updated`, `message_complete`, or `error`. Backend must keep investigation ID on message/history/graph, return each assistant message's own source list, and send `message_complete` to replace provisional streamed assistant text. Client uses opaque investigation IDs: legacy create-by-live-scrape and current timeline library return global timeline node IDs, not investigation IDs. Creation still opens a clearly marked temporary graph workspace; its chat requests may receive 404 until backend maps/issues stable investigation IDs. A durable create endpoint and ID migration/creation contract remain required.
+
+`https://forkversewebqb1xft.z1.web.core.windows.net/` responds with Azure static-site HTML (`text/html`, Ghostline SPA), not API. It is not configured as `VITE_API_BASE_URL`; no API host can be inferred. Set `VITE_API_BASE_URL` to actual API origin once provided. Existing live timeline websocket stays same-origin unless `VITE_WS_URL` separately configured.
