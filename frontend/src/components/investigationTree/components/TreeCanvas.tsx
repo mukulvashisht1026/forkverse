@@ -48,6 +48,11 @@ function wrapLabel(text: string, width = 26, maxLines = 2): string[] {
 /** Claim view: minimum spacing between claim nodes (claims carry few articles each). */
 const CLAIM_GAP = 330;
 
+/** Edge scroll: px/s at the inner side of the button and at the screen edge; margin kept at the ends. */
+const EDGE_MIN_SPEED = 260;
+const EDGE_MAX_SPEED = 1100;
+const EDGE_PAD = 90;
+
 interface TreeCanvasProps {
   spine: SpineNode[];
   selectedIndex: number;
@@ -377,6 +382,11 @@ export function TreeCanvas({
   } | null>(null);
   const dragMovedRef = useRef(false);
   const [isDragging, setIsDragging] = useState(false);
+  /** Edge scroll ("game camera"): direction held (-1 = look left, 1 = look right), speed 0..1. */
+  const edgeRef = useRef<{ dir: -1 | 0 | 1; strength: number; velocity: number }>({ dir: 0, strength: 0, velocity: 0 });
+  const bboxRef = useRef<{ box: DOMRect | null; at: number }>({ box: null, at: 0 });
+  const [edges, setEdges] = useState({ left: false, right: false });
+  const edgesRef = useRef(edges);
 
   const ambientStars = useMemo(() => generateAmbientStars(68, 1979), []);
   // Timeline layout: event nodes spaced so their articles fit along the line, in date order.
@@ -456,12 +466,39 @@ export function TreeCanvas({
     return result;
   }, [spine, layout, claimView]);
 
+  /** World bounding box, cached (getBBox is too costly to call every animation frame). */
+  const worldBox = (maxAgeMs = 400): DOMRect | null => {
+    const world = worldRef.current;
+    if (!world) return null;
+    const now = performance.now();
+    if (!bboxRef.current.box || now - bboxRef.current.at > maxAgeMs) {
+      const b = world.getBBox();
+      bboxRef.current = { box: b.width ? b : null, at: now };
+    }
+    return bboxRef.current.box;
+  };
+
+  /** Show an edge button only when part of the graph is hidden beyond that edge. */
+  const updateEdges = () => {
+    const svg = svgRef.current;
+    const box = worldBox();
+    if (!svg || !box) return;
+    const { x, k } = viewRef.current;
+    const left = x + box.x * k < -EDGE_PAD / 2;
+    const right = x + (box.x + box.width) * k > svg.clientWidth + EDGE_PAD / 2;
+    if (left !== edgesRef.current.left || right !== edgesRef.current.right) {
+      edgesRef.current = { left, right };
+      setEdges(edgesRef.current);
+    }
+  };
+
   const applyViewToDom = () => {
     const world = worldRef.current;
     if (!world) return;
     const { x, y, k } = viewRef.current;
     world.setAttribute('transform', `translate(${x} ${y}) scale(${k})`);
     onViewChange?.({ x, y, k });
+    updateEdges();
   };
 
   const triggerFit = (instant: boolean) => {
@@ -604,11 +641,78 @@ export function TreeCanvas({
     return () => svg.removeEventListener('wheel', handleWheel);
   }, []);
 
+  // Edge scroll: while an edge button is hovered/pressed the camera glides that way, easing in
+  // and out (velocity lerp), faster the closer the pointer is to the screen edge, and stops at
+  // the end of the graph.
+  useEffect(() => {
+    let rafId = 0;
+    let last = performance.now();
+    const tick = (now: number) => {
+      const dt = Math.min((now - last) / 1000, 0.05);
+      last = now;
+      const edge = edgeRef.current;
+      const svg = svgRef.current;
+      const box = worldBox(800);
+      const target = edge.dir * (EDGE_MIN_SPEED + (EDGE_MAX_SPEED - EDGE_MIN_SPEED) * edge.strength);
+      // Ease towards the target speed: quick start, soft stop.
+      edge.velocity += (target - edge.velocity) * Math.min(1, dt * (edge.dir ? 5 : 7));
+      if (Math.abs(edge.velocity) < 2 && !edge.dir) edge.velocity = 0;
+      if (edge.velocity && svg && box) {
+        const v = viewRef.current;
+        goalRef.current = null; // the user is steering: cancel fit animations
+        // Looking right moves the graph left (x decreases), and vice versa.
+        let nextX = v.x - edge.velocity * dt;
+        const minX = svg.clientWidth - EDGE_PAD - (box.x + box.width) * v.k; // right end reached
+        const maxX = EDGE_PAD - box.x * v.k; // left end reached
+        if (minX < maxX) nextX = Math.min(maxX, Math.max(minX, nextX));
+        if (nextX === v.x) edge.velocity = 0;
+        v.x = nextX;
+        applyViewToDom();
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, []);
+
+  // Graph content changed: refresh the cached bounds and which edge buttons apply.
+  useEffect(() => {
+    const id = requestAnimationFrame(() => {
+      bboxRef.current.at = 0;
+      updateEdges();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [spineGeometries]);
+
+  /** Pointer position inside an edge button -> speed (0 at the inner side, 1 at the screen edge). */
+  const steer = (dir: -1 | 1) => (e: React.PointerEvent<HTMLButtonElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const t = dir < 0 ? 1 - (e.clientX - r.left) / r.width : (e.clientX - r.left) / r.width;
+    edgeRef.current.dir = dir;
+    edgeRef.current.strength = Math.max(0, Math.min(1, t));
+  };
+  const release = () => {
+    edgeRef.current.dir = 0;
+    edgeRef.current.strength = 0;
+  };
+  /** Keyboard / click: glide about two thirds of a screen. */
+  const jump = (dir: -1 | 1) => {
+    const svg = svgRef.current;
+    const box = worldBox(0);
+    if (!svg || !box) return;
+    const v = viewRef.current;
+    const minX = svg.clientWidth - EDGE_PAD - (box.x + box.width) * v.k;
+    const maxX = EDGE_PAD - box.x * v.k;
+    const x = Math.min(maxX, Math.max(minX, v.x - dir * svg.clientWidth * 0.66));
+    goalRef.current = { ...v, x };
+  };
+
   const totalSpineWidth = layout.end;
   const isFocusing = focusTarget !== null;
   const isCiting = Boolean(highlight && (highlight.evidenceIds.size > 0 || highlight.eventIds.size > 0));
 
   return (
+    <>
     <svg
       ref={svgRef}
       data-testid="tree-canvas"
@@ -1046,5 +1150,34 @@ export function TreeCanvas({
         )}
       </g>
     </svg>
+    {(['left', 'right'] as const).map((side) => {
+      const dir = side === 'left' ? -1 : 1;
+      return (
+        <button
+          key={side}
+          type="button"
+          className={`edge-scroll edge-${side} ${edges[side] ? 'can' : ''}`}
+          aria-label={side === 'left' ? 'Scroll graph left (earlier)' : 'Scroll graph right (later)'}
+          tabIndex={edges[side] ? 0 : -1}
+          onPointerEnter={steer(dir)}
+          onPointerMove={steer(dir)}
+          onPointerDown={(e) => { e.stopPropagation(); steer(dir)(e); edgeRef.current.strength = 1; }}
+          onPointerUp={steer(dir)}
+          onPointerLeave={release}
+          onPointerCancel={release}
+          onBlur={release}
+          onClick={(e) => { if (e.detail === 0) jump(dir); }}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowLeft') { e.preventDefault(); jump(-1); }
+            if (e.key === 'ArrowRight') { e.preventDefault(); jump(1); }
+          }}
+        >
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+            <path d={side === 'left' ? 'M15 5l-7 7 7 7' : 'M9 5l7 7-7 7'} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      );
+    })}
+    </>
   );
 }
