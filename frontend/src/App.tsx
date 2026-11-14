@@ -417,13 +417,13 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
           <h1 id="tracewire-headline">Every story evolves. Never lose the evidence.</h1>
           <p className="gh-lede">Turn scattered reporting into a living investigation of connected events, claims, and original sources.</p>
           <form onSubmit={createInvestigation} className="gh-form">
-            <label className="gh-topic-label" htmlFor="research-topic">Research topic</label>
             <div className="gh-research-composer">
               <textarea id="research-topic" value={topic}
                 onFocus={() => setTopicFocused(true)}
                 onBlur={() => setTopicFocused(false)}
                 onChange={(e) => { setTopic(e.target.value); setCreateError(null); }}
                 placeholder="What would you like to investigate?" rows={4} disabled={creating}
+                aria-label="Research topic"
                 aria-describedby={createError ? 'topic-error' : undefined} />
               <div className="gh-composer-footer">
                 <button className="gh-primary" type="submit" disabled={creating || !topic.trim()}>
@@ -434,7 +434,6 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
             {createError && <p id="topic-error" role="alert" className="gh-error">{createError}</p>}
             {creating && <p className="gh-hint">Starting live research…</p>}
             <div className={`tw-example${examplePaused ? ' is-paused' : ''}`} onMouseEnter={() => setExampleHovered(true)} onMouseLeave={() => setExampleHovered(false)} onFocusCapture={() => setExampleFocused(true)} onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setExampleFocused(false); }}>
-              <span className="gh-example-label">Try an investigation</span>
               <button key={exampleOffset} className="tw-example-button" type="button" disabled={creating}
                 aria-label={`Fill prompt with example: ${topicExamples[exampleOffset]}`}
                 onClick={() => { setTopic(topicExamples[exampleOffset]); setCreateError(null); document.getElementById('research-topic')?.focus(); }}>
@@ -456,8 +455,8 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
                 event.preventDefault();
                 void openWorkspace(item);
               }}>
-                <span className="gh-investigation-copy"><strong>{item.title}</strong>{item.description && <span>{item.description}</span>}<span className="gh-item-tags">{(tagsFor(item).length ? tagsFor(item) : ['Research']).map((tag) => <i key={tag}>{tag}</i>)}</span></span>
-                <span className="gh-investigation-meta">{asDate(item.updatedAt ?? item.createdAt) ?? ''}<ArrowUpRight size={16} /></span>
+                <span className="gh-investigation-copy"><strong>{item.title}</strong></span>
+                <span className="gh-investigation-meta"><ArrowUpRight size={16} aria-hidden="true" /></span>
               </a>))}
             {filteredHomeInvestigations.length > visibleInvestigationCount && <button className="gh-load-more" type="button" aria-label="Show more investigations" title="Show more investigations" onClick={() => setVisibleInvestigationCount((count) => count + 2)}><MoreHorizontal size={20} aria-hidden="true" /></button>}
           </> : <p className="gh-muted">No public investigations available yet.</p>}

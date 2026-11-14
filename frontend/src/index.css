@@ -22,8 +22,8 @@ button, input, textarea { font: inherit; }
 button { color: inherit; }
 
 .gh-home {
-  --font-display: Inter, Geist, system-ui, sans-serif;
-  --font-body: Inter, Geist, system-ui, sans-serif;
+  --font-display: 'Hanken Grotesk', sans-serif;
+  --font-body: 'Hanken Grotesk', sans-serif;
   --font-size-title: 36px;
   --font-size-section: 14px;
   --font-size-body: 14px;
@@ -613,60 +613,39 @@ button { color: inherit; }
 
 /* Homepage focus: one primary task, with examples and browsing deliberately secondary. */
 .gh-home .gh-create { margin-top: clamp(68px, 10vh, 104px); }
-.gh-home .gh-lede { max-width: 580px; margin: 12px 0 34px; color: #4b504c; }
-.gh-home .gh-topic-label { margin-bottom: 9px; color: #414743; font-size: 12px; }
-.gh-home .gh-research-composer { position: relative; overflow: visible; border: 1px solid #cbd2ce; border-radius: 12px; }
-.gh-home .gh-research-composer:focus-within { border-color: #a78000; box-shadow: 0 0 0 3px rgba(209,169,0,.18); }
-.gh-home .gh-research-composer textarea { min-height: 166px; padding: 19px 20px 66px; color: #202522; font-size: 15px; }
+.gh-home .gh-create h1 { font-size: clamp(36px, 3vw, 42px); line-height: 1.12; }
+.gh-home .gh-lede { max-width: 580px; margin: 14px 0 44px; color: #4b504c; font-size: 16px; }
 .gh-home .gh-research-composer textarea::placeholder { color: #6e7470; opacity: 1; }
-.gh-home .gh-composer-footer { position: absolute; right: 12px; bottom: 12px; min-height: 0; border: 0; padding: 0; }
-.gh-home .gh-composer-footer .gh-primary { min-height: 40px; padding: 0 14px; }
-.gh-home .tw-example { gap: 7px; margin-top: 16px; }
-.gh-home .gh-example-label { color: #565d58; font-size: 12px; }
-.gh-home .tw-example-button { align-items: flex-start; border-color: #e0e4e1; background: #fff; color: #4b514d; padding: 10px 12px; font-size: 12px; }
-.gh-home .tw-example-button:hover:not(:disabled) { border-color: #c5b36e; background: #fffefa; }
-.gh-home .tw-example-text { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.5; }
-.gh-home .gh-existing { margin-top: 62px; border-top-color: #dfe4e0; padding-top: 20px; }
-.gh-home .gh-section-heading { margin-bottom: 5px; }
-.gh-home .gh-section-heading h2 { color: #343a36; font-size: 13px; font-weight: 600; letter-spacing: 0; }
-.gh-home .gh-library-lede { margin: 2px 0 12px; color: #606762; font-size: 12px; }
-.gh-home .gh-folder-nav { margin-top: 8px; }
-.gh-home .gh-folder-nav button, .gh-home .gh-tag-filter button { border-color: #e0e4e1; color: #505752; }
-.gh-home .gh-folder-nav button.is-active, .gh-home .gh-tag-filter button.is-active { border-color: #d3bd60; background: #fff9df; color: #343a36; }
-.gh-home .gh-investigation { min-height: 54px; padding: 10px 7px; }
-.gh-home a.gh-investigation { color: inherit; text-decoration: none; }
-.gh-home .gh-investigation-copy strong { color: #343a36; font-size: 13px; font-weight: 550; }
-.gh-home .gh-investigation-copy span { color: #5f6661; }
-.gh-home .gh-investigation-meta { color: #5f6661; font-size: 11px; }
-.gh-home .gh-item-tags i { border-color: #dfe4e0; color: #535b56; background: #fafbf9; }
-.gh-home {
-  --bg-canvas: #f2f3ef;
-  background: var(--bg-canvas);
-}
-.gh-home .gh-create { margin-top: clamp(68px, 10vh, 104px); }
-.gh-home .gh-lede { margin-bottom: 36px; }
-.gh-home .gh-topic-label { margin-bottom: 11px; color: #303631; font-size: 13px; font-weight: 600; }
 .gh-home .gh-research-composer {
-  border: 2px solid #c8a20c;
-  border-radius: 15px;
-  background: #fff;
-  box-shadow: 0 10px 28px rgba(71, 59, 12, .10), 0 2px 6px rgba(28, 35, 30, .05);
+  position: relative; overflow: hidden; border: 1px solid #858d87; border-radius: 14px;
+  background: #fff; box-shadow: 0 8px 24px rgba(34, 42, 36, .08);
 }
 .gh-home .gh-research-composer:focus-within {
-  border-color: #a98500;
-  box-shadow: 0 0 0 4px rgba(209, 169, 0, .20), 0 12px 30px rgba(71, 59, 12, .12);
+  border-color: #8b6900; box-shadow: 0 0 0 3px rgba(139, 105, 0, .16), 0 10px 28px rgba(34, 42, 36, .09);
 }
-.gh-home .gh-research-composer textarea { min-height: 184px; padding: 21px 22px 69px; font-size: 16px; }
-.gh-home .gh-research-composer textarea::placeholder { color: #626862; opacity: 1; }
-.gh-home .gh-composer-footer { right: 13px; bottom: 13px; }
+.gh-home .gh-research-composer textarea { min-height: 172px; padding: 21px 22px 70px; color: #202522; font-size: 17px; }
+.gh-home .gh-composer-footer { position: absolute; right: 13px; bottom: 13px; min-height: 0; border: 0; padding: 0; }
 .gh-home .gh-composer-footer .gh-primary { min-height: 42px; padding: 0 16px; }
-.gh-home .gh-composer-footer .gh-primary:disabled {
-  border-color: #cbb34e;
-  background: #eadb9b;
-  color: #53460e;
-  opacity: 1;
-}
+.gh-home .gh-composer-footer .gh-primary:disabled { border-color: #cbb34e; background: #eadb9b; color: #53460e; opacity: 1; }
 .gh-home .gh-composer-footer .gh-primary:disabled:hover { border-color: #cbb34e; background: #eadb9b; }
+.gh-home .tw-example { gap: 0; margin-top: 20px; }
+.gh-home .tw-example-button { align-items: flex-start; border-color: #d3d8d4; background: #fbfcfa; color: #4b514d; padding: 12px 14px; font-size: 14px; }
+.gh-home .tw-example-button:hover:not(:disabled) { border-color: #c5b36e; background: #fffefa; }
+.gh-home .tw-example-text { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.5; }
+.gh-home .gh-existing { margin-top: 64px; border-top-color: #dfe4e0; padding-top: 20px; }
+.gh-home .gh-section-heading { margin-bottom: 4px; }
+.gh-home .gh-section-heading h2 { color: #424843; font-size: 13px; font-weight: 550; letter-spacing: 0; }
+.gh-home .gh-tag-filter button { border-color: transparent; color: #505752; }
+.gh-home .gh-tag-filter button:hover { background: #e8ebe7; }
+.gh-home .gh-tag-filter button.is-active { border-color: #d3bd60; background: #fff9df; color: #343a36; }
+.gh-home .gh-investigation { min-height: 48px; padding: 9px 7px; }
+.gh-home a.gh-investigation { color: inherit; text-decoration: none; }
+.gh-home .gh-investigation-copy strong { color: #3b423d; font-size: 14px; font-weight: 500; }
+.gh-home .gh-investigation-meta { color: #626a64; font-size: 12px; }
+.gh-home {
+  --bg-canvas: #f5f6f2;
+  background: var(--bg-canvas);
+}
 .gh-home .tw-example-button { position: relative; overflow: hidden; }
 .gh-home .tw-example-button::after { position: absolute; right: 0; bottom: 0; left: 0; height: 2px; transform: scaleX(1); transform-origin: left center; background: linear-gradient(90deg, rgba(190,151,0,.58), rgba(190,151,0,.14)); content: ''; animation: tw-example-countdown 9s linear forwards; }
 .gh-home .tw-example.is-paused .tw-example-button::after { animation-play-state: paused; }
@@ -677,11 +656,12 @@ button { color: inherit; }
 @media (prefers-reduced-motion: reduce) { .gh-home .tw-example-button::after { display: none; } }
 @media (max-width: 760px) {
   .gh-home .gh-create { margin-top: 54px; }
-  .gh-home .gh-lede { margin-bottom: 28px; }
-  .gh-home .gh-research-composer textarea { min-height: 158px; padding: 17px 16px 64px; font-size: 15px; }
+  .gh-home .gh-create h1 { font-size: clamp(30px, 7vw, 36px); }
+  .gh-home .gh-lede { margin-bottom: 32px; font-size: 15px; }
+  .gh-home .gh-research-composer textarea { min-height: 158px; padding: 17px 16px 64px; font-size: 16px; }
   .gh-home .gh-composer-footer { right: 9px; bottom: 9px; }
   .gh-home .gh-composer-footer .gh-primary { min-height: 42px; }
-  .gh-home .gh-existing { margin-top: 58px; }
+  .gh-home .gh-existing { margin-top: 52px; }
 }
 
 .node-card-header {
