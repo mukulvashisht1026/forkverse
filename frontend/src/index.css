@@ -611,6 +611,39 @@ button { color: inherit; }
   }
 }
 
+/* Homepage focus: one primary task, with examples and browsing deliberately secondary. */
+.gh-home .gh-create { margin-top: clamp(68px, 10vh, 104px); }
+.gh-home .gh-lede { max-width: 520px; margin: 12px 0 36px; color: var(--text-secondary); }
+.gh-home .gh-visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; clip-path: inset(50%); }
+.gh-home .gh-research-composer { position: relative; overflow: visible; border-radius: 12px; }
+.gh-home .gh-research-composer textarea { min-height: 166px; padding: 19px 20px 66px; font-size: 15px; }
+.gh-home .gh-composer-footer { position: absolute; right: 12px; bottom: 12px; min-height: 0; border: 0; padding: 0; }
+.gh-home .gh-composer-footer .gh-primary { min-height: 40px; padding: 0 14px; }
+.gh-home .gh-example-link { display: inline-flex; align-items: center; gap: 5px; margin: 13px 0 0; border: 0; background: transparent; padding: 4px 0; color: var(--text-muted); font-size: 12px; cursor: pointer; }
+.gh-home .gh-example-link:hover:not(:disabled) { color: var(--text-secondary); }
+.gh-home .gh-example-link:focus-visible, .gh-home .gh-browse-toggle:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 3px; }
+.gh-home .gh-existing { margin-top: 72px; border-top-color: #edf0ed; padding-top: 19px; }
+.gh-home .gh-section-heading { margin-bottom: 0; }
+.gh-home .gh-section-heading h2 { color: var(--text-muted); font-size: 12px; font-weight: 500; letter-spacing: 0; }
+.gh-home .gh-browse-toggle { display: inline-flex; align-items: center; gap: 9px; border: 0; border-radius: 5px; background: transparent; padding: 6px 3px; color: var(--text-muted); font-size: 12px; cursor: pointer; }
+.gh-home .gh-browse-toggle:hover { color: var(--text-secondary); }
+.gh-home .gh-browse-toggle span { color: var(--text-muted); font-size: 15px; }
+.gh-home #gh-investigation-browser { margin-top: 14px; }
+.gh-home .gh-folder-nav { margin-top: 6px; }
+.gh-home .gh-folder-nav button, .gh-home .gh-tag-filter button { border-color: transparent; background: transparent; color: var(--text-muted); }
+.gh-home .gh-folder-nav button.is-active, .gh-home .gh-tag-filter button.is-active { border-color: var(--border-subtle); background: #f4f6f4; color: var(--text-secondary); }
+.gh-home .gh-investigation { min-height: 48px; padding: 10px 6px; }
+.gh-home .gh-investigation-copy strong { color: var(--text-secondary); font-size: 13px; font-weight: 450; }
+.gh-home .gh-investigation-meta { color: var(--text-muted); font-size: 11px; }
+@media (max-width: 760px) {
+  .gh-home .gh-create { margin-top: 54px; }
+  .gh-home .gh-lede { margin-bottom: 28px; }
+  .gh-home .gh-research-composer textarea { min-height: 148px; padding: 16px 15px 62px; font-size: 14px; }
+  .gh-home .gh-composer-footer { right: 9px; bottom: 9px; }
+  .gh-home .gh-composer-footer .gh-primary { min-height: 40px; }
+  .gh-home .gh-existing { margin-top: 58px; }
+}
+
 .node-card-header {
   display: flex;
   align-items: center;
