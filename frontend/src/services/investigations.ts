@@ -2,6 +2,10 @@ import type { SpineNode } from '../types/tree';
 import type {
   ApiErrorDto,
   CreateInvestigationRequestDto,
+  CreateMonitorRequestDto,
+  LiveSourceDto,
+  MonitorDto,
+  MonitorPhaseDto,
   CreateInvestigationResponseDto,
   ExtendInvestigationRequestDto,
   ExtendInvestigationResponseDto,
@@ -173,6 +177,49 @@ export const investigationRepository: InvestigationApi = {
   },
 };
 
+// ---- live monitors (Context.dev Monitors API) -------------------------------------------
+
+export type Monitor = MonitorDto;
+export type LiveSource = LiveSourceDto;
+
+/** Same default feed the backend uses for kind "news_feed" (shown before the monitor is created). */
+export function newsFeedUrl(topic: string): string {
+  return `https://news.google.com/rss/search?${new URLSearchParams({ q: topic, hl: 'en-US', gl: 'US', ceid: 'US:en' })}`;
+}
+export type CreateMonitorInput = CreateMonitorRequestDto;
+
+export const monitorRepository = {
+  async list(investigationId: string): Promise<Monitor[]> {
+    return (await request<{ items: MonitorDto[] }>(path(investigationId, '/monitors'))).items;
+  },
+  async create(investigationId: string, input: CreateMonitorRequestDto): Promise<Monitor> {
+    return request<MonitorDto>(path(investigationId, '/monitors'), { method: 'POST', body: JSON.stringify(input), signal: AbortSignal.timeout(45_000) });
+  },
+  /** Pages updating right now about the topic, best first (reads the top candidates live). */
+  async suggest(investigationId: string): Promise<LiveSource[]> {
+    return (await request<{ items: LiveSourceDto[] }>(path(investigationId, '/monitors/suggestions'), { signal: AbortSignal.timeout(90_000) })).items;
+  },
+  async remove(investigationId: string, monitorId: string): Promise<void> {
+    await request<null>(path(investigationId, `/monitors/${encodeURIComponent(monitorId)}`), { method: 'DELETE' });
+  },
+  async checkNow(investigationId: string, monitorId: string): Promise<void> {
+    await request<{ runId: string }>(path(investigationId, `/monitors/${encodeURIComponent(monitorId)}/check`), { method: 'POST', body: '{}' });
+  },
+};
+
+/** What a live monitor just did (`investigation:monitor` frame). */
+export interface MonitorActivity {
+  monitorId: string;
+  phase: MonitorPhaseDto;
+  message: string;
+  title?: string;
+  added?: number;
+  newClaimIds?: string[];
+  /** The monitored website. */
+  url?: string;
+  timestamp: string;
+}
+
 // ---- live updates over /ws ------------------------------------------------------------
 
 /** Graph items cited by the current research answer (from `investigation:highlight`). */
@@ -200,6 +247,11 @@ export interface InvestigationUpdate {
   runStatus: ResearchRunStatus;
   /** True when this update added an evidence item. */
   addedEvidence: boolean;
+  /** Run that produced the update (live monitor runs are "mon-…"). */
+  runId?: string;
+  /** Evidence just added, and the event (timeline node) it belongs to. */
+  evidenceId?: string;
+  eventId?: string;
 }
 
 /**
@@ -215,6 +267,8 @@ export function watchInvestigation(
     onResync?: () => void;
     /** Citation highlight for this investigation (answer streaming / complete / cleared). */
     onHighlight?: (highlight: InvestigationHighlight) => void;
+    /** Live monitor progress (change detected, sources added, claims updated…). */
+    onMonitor?: (activity: MonitorActivity) => void;
   },
 ): () => void {
   let socket: WebSocket | null = null;
@@ -235,7 +289,15 @@ export function watchInvestigation(
     socket.onmessage = (evt) => {
       let frame: {
         type?: string;
+        timestamp?: string;
         payload?: {
+          monitorId?: string;
+          phase?: MonitorPhaseDto;
+          message?: string;
+          title?: string;
+          added?: number;
+          newClaimIds?: unknown;
+          url?: string;
           investigationId?: string;
           revision?: number;
           run?: ResearchRunDto;
@@ -260,10 +322,32 @@ export function watchInvestigation(
         handlers.onHighlight?.({ messageId: String(p.messageId ?? ''), evidenceIds: ids(p.evidenceIds), eventIds: ids(p.eventIds), final: Boolean(p.final), ...(roles && { roles }) });
         return;
       }
+      if (frame.type === 'investigation:monitor') {
+        if (!p.monitorId || !p.phase) return;
+        handlers.onMonitor?.({
+          monitorId: p.monitorId,
+          phase: p.phase,
+          message: String(p.message ?? ''),
+          ...(p.title && { title: p.title }),
+          ...(typeof p.added === 'number' && { added: p.added }),
+          ...(Array.isArray(p.newClaimIds) && { newClaimIds: p.newClaimIds.filter((x): x is string => typeof x === 'string') }),
+          ...(typeof p.url === 'string' && { url: p.url }),
+          timestamp: frame.timestamp ?? new Date().toISOString(),
+        });
+        return;
+      }
       if (frame.type !== 'investigation:updated') return;
       if (typeof p.revision !== 'number' || p.revision < lastRevision || !p.run) return;
       lastRevision = p.revision;
-      handlers.onUpdate({ revision: p.revision, runStatus: p.run.status, addedEvidence: Boolean(p.evidence) });
+      const ev = p.evidence && typeof p.evidence === 'object' ? (p.evidence as { id?: unknown; eventId?: unknown }) : undefined;
+      handlers.onUpdate({
+        revision: p.revision,
+        runStatus: p.run.status,
+        addedEvidence: Boolean(p.evidence),
+        ...(typeof p.run.id === 'string' && { runId: p.run.id }),
+        ...(typeof ev?.id === 'string' && { evidenceId: ev.id }),
+        ...(typeof ev?.eventId === 'string' && { eventId: ev.eventId }),
+      });
     };
     socket.onclose = () => {
       if (closed) return;

@@ -17,6 +17,7 @@ import type {
   InvestigationEventDto,
   InvestigationEvidenceDto,
   InvestigationRecord,
+  MonitorRecord,
   ResearchRunDto,
 } from './types.js';
 
@@ -43,6 +44,12 @@ export interface InvestigationStore {
   activeRun(investigationId: string): Promise<ResearchRunDto | null>;
   /** Mark queued/running runs as failed (they cannot survive a restart). Returns how many. */
   failStaleRuns(reason: string): Promise<number>;
+
+  /** Insert or replace a live monitor (by id). Does not bump the graph revision. */
+  saveMonitor(id: string, monitor: MonitorRecord): Promise<void>;
+  removeMonitor(id: string, monitorId: string): Promise<void>;
+  /** Every stored monitor across investigations (for the change poller). */
+  listAllMonitors(): Promise<MonitorRecord[]>;
 
   addMessage(message: ChatMessageDto): Promise<void>;
   /** Newest `limit` messages older than the cursor, returned oldest-first; nextCursor pages further back. */
@@ -133,7 +140,7 @@ export class MongoInvestigationStore implements InvestigationStore {
           status: 'active',
           ...(c && { $or: [{ updatedAt: { $lt: c.u } }, { updatedAt: c.u, _id: { $lt: c.i } }] }),
         },
-        { projection: { events: 0, claims: 0, claimLinks: 0 } },
+        { projection: { events: 0, claims: 0, claimLinks: 0, monitors: 0 } },
       )
       .sort({ updatedAt: -1, _id: -1 })
       .limit(limit + 1)
@@ -168,6 +175,22 @@ export class MongoInvestigationStore implements InvestigationStore {
     return this.bump(id, {
       $set: { claims, claimLinks: links, claimsUpdatedAt: nowIso(), ...(entity && { entity }) },
     });
+  }
+
+  async saveMonitor(id: string, monitor: MonitorRecord) {
+    const res = await this.investigations.updateOne({ _id: id, 'monitors.id': monitor.id }, { $set: { 'monitors.$': monitor } });
+    if (res.matchedCount) return;
+    const pushed = await this.investigations.updateOne({ _id: id }, { $push: { monitors: monitor } });
+    if (!pushed.matchedCount) throw new Error(`Investigation "${id}" not found.`);
+  }
+
+  async removeMonitor(id: string, monitorId: string) {
+    await this.investigations.updateOne({ _id: id }, { $pull: { monitors: { id: monitorId } } });
+  }
+
+  async listAllMonitors() {
+    const docs = await this.investigations.find({ 'monitors.0': { $exists: true } }, { projection: { monitors: 1 } }).toArray();
+    return docs.flatMap((d) => d.monitors ?? []);
   }
 
   async createRun({ id, ...rest }: ResearchRunDto) {
@@ -278,6 +301,24 @@ export class MemoryInvestigationStore implements InvestigationStore {
       r.claimsUpdatedAt = nowIso();
       if (entity) r.entity = entity;
     });
+  }
+
+  async saveMonitor(id: string, monitor: MonitorRecord) {
+    const r = this.records.get(id);
+    if (!r) throw new Error(`Investigation "${id}" not found.`);
+    const list = (r.monitors ??= []);
+    const i = list.findIndex((m) => m.id === monitor.id);
+    if (i >= 0) list[i] = structuredClone(monitor);
+    else list.push(structuredClone(monitor));
+  }
+
+  async removeMonitor(id: string, monitorId: string) {
+    const r = this.records.get(id);
+    if (r?.monitors) r.monitors = r.monitors.filter((m) => m.id !== monitorId);
+  }
+
+  async listAllMonitors() {
+    return [...this.records.values()].flatMap((r) => r.monitors ?? []).map((m) => structuredClone(m));
   }
 
   async createRun(run: ResearchRunDto) {

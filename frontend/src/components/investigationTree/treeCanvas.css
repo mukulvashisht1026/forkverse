@@ -49,3 +49,33 @@
 .itl-tree .branch.source-report .tip-core{fill:#7fa6c9;stroke:#e6eff8}
 .itl-tree .branch.source-report path{stroke:#7fa6c9}
 .itl-tree .branch.source-report.stance-contradicts .tip-core{fill:#ff8a73;stroke:#ffe6e0}
+/* ---- Live tracking: items a live monitor just added ---- */
+.itl-tree .live-node{pointer-events:none}
+.itl-tree .live-node-glow{fill:rgba(239,90,80,.12);stroke:#ef5a50;stroke-width:1.2;opacity:.75}
+.itl-tree .tree-group.live-fresh .live-node-glow{animation:itl-live-glow 1.4s ease-in-out infinite alternate}
+.itl-tree .live-node-ring{fill:none;stroke:#ef5a50;stroke-width:2;opacity:0;transform-box:fill-box;transform-origin:center;animation:itl-live-ring 2.1s ease-out infinite}
+.itl-tree .live-badge-bg{fill:rgba(70,26,26,.92);stroke:#ef5a50;stroke-width:1}
+.itl-tree .live-badge-dot{fill:#ef5a50}
+.itl-tree .tree-group.live-fresh .live-badge-dot{animation:itl-live-blink 1s ease-in-out infinite}
+.itl-tree .live-badge-text{fill:#ffd2ce;font-size:9px;font-weight:700;letter-spacing:.12em}
+.itl-tree .tree-group.live-fresh .live-badge{animation:itl-live-drop .5s cubic-bezier(.2,1.4,.4,1)}
+.itl-tree .tree-group.live-recent .live-node-glow{fill:rgba(239,90,80,.06);stroke-dasharray:3 3;opacity:.55}
+.itl-tree .tree-group.live-recent .live-badge-bg{fill:rgba(40,24,26,.9);stroke:rgba(239,90,80,.55)}
+.itl-tree .tree-group.live-recent .live-badge-text{fill:#e9b1ab}
+.itl-tree .branch.live-fresh path{filter:drop-shadow(0 0 4px rgba(239,90,80,.8))}
+.itl-tree .branch.live-fresh .tip-core,.itl-tree .branch.live-recent .tip-core{stroke:#ef5a50}
+.itl-tree .branch.live-fresh .tip-label,.itl-tree .branch.live-recent .tip-label{opacity:1}
+.itl-tree .live-tip{pointer-events:none}
+.itl-tree .live-tip-ring{fill:none;stroke:#ef5a50;stroke-width:1.6;opacity:.6;transform-box:fill-box;transform-origin:center}
+.itl-tree .branch.live-fresh .live-tip-ring{animation:itl-live-ring 1.8s ease-out infinite}
+.itl-tree .branch.live-fresh .live-tip-ring.delay{animation-delay:.9s}
+.itl-tree .branch.live-recent .live-tip-ring{opacity:.35;stroke-dasharray:2 2}
+.itl-tree .live-new-tag{fill:#ff8f86;font-size:8px;font-weight:800;letter-spacing:.14em;paint-order:stroke;stroke:#02040a;stroke-width:3px}
+.itl-tree .branch.live-recent .live-new-tag{fill:#c98f89}
+/* Live items stay visible even while an answer highlight dims the rest */
+.itl-tree .citing .tree-group.live-fresh,.itl-tree .citing .tree-group.live-fresh .branch.live-fresh{opacity:1}
+@keyframes itl-live-ring{0%{opacity:.85;transform:scale(.7)}100%{opacity:0;transform:scale(2.3)}}
+@keyframes itl-live-glow{from{opacity:.45}to{opacity:1}}
+@keyframes itl-live-blink{50%{opacity:.25}}
+@keyframes itl-live-drop{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
+@media(prefers-reduced-motion:reduce){.itl-tree .live-node-ring{display:none}}

@@ -11,6 +11,8 @@ export interface BranchItem {
   /** Politician view: outcome report (fulfilled = supports, not fulfilled = contradicts, in progress = context). */
   outcomeReport?: boolean;
   sourceReport?: boolean;
+  /** Added by a live monitor: fresh = just now (pulse + regrowth), recent = badge only. */
+  live?: 'fresh' | 'recent';
 }
 
 export interface SpineNode {
@@ -26,6 +28,8 @@ export interface SpineNode {
   outcome?: 'fulfilled' | 'not_fulfilled' | 'in_progress' | 'no_update';
   /** Politician view: only one source reports the claim (badge, but stays on the main line). */
   unverified?: boolean;
+  /** Added by a live monitor: fresh = just now (pulse), recent = in the last minutes (badge). */
+  live?: 'fresh' | 'recent';
 }
 
 /** Claim view: a neutral connection between two claims (by node id). */

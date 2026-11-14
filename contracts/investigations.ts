@@ -256,3 +256,78 @@ export interface ClaimLinkDto {
   basis: 'stated' | 'sequence_only' | 'inferred';
   description: string; // neutral wording; never asserts intent or causation
 }
+
+// ---- live monitors (Context.dev Monitors API): watch a source, grow the graph on change ------
+
+/** news_feed: Google News RSS search for the topic; page: one web page; sitemap: new URLs on a site. */
+export type MonitorKindDto = 'news_feed' | 'page' | 'sitemap';
+export type MonitorStatusDto = 'active' | 'paused' | 'failed';
+
+export interface MonitorDto {
+  id: string; // Context.dev monitor id (mon_…)
+  investigationId: InvestigationId;
+  kind: MonitorKindDto;
+  url: string;
+  label: string;
+  instructions?: string;
+  intervalMinutes: number;
+  status: MonitorStatusDto;
+  /** True when Context.dev pushes changes to our webhook; otherwise the backend polls. */
+  webhook: boolean;
+  createdAt: IsoDateTime;
+  lastCheckedAt?: IsoDateTime;
+  lastChangeAt?: IsoDateTime;
+  lastError?: string;
+  /** Changes that added evidence to the graph. */
+  changesApplied: number;
+}
+
+export interface CreateMonitorRequestDto {
+  kind: MonitorKindDto;
+  /** Required for page/sitemap; news_feed defaults to a Google News RSS search for the topic. */
+  url?: string;
+  /** page only: which changes matter (switches detection to semantic). */
+  instructions?: string;
+  /** 10..1440, default 15. */
+  intervalMinutes?: number;
+}
+
+export type MonitorPhaseDto = 'checking' | 'no_change' | 'change_detected' | 'evidence_added' | 'claims_updated' | 'error';
+
+/** WebSocket frame: what a live monitor just did (drives the LIVE activity feed + toast). */
+export interface InvestigationMonitorEvent {
+  type: 'investigation:monitor';
+  payload: {
+    investigationId: InvestigationId;
+    monitorId: string;
+    phase: MonitorPhaseDto;
+    message: string;
+    /** Headline of the detected change (Context.dev change title). */
+    title?: string;
+    /** Evidence items added to the graph by this change. */
+    added?: number;
+    /** Claims that did not exist before this change (highlighted in the graph). */
+    newClaimIds?: string[];
+    /** The monitored website. */
+    url?: string;
+  };
+  timestamp: IsoDateTime;
+}
+
+/** A page that is updating right now about the topic (candidate for a live page monitor). */
+export interface LiveSourceDto {
+  url: string;
+  title: string;
+  publisher?: string;
+  publishedAt?: IsoDateTime;
+  /** Minutes since the source's latest publication/update, when known. */
+  minutesSinceUpdate?: number;
+  /** Timestamped update entries counted on the page when it was read just now. */
+  updateStamps?: number;
+  /** Higher = fresher and more frequently updated. */
+  score: number;
+  /** Human-readable reasons ("live page", "published 4 min ago", "23 timestamped updates"). */
+  signals: string[];
+  readable: boolean;
+  error?: string;
+}

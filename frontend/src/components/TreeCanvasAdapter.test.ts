@@ -11,3 +11,15 @@ test('tree canvas adapter keeps IDs, names, information and growth state while m
   spine[0].branches[0]._prog = 1;
   assert.equal(mapTreeModels(spine)[0].branches[0].isNew, false);
 });
+
+test('tree canvas adapter marks items added by live tracking (fresh regrows, node inherits from its sources)', () => {
+  const spine = [
+    { id: 'clm-1', name: 'Claim', info: '', branches: [{ id: 'art-new', name: 'New source', info: '', seed: 1, _prog: 1 }, { id: 'art-old', name: 'Old', info: '', seed: 2, _prog: 1 }] },
+    { id: 'clm-2', name: 'Other', info: '', branches: [] },
+  ] as unknown as SpineNode[];
+  const mapped = mapTreeModels(spine, new Map([['art-new', 'fresh' as const], ['clm-2', 'recent' as const]]));
+  assert.equal(mapped[0].live, 'fresh');
+  assert.deepEqual(mapped[0].branches.map((b) => [b.live, b.isNew]), [['fresh', true], [undefined, false]]);
+  assert.equal(mapped[1].live, 'recent');
+  assert.equal(mapTreeModels(spine)[0].live, undefined);
+});

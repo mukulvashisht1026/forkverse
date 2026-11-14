@@ -19,6 +19,10 @@ import { defaultJsonLlm } from './proof/agents.js';
 import { planTopic } from './research/planner.js';
 import { ResearchChatService } from './investigations/chat.js';
 import { InvestigationService } from './investigations/service.js';
+import { contextDevMonitors, scrape as contextDevScrape } from './clients/contextdev.js';
+import { contextDevNewsSearch } from './claims/corroborate.js';
+import { findLiveSources } from './monitors/liveSources.js';
+import { MonitorService } from './monitors/service.js';
 import { MemoryInvestigationStore, MongoInvestigationStore, type InvestigationStore } from './investigations/store.js';
 import { closeContextMcp } from './agent/tools/contextMcp.js';
 import { initTools } from './agent/tools/index.js';
@@ -35,9 +39,11 @@ export interface ServerDeps {
   investigations?: InvestigationService;
   /** Research chat (RAG) over investigations; needs `investigations`. */
   chat?: ResearchChatService;
+  /** Live monitors (Context.dev Monitors API); needs `investigations`. */
+  monitors?: MonitorService;
 }
 
-export function buildServer({ store, hub, investigations, chat, corsOrigins = config.CORS_ORIGINS }: ServerDeps) {
+export function buildServer({ store, hub, investigations, chat, monitors, corsOrigins = config.CORS_ORIGINS }: ServerDeps) {
   const app = express();
   app.disable('x-powered-by');
   // Never log credentials (browsers send cookies for every app on localhost).
@@ -48,14 +54,22 @@ export function buildServer({ store, hub, investigations, chat, corsOrigins = co
     }),
   );
   if (corsOrigins.length) app.use(cors({ origin: corsOrigins }));
-  app.use(express.json({ limit: '1mb' }));
+  // Keep the raw bytes: webhook signatures are computed over the exact request body.
+  app.use(
+    express.json({
+      limit: '1mb',
+      verify: (req, _res, buf) => {
+        (req as { rawBody?: Buffer }).rawBody = Buffer.from(buf);
+      },
+    }),
+  );
 
   const api = express.Router();
   api.use(healthRouter);
   api.use(helloRouter);
   api.use(chatRouter);
   api.use(timelineRouter({ store, hub }));
-  if (investigations) api.use(investigationsRouter(investigations, chat));
+  if (investigations) api.use(investigationsRouter(investigations, chat, monitors));
 
   // Caddy and the Vite dev proxy strip `/api`; `/api/*` is also served for clients that
   // point VITE_API_BASE_URL straight at the backend.
@@ -122,19 +136,43 @@ async function main() {
     // Clean topic, mode (news / politician), search queries and key terms from whatever was typed.
     plan: (raw) => planTopic(raw, defaultJsonLlm),
     // After research: build the structured claim graph so parents + children appear immediately.
-    afterRun: async (id) => {
-      const record = await investigations.get(id);
-      const built = await buildClaims(record, {});
-      // More than one independent source per claim: search Context.dev for each claim.
-      const corroborated = await corroborateClaims(record, built.claims);
-      await storeCorroboration(investigationStore, id, corroborated.added);
-      await investigationStore.setClaims(id, { claims: corroborated.claims, links: built.links, entity: built.entity ?? record.entity });
-    },
+    afterRun: (id) => rebuildClaims(id),
   });
+
+  async function rebuildClaims(id: string, prefer: string[] = []) {
+    const record = await investigations.get(id);
+    const built = await buildClaims(record, { prefer });
+    // More than one independent source per claim: search Context.dev for each claim.
+    const corroborated = await corroborateClaims(record, built.claims);
+    await storeCorroboration(investigationStore, id, corroborated.added);
+    await investigationStore.setClaims(id, { claims: corroborated.claims, links: built.links, entity: built.entity ?? record.entity });
+  }
+
+  // Live monitors: Context.dev pushes changes to /webhook/monitor when this backend is publicly
+  // reachable over HTTPS; the poller covers everything else (and missed deliveries).
+  const publicUrl = config.PUBLIC_BASE_URL.replace(/\/+$/, '');
+  const webhookUrl = /^https:\/\//.test(publicUrl) && !/localhost|127\.0\.0\.1/.test(publicUrl) ? `${publicUrl}/webhook/monitor` : undefined;
+  const monitors = new MonitorService({
+    store: investigationStore,
+    client: contextDevMonitors,
+    publish: (e) => hub.broadcast(e),
+    rebuildClaims,
+    liveSources: (topic) =>
+      findLiveSources(topic, {
+        search: contextDevNewsSearch,
+        scrape: async (url) => {
+          const r = await contextDevScrape(url);
+          return r.success ? { ok: true, markdown: r.markdown, updatedAt: r.publishedAt } : { ok: false, error: r.error };
+        },
+      }),
+    ...(webhookUrl && { webhookUrl }),
+  });
+  if (config.CONTEXT_DEV_API_KEY) monitors.startPolling(config.MONITOR_POLL_MS);
+  logger.info({ webhook: Boolean(webhookUrl), pollMs: config.MONITOR_POLL_MS }, 'live monitors ready');
 
   const chat = new ResearchChatService({ store: investigationStore, investigations, publish: (e) => hub.broadcast(e) });
 
-  const server = createHttpServer({ store, hub, investigations, chat });
+  const server = createHttpServer({ store, hub, investigations, chat, monitors });
   server.listen(config.PORT, '0.0.0.0', () => {
     logger.info({ port: config.PORT, mockTimeline: config.TIMELINE_MOCK }, 'server listening (HTTP + WebSocket /ws)');
   });
@@ -153,6 +191,7 @@ async function main() {
   });
 
   const shutdown = async () => {
+    monitors.stopPolling();
     hub.close();
     server.close();
     await closeContextMcp();

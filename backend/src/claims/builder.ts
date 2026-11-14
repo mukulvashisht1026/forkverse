@@ -164,18 +164,27 @@ const hostOf = (url?: string) => {
 };
 const publisherOf = (e: InvestigationEvidenceDto) => (e.sourceName || hostOf(e.sourceUrl) || 'unknown').toLowerCase();
 
-/** Round-robin across outlets so no single publisher dominates the sample. */
-export function pickEvidence(record: InvestigationRecord, max = MAX_ARTICLES): InvestigationEvidenceDto[] {
+/** Round-robin across outlets so no single publisher dominates the sample. Evidence ids in
+ *  `prefer` (e.g. just added by a live monitor) are always included, first. */
+export function pickEvidence(record: InvestigationRecord, max = MAX_ARTICLES, prefer: readonly string[] = []): InvestigationEvidenceDto[] {
   const seenUrl = new Set<string>();
+  const all = record.events.flatMap((ev) => ev.evidence);
+  const preferred = new Set(prefer);
+  const first: InvestigationEvidenceDto[] = [];
+  for (const e of all) {
+    if (!preferred.has(e.id) || !e.sourceUrl || seenUrl.has(e.sourceUrl) || first.length >= max) continue;
+    seenUrl.add(e.sourceUrl);
+    first.push(e);
+  }
   const byPublisher = new Map<string, InvestigationEvidenceDto[]>();
-  for (const e of record.events.flatMap((ev) => ev.evidence)) {
+  for (const e of all) {
     if (!e.sourceUrl || seenUrl.has(e.sourceUrl)) continue;
     seenUrl.add(e.sourceUrl);
     const key = publisherOf(e);
     byPublisher.set(key, [...(byPublisher.get(key) ?? []), e]);
   }
   const lists = [...byPublisher.values()];
-  const out: InvestigationEvidenceDto[] = [];
+  const out: InvestigationEvidenceDto[] = first;
   for (let round = 0; out.length < max && lists.some((l) => l[round]); round++) {
     for (const l of lists) if (l[round] && out.length < max) out.push(l[round]!);
   }
@@ -234,11 +243,11 @@ export function decideStatus(evidence: ClaimEvidenceDto[]): Pick<ClaimDto, 'stat
 
 export async function buildClaims(
   record: InvestigationRecord,
-  deps: { scrape?: Scraper; json?: JsonLlm; token?: (text: string) => void },
+  deps: { scrape?: Scraper; json?: JsonLlm; token?: (text: string) => void; prefer?: readonly string[] },
 ): Promise<BuildResult> {
   const token = deps.token ?? (() => {});
   const json = deps.json ?? defaultJsonLlm;
-  const picked = pickEvidence(record);
+  const picked = pickEvidence(record, MAX_ARTICLES, deps.prefer);
   if (picked.length < 2) throw new Error('Building claims needs at least two articles in the investigation.');
 
   token(`**Reading ${picked.length} articles** across ${new Set(picked.map(publisherOf)).size} outlets…\n`);

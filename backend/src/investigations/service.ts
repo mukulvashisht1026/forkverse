@@ -73,7 +73,7 @@ const MAX_TITLE = 120;
 const MAX_CONTEXT = 1000;
 const nowIso = () => new Date().toISOString();
 
-export function toInvestigationDto({ revision: _r, events: _e, claims: _c, claimLinks: _l, claimsUpdatedAt: _u, plan: _p, ...dto }: InvestigationRecord): InvestigationDto {
+export function toInvestigationDto({ revision: _r, events: _e, claims: _c, claimLinks: _l, claimsUpdatedAt: _u, plan: _p, monitors: _m, ...dto }: InvestigationRecord): InvestigationDto {
   return dto;
 }
 

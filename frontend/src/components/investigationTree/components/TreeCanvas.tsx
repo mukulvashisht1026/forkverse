@@ -200,7 +200,7 @@ function BranchView({
   const targetFocus: FocusTarget = { spineIndex, branchIndex };
 
   return (
-    <g className={`branch ${isCited ? 'cited' : ''} ${role ? `role-${role}` : ''} ${branch.stance ? `stance-${branch.stance}` : ''} ${branch.outcomeReport ? 'outcome-report' : ''} ${branch.sourceReport ? 'source-report' : ''}`} transform={`translate(${geometry.points[0].x} ${geometry.points[0].y}) scale(${geometry.depthScale}) translate(${-geometry.points[0].x} ${-geometry.points[0].y})`}>
+    <g className={`branch ${isCited ? 'cited' : ''} ${branch.live ? `live-${branch.live}` : ''} ${role ? `role-${role}` : ''} ${branch.stance ? `stance-${branch.stance}` : ''} ${branch.outcomeReport ? 'outcome-report' : ''} ${branch.sourceReport ? 'source-report' : ''}`} transform={`translate(${geometry.points[0].x} ${geometry.points[0].y}) scale(${geometry.depthScale}) translate(${-geometry.points[0].x} ${-geometry.points[0].y})`}>
       {/* Living-Tree mist stipple + neural-scan tangent filaments & micro-dendrites */}
       <g ref={mistGroupRef} style={{ transition: 'opacity 0.35s ease' }}>
         {geometry.filaments.map((strand, idx) => (
@@ -323,6 +323,13 @@ function BranchView({
           strokeWidth={2.6}
         />
         <circle className="fill-transparent" r={22} />
+        {branch.live && (
+          <g className="live-tip" aria-hidden="true">
+            <circle className="live-tip-ring" r={11} />
+            {branch.live === 'fresh' && <circle className="live-tip-ring delay" r={11} />}
+            <text className="live-new-tag" x={13} y={geometry.dir < 0 ? 14 : -10}>NEW</text>
+          </g>
+        )}
         <text
           className="tip-label"
           fill="#ffffff"
@@ -812,9 +819,23 @@ export function TreeCanvas({
                 key={node.id}
                 className={`tree-group ${isGroupOn ? 'on' : ''} ${
                   isSelected ? 'sel' : ''
-                } ${isNodeCited ? 'cited' : ''} ${node.pending ? 'pending' : ''} ${node.disputed ? 'disputed' : ''}`}
+                } ${isNodeCited ? 'cited' : ''} ${node.pending ? 'pending' : ''} ${node.disputed ? 'disputed' : ''} ${node.live ? `live-${node.live}` : ''}`}
                 transform={laneY ? `translate(0 ${laneY})` : undefined}
               >
+                {/* Added by live tracking: pulse rings + badge (fresh), quiet badge afterwards (recent) */}
+                {node.live && (
+                  <g className="live-node" aria-label={node.live === 'fresh' ? 'Just added by live tracking' : 'Recently added by live tracking'}>
+                    <circle className="live-node-glow" cx={cx} cy={0} r={30} />
+                    {node.live === 'fresh' && [0, 0.7, 1.4].map((d) => (
+                      <circle key={d} className="live-node-ring" cx={cx} cy={0} r={26} style={{ animationDelay: `${d}s` }} />
+                    ))}
+                    <g transform={`translate(${cx} ${-50})`}><g className="live-badge">
+                      <rect className="live-badge-bg" x={node.live === 'fresh' ? -38 : -42} y={-9} width={node.live === 'fresh' ? 76 : 84} height={16} rx={8} />
+                      <circle className="live-badge-dot" cx={node.live === 'fresh' ? -28 : -32} cy={-1} r={3} />
+                      <text className="live-badge-text" x={4} y={3} textAnchor="middle">{node.live === 'fresh' ? 'NEW · LIVE' : 'LIVE UPDATE'}</text>
+                    </g></g>
+                  </g>
+                )}
                 {node.disputed && <circle className="disputed-ring" cx={cx} cy={0} r={27} fill="none" />}
                 {(node.pending || node.unverified) && <text className="pending-badge" x={cx} y={42} textAnchor="middle">UNVERIFIED</text>}
                 {node.outcome && (

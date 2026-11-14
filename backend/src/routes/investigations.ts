@@ -18,6 +18,12 @@
  *      action build_claims: claim timeline (claims/claimLinks/entity on the graph) + graph_updated.
  *      Cited/added/compared evidence is highlighted
  *      on /ws via `investigation:highlight`.
+ * GET    /investigations/:id/monitors                       -> { items: MonitorDto[] }
+ * POST   /investigations/:id/monitors   CreateMonitorRequestDto -> 201 MonitorDto (Context.dev monitor)
+ * GET    /investigations/:id/monitors/suggestions            -> { items: LiveSourceDto[] } (pages updating now, best first)
+ * DELETE /investigations/:id/monitors/:monitorId            -> 204
+ * POST   /investigations/:id/monitors/:monitorId/check      -> 202 { runId } (result arrives on /ws)
+ * POST   /webhook/monitor   Context.dev `change.detected` (signed) -> applied to the graph
  *
  * Runs execute in the background. Progress arrives on /ws as `investigation:updated`
  * frames {investigationId, revision, run, evidence?}; clients can also poll the run.
@@ -28,6 +34,7 @@
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
 import type { ResearchChatService } from '../investigations/chat.js';
+import type { MonitorService } from '../monitors/service.js';
 import { InvestigationError, toGraphDto, toInvestigationDto, type InvestigationService } from '../investigations/service.js';
 import type { ResearchStreamEventDto } from '../investigations/types.js';
 import { logger } from '../utils/logger.js';
@@ -43,6 +50,13 @@ const ResearchBody = z.object({
   message: z.string(),
   conversationId: z.string().optional(),
   eventId: z.string().optional(),
+});
+
+const MonitorBody = z.object({
+  kind: z.enum(['news_feed', 'page', 'sitemap']),
+  url: z.string().max(2000).optional(),
+  instructions: z.string().max(2000).optional(),
+  intervalMinutes: z.coerce.number().int().min(10).max(1440).optional(),
 });
 
 const SSE_KEEPALIVE_MS = 15_000;
@@ -62,8 +76,40 @@ function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   return r.data;
 }
 
-export function investigationsRouter(service: InvestigationService, chat?: ResearchChatService): Router {
+export function investigationsRouter(service: InvestigationService, chat?: ResearchChatService, monitors?: MonitorService): Router {
   const r = Router();
+
+  if (monitors) {
+    r.get('/investigations/:id/monitors', async (req, res) => {
+      res.json({ items: await monitors.list(String(req.params.id)) });
+    });
+    r.get('/investigations/:id/monitors/suggestions', async (req, res) => {
+      res.json({ items: await monitors.suggest(String(req.params.id)) });
+    });
+    r.post('/investigations/:id/monitors', async (req, res) => {
+      res.status(201).json(await monitors.create(String(req.params.id), parse(MonitorBody, req.body)));
+    });
+    r.delete('/investigations/:id/monitors/:monitorId', async (req, res) => {
+      await monitors.remove(String(req.params.id), String(req.params.monitorId));
+      res.status(204).end();
+    });
+    r.post('/investigations/:id/monitors/:monitorId/check', async (req, res) => {
+      res.status(202).json(await monitors.checkNow(String(req.params.id), String(req.params.monitorId)));
+    });
+    // Context.dev webhook: verified against the raw body (captured by express.json in server.ts).
+    r.post('/webhook/monitor', async (req, res) => {
+      const raw = (req as Request & { rawBody?: Buffer }).rawBody;
+      if (!raw) {
+        res.status(400).end();
+        return;
+      }
+      const status = await monitors.handleWebhook(raw, {
+        signature: req.get('x-context-signature'),
+        event: req.get('x-context-event'),
+      });
+      res.status(status).end();
+    });
+  }
 
   r.get('/investigations', async (req, res) => {
     const q = parse(ListQuery, req.query);

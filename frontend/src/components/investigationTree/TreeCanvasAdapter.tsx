@@ -21,6 +21,8 @@ interface Props {
   laneNote?: string;
   /** Evidence/event ids to highlight (cited by the current answer); null = no highlight. */
   highlight?: { evidenceIds: ReadonlySet<string>; eventIds: ReadonlySet<string>; roles?: ReadonlyMap<string, string> } | null;
+  /** Items added by live tracking (node, claim and evidence ids). */
+  liveMarks?: ReadonlyMap<string, 'fresh' | 'recent'>;
   onViewChange?: (view: ViewTransform) => void;
   onCanvasReady?: (svg: SVGSVGElement | null) => void;
 }
@@ -31,22 +33,26 @@ export function shortLabel(name: string, max = 44): string {
   return clean.length > max ? `${clean.slice(0, max - 1).trimEnd()}…` : clean;
 }
 
-export function mapTreeModels(spine: AppSpine[]) {
+export function mapTreeModels(spine: AppSpine[], liveMarks?: ReadonlyMap<string, 'fresh' | 'recent'>) {
   return spine.map((node) => ({
     id: node.id, name: node.claimStatus ? node.name : shortLabel(node.name, 46), info: node.info,
     // News view: pending claims go to the separate unverified lane. Politician view: the main line IS
     // the claim tracker, so single-source claims stay on it with an UNVERIFIED badge instead.
     ...(node.claimStatus === 'pending' && (node.outcome ? { unverified: true } : { pending: true })),
     ...(node.disputed && { disputed: true }), ...(node.outcome && { outcome: node.outcome }),
+    // A node counts as live-updated when it, or any of its sources, was just added by a monitor.
+    ...((() => { const own = liveMarks?.get(node.id); const kids = node.branches.map((b) => liveMarks?.get(b.id)); const m = own === 'fresh' || kids.includes('fresh') ? 'fresh' : own ?? kids.find(Boolean); return m ? { live: m } : {}; })()),
     branches: node.branches.map((branch) => ({
       id: branch.id, name: shortLabel(branch.name), info: branch.info, seed: branch.seed, publishedAt: branch.publishedAt, ...(branch.stance && { stance: branch.stance }), ...(branch.outcomeReport && { outcomeReport: true }), ...(branch.sourceReport && { sourceReport: true }),
-      isNew: Boolean(branch._animateGrowth || (branch._prog !== undefined && branch._prog < 1)),
+      ...(liveMarks?.get(branch.id) && { live: liveMarks.get(branch.id) }),
+      // Branches a live monitor just added re-grow on screen.
+      isNew: Boolean(branch._animateGrowth || (branch._prog !== undefined && branch._prog < 1) || liveMarks?.get(branch.id) === 'fresh'),
     })),
   }));
 }
 
-export function TreeCanvasAdapter({ spine, selectedIndex, focus, moving, fitSignal, onHoverTarget, onSelectTarget, onClearPin, onContinue, isContinuing, highlight = null, links, laneNote, onViewChange, onCanvasReady }: Props) {
-  const models = useMemo(() => mapTreeModels(spine), [spine]);
+export function TreeCanvasAdapter({ spine, selectedIndex, focus, moving, fitSignal, onHoverTarget, onSelectTarget, onClearPin, onContinue, isContinuing, highlight = null, links, laneNote, liveMarks, onViewChange, onCanvasReady }: Props) {
+  const models = useMemo(() => mapTreeModels(spine, liveMarks), [spine, liveMarks]);
   const selected = focus ?? { i: selectedIndex };
   const selectedBranch: BranchNode | undefined = selected.j === undefined ? undefined : spine[selected.i]?.branches[selected.j];
   const selectNode = (i: number) => onSelectTarget({ i });
