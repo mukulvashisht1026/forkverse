@@ -1,4 +1,4 @@
-import { isManipulativeVetting } from '../../../contracts/investigations';
+import { isManipulativeVetting } from '../utils/vetting';
 import { useMemo } from 'react';
 import { LoaderCircle, ShieldAlert, ShieldCheck, ShieldQuestion } from 'lucide-react';
 import type { BranchNode } from '../types/tree';

@@ -396,14 +396,8 @@ export type VettingVerdictDto = 'credible' | 'uncertain' | 'manipulative';
 /** Sources scoring above this (0-100) are red-flagged in the graph. */
 export const PROPAGANDA_FLAG_THRESHOLD = 74;
 
-/**
- * Effective "manipulative": a documented influence operation (score >= 90) or a verified finding
- * scored above PROPAGANDA_FLAG_THRESHOLD. Older results stored as manipulative with a lower score
- * (before the threshold was raised) do not count.
- */
-export function isManipulativeVetting(v?: { verdict: string; propagandaScore?: number }): boolean {
-  return v?.verdict === 'manipulative' && (v.propagandaScore === undefined || v.propagandaScore > PROPAGANDA_FLAG_THRESHOLD);
-}
+// isManipulativeVetting: runtime helper in backend/src/investigations/types.ts and frontend/src/utils/vetting.ts
+// (the frontend Docker build only sees frontend/, so this file must stay import-type-only for it).
 
 /** Listing of the source's domain in public research/government lists (backend/data/SOURCE_RATINGS.md). */
 export interface SourceRatingDto {

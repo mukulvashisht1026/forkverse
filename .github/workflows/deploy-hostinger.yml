@@ -49,6 +49,12 @@ jobs:
       - name: Frontend typecheck + tests + build
         working-directory: frontend
         run: npm ci && npx tsc --noEmit && npm test && npm run build
+      # The server builds the frontend in Docker with ONLY frontend/ as context (no ../contracts at
+      # runtime): reproduce that so an import that only works from the repo root fails here, not on the VPS.
+      - name: Frontend build with the Docker context (frontend/ only)
+        run: |
+          mkdir -p "$RUNNER_TEMP/fe" && rsync -a --exclude node_modules --exclude dist frontend/ "$RUNNER_TEMP/fe/"
+          cd "$RUNNER_TEMP/fe" && npm ci --silent && npx vite build
 
   deploy:
     needs: checks

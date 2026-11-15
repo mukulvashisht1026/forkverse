@@ -1,4 +1,4 @@
-import { isManipulativeVetting } from '../../../../contracts/investigations';
+import { isManipulativeVetting } from '../../utils/vetting';
 import { useMemo } from 'react';
 import type { BranchNode, FocusTarget as AppFocus, SpineNode as AppSpine } from '../../types/tree';
 
