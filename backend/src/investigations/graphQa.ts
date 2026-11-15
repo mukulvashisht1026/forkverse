@@ -7,27 +7,35 @@
  * frontend to highlight; if nothing in the graph answers it, the chat just says so.
  */
 import { z } from 'zod';
+import { VECTOR_MAX } from '../limits.js';
 import type { InvestigationEvidenceDto, InvestigationEventDto, InvestigationRecord } from './types.js';
 
 export const GRAPH_QA_PROMPT = `You are the navigator for an evidence graph shown on screen next to this chat.
 The user's question must be answered by POINTING at items in the graph, not by writing an essay.
 
 You get the graph listing: claims (C1, C2, ...) with their status, and articles (E1, E2, ...) with publisher, date and an excerpt or quote.
-Decide whether the graph already contains information that answers the question.
+Decide how well the graph answers the question:
+- "full": listed items directly answer it.
+- "partial": items are clearly related but do not fully answer it (e.g. the question asks about TODAY / now / the latest value and the newest relevant item is older; or only part of the question is covered). Point at the closest, most recent relevant items and say exactly what they show and their date.
+- "none": nothing relevant is listed.
 
 Return JSON only:
-{"found": true|false, "answer": "<at most 2 short sentences>", "claims": ["C2"], "evidence": ["E5","E9"]}
+{"coverage": "full"|"partial"|"none", "answer": "<at most 2 short sentences>", "claims": ["C2"], "evidence": ["E5","E9"]}
 
 Rules:
 - Use ONLY the listing. Never add outside knowledge.
-- found=true only if listed items directly answer the question; then name the most relevant claims and/or articles (at most 6 in total) - these get highlighted.
+- Today's date is given. For time-sensitive questions (today, now, current, latest, this week) give the date of the items you point at, e.g. "The latest price in the graph is about $78,000, reported on 1 Sep 2026 (highlighted); nothing from today yet." Never present an older figure as today's.
+- Forecasts and predictions are attributed opinions: say who predicts what, never present them as fact.
+- full/partial: name the most relevant claims and/or articles (at most 6 in total) - these get highlighted. Prefer the newest relevant items.
 - answer: a brief pointer such as "Yes - the fine levels are shown in the highlighted claim; three outlets report it." Mention if a highlighted claim is UNVERIFIED or disputed. No lists, no citations, no headings.
-- found=false: answer one sentence saying the graph does not cover it yet; claims and evidence empty.
+- none: answer one sentence saying the graph does not cover it yet; claims and evidence empty.
 - A politician's or government's OWN statement that it delivered something is a claim, not proof: say "the government claims ...". Only claims marked with an outcome (FULFILLED / NOT FULFILLED / IN PROGRESS) backed by outcome reports show what actually happened; NO UPDATE means no independent report yet.
 - Be neutral: no intent, no causal claims the items do not state.`;
 
 export const GraphAnswer = z.object({
-  found: z.boolean().catch(false),
+  coverage: z.enum(['full', 'partial', 'none']).optional().catch(undefined),
+  /** Legacy shape: found=true means full coverage. */
+  found: z.boolean().optional().catch(undefined),
   answer: z.string().default(''),
   claims: z.array(z.string()).default([]),
   evidence: z.array(z.string()).default([]),
@@ -47,8 +55,11 @@ const clip = (s: string | undefined, n: number) => (s ? (s.length > n ? `${s.sli
 export function buildGraphListing(record: InvestigationRecord): GraphListing {
   const evidenceByLabel = new Map<string, { evidence: InvestigationEvidenceDto; event: InvestigationEventDto }>();
   const labelOf = new Map<string, string>();
-  for (const event of record.events) {
-    for (const evidence of event.evidence) {
+  // Newest first, so the cap keeps the latest articles and "today / latest" questions see them.
+  const all = record.events.flatMap((event) => event.evidence.map((evidence) => ({ event, evidence })));
+  all.sort((a, b) => (b.evidence.publishedAt ?? '').localeCompare(a.evidence.publishedAt ?? ''));
+  for (const { event, evidence } of all) {
+    {
       if (labelOf.has(evidence.id) || evidenceByLabel.size >= MAX_LISTED_EVIDENCE) continue;
       const label = `E${evidenceByLabel.size + 1}`;
       labelOf.set(evidence.id, label);
@@ -71,6 +82,7 @@ export function buildGraphListing(record: InvestigationRecord): GraphListing {
   );
 
   const text = [
+    `Today: ${new Date().toISOString().slice(0, 10)}`,
     `Investigation: ${record.title}${record.entity ? ` (entity: ${record.entity})` : ''}`,
     claimLines.length ? `Claims:\n${claimLines.join('\n')}` : 'Claims: none built yet.',
     `Articles:\n${articleLines.join('\n') || 'none'}`,
@@ -81,6 +93,8 @@ export function buildGraphListing(record: InvestigationRecord): GraphListing {
 
 export interface ResolvedAnswer {
   found: boolean;
+  /** The graph only partly answers (e.g. latest data is older than asked for): highlight + suggest extending. */
+  partial: boolean;
   answer: string;
   claimIds: string[];
   evidence: { evidence: InvestigationEvidenceDto; event: InvestigationEventDto }[];
@@ -88,11 +102,12 @@ export interface ResolvedAnswer {
 
 /** Map model labels back to graph ids; unknown labels are ignored. */
 export function resolveAnswer(out: z.infer<typeof GraphAnswer>, listing: GraphListing): ResolvedAnswer {
-  const claimIds = [...new Set(out.claims.map((l) => listing.claimByLabel.get(l.trim())?.id).filter((x): x is string => Boolean(x)))];
-  const evidenceIds = new Set(out.evidence.map((l) => listing.evidenceByLabel.get(l.trim())?.evidence.id).filter(Boolean));
+  const claimIds = [...new Set(out.claims.map((l) => listing.claimByLabel.get(l.trim())?.id).filter((x): x is string => Boolean(x)))].slice(0, VECTOR_MAX);
+  const evidenceIds = new Set(out.evidence.map((l) => listing.evidenceByLabel.get(l.trim())?.evidence.id).filter(Boolean).slice(0, VECTOR_MAX));
   // A highlighted claim also lights up its own evidence.
-  for (const l of out.claims) for (const id of listing.claimByLabel.get(l.trim())?.evidenceIds ?? []) evidenceIds.add(id);
+  for (const l of out.claims.slice(0, VECTOR_MAX)) for (const id of listing.claimByLabel.get(l.trim())?.evidenceIds ?? []) evidenceIds.add(id);
   const evidence = [...listing.evidenceByLabel.values()].filter((e) => evidenceIds.has(e.evidence.id));
-  const found = out.found && (claimIds.length > 0 || evidence.length > 0);
-  return { found, answer: out.answer.trim(), claimIds, evidence };
+  const coverage = out.coverage ?? (out.found ? 'full' : 'none');
+  const found = coverage !== 'none' && (claimIds.length > 0 || evidence.length > 0);
+  return { found, partial: found && coverage === 'partial', answer: out.answer.trim(), claimIds, evidence };
 }

@@ -22,7 +22,12 @@ export async function migrate(): Promise<void> {
     }
     const coll = db.collection(name);
     if (spec.indexes.length) await coll.createIndexes(spec.indexes);
-    if (spec.vectorFields) await ensureVectorIndex(coll, vectorIndexDefinition(spec.vectorFields, config.EMBEDDING_DIM));
+    if (spec.vectorFields?.optional) {
+      // Nice-to-have index (e.g. sources): log and continue if Atlas refuses it (index limits).
+      await ensureVectorIndex(coll, vectorIndexDefinition(spec.vectorFields, config.EMBEDDING_DIM)).catch((err) =>
+        logger.warn({ err, collection: name }, 'optional vector search index not created; semantic search on it is disabled'),
+      );
+    } else if (spec.vectorFields) await ensureVectorIndex(coll, vectorIndexDefinition(spec.vectorFields, config.EMBEDDING_DIM));
   }
 }
 
@@ -37,7 +42,14 @@ async function ensureVectorIndex(coll: Collection, definition: Document): Promis
   }
   const dim = (current.latestDefinition?.fields as Document[] | undefined)?.find((f) => f.type === 'vector')?.numDimensions;
   if (dim !== config.EMBEDDING_DIM) {
-    // Changing EMBEDDING_DIM means the stored vectors are from another model: re-embed everything.
+    const path = (definition.fields as Document[]).find((f) => f.type === 'vector')?.path as string;
+    // No stored vectors yet (e.g. switching embedding model before anything was embedded): just resize.
+    if (!(await coll.countDocuments({ [path]: { $exists: true } }, { limit: 1 }))) {
+      logger.info({ collection: coll.collectionName, from: dim, to: config.EMBEDDING_DIM }, 'resizing empty vector search index');
+      await coll.updateSearchIndex(VECTOR_INDEX_NAME, definition);
+      return;
+    }
+    // Stored vectors are from another model: re-embed everything first.
     throw new Error(
       `${coll.collectionName}.${VECTOR_INDEX_NAME} has numDimensions=${dim}, EMBEDDING_DIM=${config.EMBEDDING_DIM}. ` +
         'Re-embed all documents, then drop the index and rerun migrate.',

@@ -41,6 +41,8 @@ export interface InvestigationGraphDto {
   /** Chronological claims built from the evidence (absent until build_claims has run). */
   claims?: ClaimDto[];
   claimLinks?: ClaimLinkDto[];
+  /** Timeline view: claims grouped into periods with a written summary (built with the claims). */
+  periods?: TimelinePeriodDto[];
   entity?: string;
   /** news | politician: how the claim graph should be read (politician: outcome branches only). */
   mode?: 'news' | 'politician';
@@ -64,6 +66,10 @@ export interface InvestigationEvidenceDto {
   publishedAt?: IsoDateTime;
   relationship?: string;
   eventId?: string;
+  /** Propaganda / manipulation screening of this source (domain listing, optionally content). */
+  vetting?: SourceVettingDto;
+  /** Lead image of the article (from the search result), used by the newspaper edition. */
+  imageUrl?: string;
 }
 
 export interface CreateInvestigationRequestDto {
@@ -106,6 +112,7 @@ export interface InvestigationRecord extends InvestigationDto {
   events: InvestigationEventDto[];
   claims?: ClaimDto[];
   claimLinks?: ClaimLinkDto[];
+  periods?: TimelinePeriodDto[];
   claimsUpdatedAt?: IsoDateTime;
   /** Live monitors (never sent to clients as-is: they hold the webhook signing secret). */
   monitors?: MonitorRecord[];
@@ -268,9 +275,44 @@ export interface ClaimDto {
   disputed: boolean;
   /** politician mode: what later articles say happened to the claim/promise. */
   outcome?: 'fulfilled' | 'not_fulfilled' | 'in_progress' | 'no_update';
-  /** Earliest publication date among verified evidence (chronological order). */
+  /** Earliest publication date among verified evidence. */
   occurredAt?: string;
+  /** When it happened, as the articles state it: YYYY, YYYY-MM or YYYY-MM-DD (orders the timeline; falls back to occurredAt). */
+  happenedAt?: string;
   evidence: ClaimEvidenceDto[];
+  /** Sources that also report this claim but were screened as manipulative: shown red-flagged,
+   *  never counted towards the claim's status. */
+  prunedEvidence?: ClaimEvidenceDto[];
+}
+
+/** One source behind a timeline period or claim (deduplicated by URL). */
+export interface TimelineSourceDto {
+  title: string;
+  url?: string;
+  publisher?: string;
+  publishedAt?: string;
+}
+
+/**
+ * Timeline view: one spine node per period (year / month / day, chosen from the span of the claims).
+ * Its branches are the period's claims; claims stating the same information are already merged, so a
+ * claim with more sources is better supported. The summary is written from those claims only.
+ */
+export interface TimelinePeriodDto {
+  id: string;
+  /** e.g. "2010", "June 2010", "12 Jun 2010", "Undated". */
+  label: string;
+  granularity: 'year' | 'month' | 'day' | 'undated';
+  /** Start of the period (ISO date), absent for "Undated". */
+  start?: string;
+  headline: string;
+  /** Short neutral summary of the period's claims (each sentence cites at least one claim). */
+  summary: string;
+  claimIds: string[];
+  sources: TimelineSourceDto[];
+  established: number;
+  unverified: number;
+  writer: 'llm' | 'fallback';
 }
 
 export interface ClaimLinkDto {
@@ -356,4 +398,145 @@ export interface LiveSourceDto {
   signals: string[];
   readable: boolean;
   error?: string;
+}
+
+// ---- source vetting (propaganda / manipulation screening) -------------------------------------
+
+/** credible: no manipulation signal and at least one positive check; manipulative: documented
+ *  influence operation or grounded propaganda rhetoric; uncertain: everything else (abstain). */
+export type VettingVerdictDto = 'credible' | 'uncertain' | 'manipulative';
+
+/** Sources scoring above this (0-100) are red-flagged in the graph. */
+export const PROPAGANDA_FLAG_THRESHOLD = 60;
+
+/** Listing of the source's domain in public research/government lists (backend/data/SOURCE_RATINGS.md). */
+export interface SourceRatingDto {
+  domain: string;
+  /** Dataset label. */
+  label: 'propaganda' | 'unreliable' | 'satire' | 'reliable';
+  /** How the listing is used: only influence_operation counts as manipulative on its own. */
+  kind: 'influence_operation' | 'state_media' | 'unreliable' | 'satire' | 'reliable';
+  confidence: 'high' | 'medium' | 'low';
+  /** Who runs the operation (documented influence operations / state media). */
+  actorCountry?: string;
+  subtypes: string[];
+  /** Lists that name this domain (e.g. meta_cib, viginum_portal_kombat, lin2023). */
+  listedBy: string[];
+  /** Lin et al. 2023 ensemble quality score, 0 (worst) .. 1 (best). */
+  qualityScore?: number;
+  name?: string;
+}
+
+export type RhetoricTechniqueNameDto =
+  | 'loaded_language' | 'fear_or_prejudice' | 'name_calling' | 'false_dilemma' | 'causal_oversimplification'
+  | 'whataboutism' | 'straw_man' | 'repetition' | 'exaggeration_or_minimisation' | 'appeal_to_popularity'
+  | 'appeal_to_authority' | 'flag_waving' | 'slogans' | 'doubt' | 'dehumanization' | 'smears' | 'other';
+
+export interface RhetoricTechniqueDto {
+  technique: RhetoricTechniqueNameDto;
+  /** Verbatim passage, verified against the scraped page text. */
+  quote: string;
+  explanation: string;
+  /** Only the author's own voice counts towards a propaganda verdict. */
+  voice: 'author' | 'quoted_speaker' | 'unclear';
+}
+
+export interface RhetoricAnalysisDto {
+  verdict: 'likely_propaganda' | 'no_clear_evidence' | 'uncertain';
+  /** The model's verdict before grounding rules (kept when the rules downgrade it). */
+  modelVerdict: 'likely_propaganda' | 'no_clear_evidence' | 'uncertain';
+  genre: 'reporting' | 'opinion' | 'satire' | 'advertising' | 'landing_page' | 'other';
+  language: string;
+  rationale: string;
+  techniques: RhetoricTechniqueDto[];
+  /** Signs against a propaganda reading (sourcing, balance, attributed quotes...). */
+  counterevidence: string[];
+  /** 0-100: how strongly the page's own text relies on propaganda techniques, after grounding
+   *  (above 60 only with a verified finding; no clear evidence stays at or below 40). */
+  score: number;
+  /** Why the verdict was downgraded (ungrounded quotes, too few author passages, partial text...). */
+  warnings: string[];
+}
+
+export interface SourceVettingDto {
+  url: string;
+  verdict: VettingVerdictDto;
+  /** Share of checks that produced a signal (domain listing, content analysis): 0..1. */
+  coverage: number;
+  /** 0-100 propaganda score (rhetoric score; documented influence operations at least 90).
+   *  Absent when neither signal is available. Above PROPAGANDA_FLAG_THRESHOLD = red flag. */
+  propagandaScore?: number;
+  /** Human-readable, attributed reasons for the verdict. */
+  reasons: string[];
+  rating?: SourceRatingDto;
+  rhetoric?: RhetoricAnalysisDto;
+  /** domain = list lookup only; content = page text analysed too. */
+  depth: 'domain' | 'content';
+  checkedAt: IsoDateTime;
+  /** Content analysis failed (page unreadable...): kept visible, never counted as risky or safe. */
+  error?: string;
+}
+
+/** WebSocket frame: progress of a source vetting run on an investigation. */
+export interface InvestigationVettingEvent {
+  type: 'investigation:vetting';
+  payload: {
+    investigationId: InvestigationId;
+    phase: 'started' | 'checked' | 'done' | 'error';
+    message: string;
+    evidenceId?: string;
+    verdict?: VettingVerdictDto;
+    checked?: number;
+    total?: number;
+  };
+  timestamp: IsoDateTime;
+}
+
+// ---- newspaper edition (GET /investigations/:id/newspaper[.html]) ------------------------------
+
+export interface NewspaperSourceDto {
+  title: string;
+  url: string;
+  publisher?: string;
+  publishedAt?: IsoDateTime;
+}
+
+export interface NewspaperStoryDto {
+  /** Claim the story is about (graph node id). */
+  claimId?: string;
+  kicker: string;
+  headline: string;
+  /** Short standfirst / summary. */
+  dek: string;
+  /** Body paragraphs (lead story only), each written from the cited claims. */
+  paragraphs: string[];
+  /** established / pending (shown as "Unverified") / disputed, from the claim graph. */
+  status?: 'established' | 'pending' | 'disputed';
+  imageUrl?: string;
+  imageCredit?: string;
+  sources: NewspaperSourceDto[];
+  date?: IsoDateTime;
+}
+
+export interface NewspaperEditionDto {
+  investigationId: InvestigationId;
+  /** Graph state the edition was written from (claimsUpdatedAt + evidence count + flags). */
+  stateKey: string;
+  title: string;
+  entity?: string;
+  editionDate: IsoDateTime;
+  editionNumber: number;
+  /** One-sentence "story so far". */
+  crux: string;
+  lead: NewspaperStoryDto;
+  stories: NewspaperStoryDto[];
+  briefs: NewspaperStoryDto[];
+  /** Chronology of established developments. */
+  timeline: { date?: IsoDateTime; text: string; status: 'established' | 'pending' | 'disputed' }[];
+  stats: { sources: number; established: number; unverified: number; flagged: number };
+  /** Red-flagged sources left out of the edition (propaganda watch box). */
+  propagandaWatch: { title: string; publisher?: string; score?: number }[];
+  /** llm = written by the editor model from the claims; fallback = composed directly from claims. */
+  writer: 'llm' | 'fallback';
+  generatedAt: IsoDateTime;
 }

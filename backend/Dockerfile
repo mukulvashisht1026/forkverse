@@ -12,6 +12,8 @@ ENV NODE_ENV=production
 COPY package*.json ./
 RUN npm ci --omit=dev
 COPY --from=build /app/dist ./dist
+# Domain listings for source vetting (read at runtime by src/vetting/ratings.ts).
+COPY --from=build /app/data ./data
 EXPOSE 3000
 # MIGRATE_ON_START=false skips migrate, e.g. demo mode (TIMELINE_MOCK=true) without a reachable MongoDB.
 ENV MIGRATE_ON_START=true

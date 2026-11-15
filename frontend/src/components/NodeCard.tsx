@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { X, ExternalLink, GripVertical } from 'lucide-react';
 import type { SpineNode, BranchNode } from '../types/tree';
 import { clampPosition, positionFromPointer } from '../utils/cardGeometry';
+import { VettingCard } from './SourceVetting';
 import { formatCardDate, getNodeCardPresentation, hasCardSourceMetadata } from '../utils/nodeCardPresentation';
 
 export interface NodeCardProps {
@@ -140,6 +141,7 @@ export function NodeCard({ node, isBranch, anchorId, view, svgRef, workspaceRef,
         <h3 className="node-card-title">{node.name}</h3>
         {(displayDate || presentation.relationship) && <div className="node-card-details">{displayDate && <time className="node-card-date" dateTime={presentation.publishedAt}>{displayDate}</time>}{presentation.relationship && <span className="node-card-relationship">{presentation.relationship}</span>}</div>}
         {presentation.description && <p className="node-card-description">{presentation.description}</p>}
+        {isBranch && (node as BranchNode).sourceUrl && <VettingCard vetting={(node as BranchNode).vetting} />}
         {presentation.sourceUrl && <a href={presentation.sourceUrl} target="_blank" rel="noopener noreferrer" className="node-card-source-link"><ExternalLink size={12} />Open original source</a>}
         {children}
       </div>

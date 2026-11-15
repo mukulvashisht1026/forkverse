@@ -5,6 +5,8 @@ import type {
   CreateMonitorRequestDto,
   LiveSourceDto,
   MonitorDto,
+  SourceVettingDto,
+  VettingVerdictDto,
   MonitorPhaseDto,
   CreateInvestigationResponseDto,
   ExtendInvestigationRequestDto,
@@ -16,7 +18,7 @@ import type {
   ResearchRunStatus,
 } from '../../../contracts/investigations';
 import { resolveApiUrl, resolveWsUrl } from '../utils/timelineReducer';
-import { claimsToSpineNodes, investigationEventsToSpineNodes } from './investigationGraphAdapter';
+import { claimsToSpineNodes, fallbackPeriods, investigationEventsToSpineNodes, periodsToSpineNodes, vettingByEvidence } from './investigationGraphAdapter';
 
 /** View model consumed by Home and Workspace; isolated from wire DTOs. */
 export interface Investigation {
@@ -43,6 +45,8 @@ export interface InvestigationGraph {
   /** Claim timeline (present once claims were built): chronological claims as spine nodes. */
   claimNodes?: SpineNode[];
   claimLinks?: ClaimLink[];
+  /** Timeline view: periods as spine nodes, their claims as branches. */
+  timelineNodes?: SpineNode[];
   /** Broader entity the topic belongs to (Entity -> Topic). */
   entity?: string;
   mode?: 'news' | 'politician';
@@ -89,7 +93,14 @@ export function mapInvestigationGraphDto(dto: InvestigationGraphDto): Investigat
     investigationId: dto.investigationId,
     revision: dto.revision,
     nodes: investigationEventsToSpineNodes(dto.events),
-    ...(dto.claims?.length ? { claimNodes: claimsToSpineNodes(dto.claims, dto.mode), claimLinks: dto.claimLinks ?? [] } : {}),
+    ...(dto.claims?.length ? (() => {
+      const vetting = vettingByEvidence(dto.events);
+      return {
+        claimNodes: claimsToSpineNodes(dto.claims, dto.mode, vetting),
+        claimLinks: dto.claimLinks ?? [],
+        timelineNodes: periodsToSpineNodes(dto.periods?.length ? dto.periods : fallbackPeriods(dto.claims), dto.claims, vetting),
+      };
+    })() : {}),
     ...(dto.entity ? { entity: dto.entity } : {}),
     ...(dto.mode ? { mode: dto.mode } : {}),
   };
@@ -224,6 +235,32 @@ export interface MonitorActivity {
   timestamp: string;
 }
 
+// ---- source vetting (propaganda screening) -------------------------------------------------
+
+export type SourceVetting = SourceVettingDto;
+
+export const vettingRepository = {
+  /** Screen the investigation's sources in the background (progress arrives on /ws). */
+  async start(investigationId: string, evidenceIds?: string[]): Promise<{ queued: number; total: number }> {
+    return request(path(investigationId, '/vet'), { method: 'POST', body: JSON.stringify(evidenceIds?.length ? { evidenceIds } : {}) });
+  },
+  /** Screen any website / article URL now. */
+  async vetUrl(url: string): Promise<SourceVetting> {
+    return request<SourceVettingDto>('/api/vet', { method: 'POST', body: JSON.stringify({ url }), signal: AbortSignal.timeout(120_000) });
+  },
+};
+
+/** Progress of a vetting run (`investigation:vetting` frame). */
+export interface VettingActivity {
+  phase: 'started' | 'checked' | 'done' | 'error';
+  message: string;
+  evidenceId?: string;
+  verdict?: VettingVerdictDto;
+  checked?: number;
+  total?: number;
+  timestamp: string;
+}
+
 // ---- live updates over /ws ------------------------------------------------------------
 
 /** Graph items cited by the current research answer (from `investigation:highlight`). */
@@ -273,6 +310,8 @@ export function watchInvestigation(
     onHighlight?: (highlight: InvestigationHighlight) => void;
     /** Live monitor progress (change detected, sources added, claims updated…). */
     onMonitor?: (activity: MonitorActivity) => void;
+    /** Source vetting progress. */
+    onVetting?: (activity: VettingActivity) => void;
   },
 ): () => void {
   let socket: WebSocket | null = null;
@@ -324,6 +363,20 @@ export function watchInvestigation(
         const ids = (v: unknown) => new Set(Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
         const roles = rolesFrom(p.roles);
         handlers.onHighlight?.({ messageId: String(p.messageId ?? ''), evidenceIds: ids(p.evidenceIds), eventIds: ids(p.eventIds), final: Boolean(p.final), ...(roles && { roles }) });
+        return;
+      }
+      if (frame.type === 'investigation:vetting') {
+        const v = p as { phase?: VettingActivity['phase']; message?: string; evidenceId?: string; verdict?: VettingVerdictDto; checked?: number; total?: number };
+        if (!v.phase) return;
+        handlers.onVetting?.({
+          phase: v.phase,
+          message: String(v.message ?? ''),
+          ...(v.evidenceId && { evidenceId: v.evidenceId }),
+          ...(v.verdict && { verdict: v.verdict }),
+          ...(typeof v.checked === 'number' && { checked: v.checked }),
+          ...(typeof v.total === 'number' && { total: v.total }),
+          timestamp: frame.timestamp ?? new Date().toISOString(),
+        });
         return;
       }
       if (frame.type === 'investigation:monitor') {

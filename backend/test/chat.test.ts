@@ -114,6 +114,13 @@ describe('answer_question points at the graph', () => {
     expect(final.eventIds).toContain('clm-fines');
   });
 
+  it('partial: points at the closest (newest) items with their date and suggests extending', async () => {
+    graphAnswer = { coverage: 'partial', answer: 'The latest figure in the graph is from 1 Sep 2026; nothing from today yet.', claims: [], evidence: ['E2'] };
+    const r = await sse('inv1', { investigationId: 'inv1', action: 'answer_question', message: 'What is the price today?' });
+    expect(r.events.find((e) => e.type === 'highlight').evidenceIds.length).toBe(1);
+    expect(r.events.at(-1).message.content).toBe('The latest figure in the graph is from 1 Sep 2026; nothing from today yet.\n\n→ Highlighted 1 article on the graph. For newer or fuller information, use **Extend evidence graph**.');
+  });
+
   it('not found: says so, nothing highlighted', async () => {
     graphAnswer = { found: false, answer: 'The graph does not cover US export controls yet.', claims: [], evidence: [] };
     const r = await sse('inv1', { investigationId: 'inv1', action: 'answer_question', message: 'What about US export controls?' });

@@ -23,6 +23,10 @@
  * GET    /investigations/:id/monitors/suggestions            -> { items: LiveSourceDto[] } (pages updating now, best first)
  * DELETE /investigations/:id/monitors/:monitorId            -> 204
  * POST   /investigations/:id/monitors/:monitorId/check      -> 202 { runId } (result arrives on /ws)
+ * POST   /investigations/:id/vet   {evidenceIds?}           -> 202 {queued,total} (propaganda screening of sources)
+ * POST   /vet                      {url}                    -> SourceVettingDto (screen any website now)
+ * GET    /investigations/:id/newspaper                      -> NewspaperEditionDto (front page from the claim graph)
+ * GET    /investigations/:id/newspaper.html                 -> the edition as a standalone broadsheet page
  * POST   /webhook/monitor   Context.dev `change.detected` (signed) -> applied to the graph
  *
  * Runs execute in the background. Progress arrives on /ws as `investigation:updated`
@@ -35,6 +39,8 @@ import { Router, type NextFunction, type Request, type Response } from 'express'
 import { z } from 'zod';
 import type { ResearchChatService } from '../investigations/chat.js';
 import type { MonitorService } from '../monitors/service.js';
+import type { VettingService } from '../vetting/service.js';
+import type { NewspaperService } from '../newspaper/service.js';
 import { InvestigationError, toGraphDto, toInvestigationDto, type InvestigationService } from '../investigations/service.js';
 import type { ResearchStreamEventDto } from '../investigations/types.js';
 import { logger } from '../utils/logger.js';
@@ -59,6 +65,9 @@ const MonitorBody = z.object({
   intervalMinutes: z.coerce.number().int().min(10).max(1440).optional(),
 });
 
+const VetBody = z.object({ evidenceIds: z.array(z.string()).max(50).optional() });
+const VetUrlBody = z.object({ url: z.string().max(2000) });
+
 const SSE_KEEPALIVE_MS = 15_000;
 
 const ListQuery = z.object({
@@ -76,8 +85,38 @@ function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   return r.data;
 }
 
-export function investigationsRouter(service: InvestigationService, chat?: ResearchChatService, monitors?: MonitorService): Router {
+export function investigationsRouter(service: InvestigationService, chat?: ResearchChatService, monitors?: MonitorService, vetting?: VettingService, newspaper?: NewspaperService): Router {
   const r = Router();
+
+  if (newspaper) {
+    // Front page of the investigation, written from the claim graph (JSON or a standalone page).
+    r.get('/investigations/:id/newspaper', async (req, res) => {
+      res.json(await newspaper.edition(String(req.params.id)));
+    });
+    r.get('/investigations/:id/newspaper.html', async (req, res) => {
+      const html = await newspaper.html(String(req.params.id));
+      res
+        .status(200)
+        .set({
+          'Content-Type': 'text/html; charset=utf-8',
+          // Inline style/script of the page only; article images from any https host.
+          'Content-Security-Policy': "default-src 'none'; img-src https: http: data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'",
+          'Cache-Control': 'no-cache',
+        })
+        .send(html);
+    });
+  }
+
+  if (vetting) {
+    // Screen an investigation's sources (background; progress on /ws investigation:vetting).
+    r.post('/investigations/:id/vet', async (req, res) => {
+      res.status(202).json(await vetting.start(String(req.params.id), parse(VetBody, req.body).evidenceIds));
+    });
+    // Screen any single website / article URL now.
+    r.post('/vet', async (req, res) => {
+      res.json(await vetting.vetUrl(parse(VetUrlBody, req.body).url.trim()));
+    });
+  }
 
   if (monitors) {
     r.get('/investigations/:id/monitors', async (req, res) => {

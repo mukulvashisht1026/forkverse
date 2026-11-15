@@ -2,7 +2,7 @@
 
 The frontend runs at `http://localhost:5173`; Vite proxies `/api` and `/ws` to the backend at `http://localhost:3000`.
 
-1. Copy `.env.example` to `.env` in the repository root and configure `MONGODB_URI`, `LLM_API_KEY`, and `CONTEXT_DEV_API_KEY`. `LLM_BASE_URL` and `LLM_MODEL` must point to a supported OpenAI-compatible chat model. Embeddings need a compatible `EMBEDDING_BASE_URL`, `EMBEDDING_API_KEY`, and `EMBEDDING_MODEL` when using chat retrieval.
+1. Copy `.env.example` to `.env` in the repository root and configure `MONGODB_URI`, `LLM_API_KEY`, and `CONTEXT_DEV_API_KEY`. `LLM_BASE_URL` and `LLM_MODEL` must point to a supported OpenAI-compatible chat model. Semantic search (vector index) uses OpenAI embeddings: set `OPENAI_API_KEY` (model `EMBEDDING_MODEL`, default `text-embedding-3-small`, `EMBEDDING_DIM=1536`).
 2. Run `cd backend && npm install && npm run dev`.
 3. In another terminal run `cd frontend && npm install && npm run dev`.
 

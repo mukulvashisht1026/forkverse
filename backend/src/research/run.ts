@@ -21,19 +21,21 @@ import type { TimelineStore } from '../timeline/store.js';
 import type { SpineNode } from '../timeline/types.js';
 import { logger } from '../utils/logger.js';
 import { type Article, articleBranchId, articleToBranch, extractArticles, isRelevant, queryTerms } from './articles.js';
+import { LINKS_PER_NODE, SEARCH_RESULTS } from '../limits.js';
 
 export const RESEARCH_TOOL_NAMES = ['context_get-news-search', 'context_web-search'];
-export const MAX_ARTICLES = 25;
+/** Articles per research run (= links on one event node). */
+export const MAX_ARTICLES = LINKS_PER_NODE;
 /** Per tool result, so several searches contribute instead of the first one filling the graph. */
-export const MAX_PER_RESULT = 10;
+export const MAX_PER_RESULT = SEARCH_RESULTS;
 const RECURSION_LIMIT = 16;
 
 export const RESEARCH_PROMPT = `You are a research assistant collecting articles about a topic for a timeline graph.
 
-Use the tools to find as many relevant, distinct articles as you can (aim for 15-25):
-- Call context_get-news-search with a clear "query" for news coverage. Use "limit" up to 25.
+Find the most relevant, distinct articles (about 8 in total; each search returns at most 5 results):
+- Call context_get-news-search with a clear "query" for news coverage.
 - Call context_web-search with a "query" (responseMode "compact") for official pages, explainers and background.
-- Run 2-4 searches with different angles (the topic itself, key policies or claims, reactions, fact-checks).
+- Run 2 searches with different angles (the topic itself, plus key claims or reactions); a third only if the first two found little.
 - Prefer primary and reputable sources. Do not repeat the same search.
 
 When done, reply with a neutral 2-3 sentence summary of what the coverage is about. Do not invent facts,
@@ -61,7 +63,25 @@ export interface ResearchResult {
 export function researchTools(all: StructuredToolInterface[] = getTools()): StructuredToolInterface[] {
   const tools = all.filter((t) => RESEARCH_TOOL_NAMES.includes(t.name));
   if (!tools.length) throw new Error('Research tools are not available (Context.dev MCP did not load).');
-  return tools;
+  return tools.map(capResults);
+}
+
+/** Result-count argument of each Context.dev search tool. */
+const RESULT_ARG: Record<string, string> = { 'context_get-news-search': 'limit', 'context_web-search': 'numResults' };
+
+/** Force every search to ask Context.dev for at most SEARCH_RESULTS links, whatever the model requested. */
+export function capResults(t: StructuredToolInterface): StructuredToolInterface {
+  const arg = RESULT_ARG[t.name];
+  if (!arg) return t;
+  const clamp = (args: unknown) => (args && typeof args === 'object' ? { ...(args as Record<string, unknown>), [arg]: Math.min(Number((args as Record<string, unknown>)[arg]) || SEARCH_RESULTS, SEARCH_RESULTS) } : args);
+  const wrapped = Object.create(t) as StructuredToolInterface;
+  wrapped.invoke = ((input: unknown, config?: unknown) => {
+    // ToolNode passes a ToolCall ({ name, args, id, type }); direct calls pass the args.
+    const call = input as { type?: string; args?: unknown };
+    const next = call && call.type === 'tool_call' ? { ...call, args: clamp(call.args) } : clamp(input);
+    return t.invoke(next as never, config as never);
+  }) as StructuredToolInterface['invoke'];
+  return wrapped;
 }
 
 export function createResearchGraph() {
@@ -118,7 +138,7 @@ export async function collectArticles(
     { configurable: { thread_id: randomUUID() }, recursionLimit: RECURSION_LIMIT, streamMode: 'updates' },
   );
 
-  for await (const update of stream as AsyncIterable<Record<string, { messages?: BaseMessage[] }>>) {
+  collect: for await (const update of stream as AsyncIterable<Record<string, { messages?: BaseMessage[] }>>) {
     for (const [step, value] of Object.entries(update)) {
       for (const msg of value?.messages ?? []) {
         if (step === 'tools') {
@@ -135,6 +155,8 @@ export async function collectArticles(
             fromThisResult += 1;
             await onArticle(article, added);
           }
+          // Node is full: stop the agent instead of letting it run more searches.
+          if (added >= MAX_ARTICLES) break collect;
         } else if (step === 'agent' && msg.getType() === 'ai') {
           const text = typeof msg.content === 'string' ? msg.content : '';
           if (text.trim()) summary = text.trim();

@@ -12,9 +12,10 @@ import type { StructuredToolInterface } from '@langchain/core/tools';
 
 import { getContextTools } from './contextMcp.js';
 import { searchNodesTool } from './searchNodes.js';
+import { searchSourcesTool } from './searchSources.js';
 
 /** Tools backed by our own MongoDB data. */
-const localTools: StructuredToolInterface[] = [searchNodesTool];
+const localTools: StructuredToolInterface[] = [searchNodesTool, searchSourcesTool];
 
 let allTools: StructuredToolInterface[] | null = null;
 
