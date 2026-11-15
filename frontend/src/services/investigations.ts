@@ -18,7 +18,7 @@ import type {
   ResearchRunStatus,
 } from '../../../contracts/investigations';
 import { resolveApiUrl, resolveWsUrl } from '../utils/timelineReducer';
-import { claimsToSpineNodes, investigationEventsToSpineNodes, vettingByEvidence } from './investigationGraphAdapter';
+import { claimsToSpineNodes, fallbackPeriods, investigationEventsToSpineNodes, periodsToSpineNodes, vettingByEvidence } from './investigationGraphAdapter';
 
 /** View model consumed by Home and Workspace; isolated from wire DTOs. */
 export interface Investigation {
@@ -45,6 +45,8 @@ export interface InvestigationGraph {
   /** Claim timeline (present once claims were built): chronological claims as spine nodes. */
   claimNodes?: SpineNode[];
   claimLinks?: ClaimLink[];
+  /** Timeline view: periods as spine nodes, their claims as branches. */
+  timelineNodes?: SpineNode[];
   /** Broader entity the topic belongs to (Entity -> Topic). */
   entity?: string;
   mode?: 'news' | 'politician';
@@ -91,7 +93,14 @@ export function mapInvestigationGraphDto(dto: InvestigationGraphDto): Investigat
     investigationId: dto.investigationId,
     revision: dto.revision,
     nodes: investigationEventsToSpineNodes(dto.events),
-    ...(dto.claims?.length ? { claimNodes: claimsToSpineNodes(dto.claims, dto.mode, vettingByEvidence(dto.events)), claimLinks: dto.claimLinks ?? [] } : {}),
+    ...(dto.claims?.length ? (() => {
+      const vetting = vettingByEvidence(dto.events);
+      return {
+        claimNodes: claimsToSpineNodes(dto.claims, dto.mode, vetting),
+        claimLinks: dto.claimLinks ?? [],
+        timelineNodes: periodsToSpineNodes(dto.periods?.length ? dto.periods : fallbackPeriods(dto.claims), dto.claims, vetting),
+      };
+    })() : {}),
     ...(dto.entity ? { entity: dto.entity } : {}),
     ...(dto.mode ? { mode: dto.mode } : {}),
   };

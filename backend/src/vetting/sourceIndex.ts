@@ -7,7 +7,7 @@
  *   fetch_error, vet_verdict, vet_risk (= propagandaScore / 100), vet_coverage, vet_flagged,
  *   vet_detail (the full SourceVettingDto), investigation_ids[], embedding_text, embedding }.
  * The embedding is computed from `embedding_text` (title, verdict, score, reasons, technique
- * quotes) with the same model as the rest of the vector store (EMBEDDING_* config).
+ * quotes) with the same OpenAI embeddings as the rest of the vector store (db/vectorStore.ts).
  */
 import { createHash } from 'node:crypto';
 import type { Collection } from 'mongodb';
@@ -16,6 +16,8 @@ import { PROPAGANDA_FLAG_THRESHOLD, type SourceVettingDto } from '../investigati
 import { normalizeUrl } from '../research/articles.js';
 import { logger } from '../utils/logger.js';
 import { hostOf } from './ratings.js';
+import { VECTOR_MAX, VECTOR_RESULTS } from '../limits.js';
+
 
 export type Embed = (text: string) => Promise<number[]>;
 
@@ -87,7 +89,7 @@ export class SourceIndex {
 
   /** Semantic search over screened sources (Atlas $vectorSearch on `vector_index`). */
   async search(query: string, opts: { limit?: number; flaggedOnly?: boolean; investigationId?: string } = {}): Promise<IndexedSource[]> {
-    const limit = Math.min(Math.max(opts.limit ?? 5, 1), 20);
+    const limit = Math.min(Math.max(opts.limit ?? VECTOR_RESULTS, 1), VECTOR_MAX);
     const filter: Record<string, unknown> = {};
     if (opts.flaggedOnly) filter.vet_flagged = true;
     if (opts.investigationId) filter.investigation_ids = opts.investigationId;

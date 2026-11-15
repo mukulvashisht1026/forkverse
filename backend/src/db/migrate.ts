@@ -42,7 +42,14 @@ async function ensureVectorIndex(coll: Collection, definition: Document): Promis
   }
   const dim = (current.latestDefinition?.fields as Document[] | undefined)?.find((f) => f.type === 'vector')?.numDimensions;
   if (dim !== config.EMBEDDING_DIM) {
-    // Changing EMBEDDING_DIM means the stored vectors are from another model: re-embed everything.
+    const path = (definition.fields as Document[]).find((f) => f.type === 'vector')?.path as string;
+    // No stored vectors yet (e.g. switching embedding model before anything was embedded): just resize.
+    if (!(await coll.countDocuments({ [path]: { $exists: true } }, { limit: 1 }))) {
+      logger.info({ collection: coll.collectionName, from: dim, to: config.EMBEDDING_DIM }, 'resizing empty vector search index');
+      await coll.updateSearchIndex(VECTOR_INDEX_NAME, definition);
+      return;
+    }
+    // Stored vectors are from another model: re-embed everything first.
     throw new Error(
       `${coll.collectionName}.${VECTOR_INDEX_NAME} has numDimensions=${dim}, EMBEDDING_DIM=${config.EMBEDDING_DIM}. ` +
         'Re-embed all documents, then drop the index and rerun migrate.',

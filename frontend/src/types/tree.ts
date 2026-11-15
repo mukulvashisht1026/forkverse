@@ -49,6 +49,25 @@ export interface BranchNode {
   relation?: string;
   /** Propaganda / manipulation screening of this source. */
   vetting?: SourceVettingDto;
+  /** Timeline view: this branch is a claim; these are the articles stating it (merged: same information). */
+  claimSources?: ClaimSourceRef[];
+  /** Timeline view: evidence ids behind this claim (so chat citations of articles light up the claim). */
+  claimEvidenceIds?: string[];
+  /** Timeline view: established (2+ independent sources or official) vs. pending (unverified). */
+  claimStatus?: 'established' | 'pending';
+  /** Timeline view: why the claim has its status. */
+  claimReason?: string;
+  /** Timeline view: red-flagged (manipulative) sources that also reported the claim, not counted. */
+  redFlag?: { score?: number; lines: string[] };
+}
+
+export interface ClaimSourceRef {
+  title: string;
+  url?: string;
+  publisher?: string;
+  publishedAt?: string;
+  quote?: string;
+  stance?: 'supports' | 'contradicts' | 'context';
 }
 
 export type ScrapeEngine =
@@ -83,6 +102,8 @@ export interface SpineNode {
   disputed?: boolean;
   /** Politician view: what later reports say happened to the claim. */
   outcome?: 'fulfilled' | 'not_fulfilled' | 'in_progress' | 'no_update';
+  /** Timeline view: this spine node is a period (its branches are the period's claims). */
+  period?: { label: string; headline: string; sources: ClaimSourceRef[]; established: number; unverified: number };
 }
 
 export interface FocusTarget {

@@ -195,7 +195,7 @@ async function main() {
     json: defaultJsonLlm,
     rebuildClaims: (id) => rebuildClaims(id),
     // Screened sources are embedded into `sources` (vector_index) for semantic search.
-    ...(!config.TIMELINE_MOCK && config.EMBEDDING_API_KEY && { index: new SourceIndex(col.sources, (text) => getEmbeddings().embedQuery(text)) }),
+    ...(!config.TIMELINE_MOCK && config.OPENAI_API_KEY && { index: new SourceIndex(col.sources, (text) => getEmbeddings().embedQuery(text)) }),
   });
 
   const chat = new ResearchChatService({

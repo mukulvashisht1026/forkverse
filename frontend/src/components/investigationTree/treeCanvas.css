@@ -89,7 +89,7 @@
 .itl-tree .itl-canvas.claim-view .tip-group:focus-visible .tip-label,
 .itl-tree .itl-canvas.claim-view .branch.cited .tip-label,
 .itl-tree .itl-canvas.claim-view .branch.live-fresh .tip-label { opacity:1; }
-.itl-tree .itl-canvas.claim-view .main-label { font-size:10px; }
+.itl-tree .main-label { font-size:10px; }
 .itl-tree .itl-canvas.claim-view .claim-link path { opacity:.32; }
 .itl-tree .itl-canvas.claim-view .claim-link:hover path,
 .itl-tree .itl-canvas.claim-view .claim-link:focus-within path { opacity:.78; }
@@ -143,3 +143,11 @@
 .itl-tree .flag-tooltip-line{fill:#e6edf3;font-size:10px}
 @keyframes itl-flag-wave{0%,100%{transform:skewY(0deg) scaleX(1)}50%{transform:skewY(-6deg) scaleX(.9)}}
 @keyframes itl-tooltip-in{from{opacity:0}to{opacity:1}}
+
+/* Timeline view: claim tips. Bigger = more independent sources; the number is drawn inside. */
+.tip-source-count { fill: #f5f2e8; font: 700 9px/1 Inter, system-ui, sans-serif; pointer-events: none; }
+.tip-core.tip-unverified { stroke-dasharray: 3 2.4; }
+/* Hovered branch tip: full heading, kept above neighbouring branches. */
+.itl-tree .tip-group.hot { isolation: isolate; }
+.itl-tree .itl-canvas .tip-heading-overlay .tip-label,
+.itl-tree .itl-canvas.claim-view .tip-heading-overlay .tip-label { opacity: 1; }

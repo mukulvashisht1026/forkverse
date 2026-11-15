@@ -41,6 +41,8 @@ export interface InvestigationGraphDto {
   /** Chronological claims built from the evidence (absent until build_claims has run). */
   claims?: ClaimDto[];
   claimLinks?: ClaimLinkDto[];
+  /** Timeline view: claims grouped into periods with a written summary (built with the claims). */
+  periods?: TimelinePeriodDto[];
   entity?: string;
   /** news | politician: how the claim graph should be read (politician: outcome branches only). */
   mode?: 'news' | 'politician';
@@ -110,6 +112,7 @@ export interface InvestigationRecord extends InvestigationDto {
   events: InvestigationEventDto[];
   claims?: ClaimDto[];
   claimLinks?: ClaimLinkDto[];
+  periods?: TimelinePeriodDto[];
   claimsUpdatedAt?: IsoDateTime;
   /** Live monitors (never sent to clients as-is: they hold the webhook signing secret). */
   monitors?: MonitorRecord[];
@@ -272,12 +275,44 @@ export interface ClaimDto {
   disputed: boolean;
   /** politician mode: what later articles say happened to the claim/promise. */
   outcome?: 'fulfilled' | 'not_fulfilled' | 'in_progress' | 'no_update';
-  /** Earliest publication date among verified evidence (chronological order). */
+  /** Earliest publication date among verified evidence. */
   occurredAt?: string;
+  /** When it happened, as the articles state it: YYYY, YYYY-MM or YYYY-MM-DD (orders the timeline; falls back to occurredAt). */
+  happenedAt?: string;
   evidence: ClaimEvidenceDto[];
   /** Sources that also report this claim but were screened as manipulative: shown red-flagged,
    *  never counted towards the claim's status. */
   prunedEvidence?: ClaimEvidenceDto[];
+}
+
+/** One source behind a timeline period or claim (deduplicated by URL). */
+export interface TimelineSourceDto {
+  title: string;
+  url?: string;
+  publisher?: string;
+  publishedAt?: string;
+}
+
+/**
+ * Timeline view: one spine node per period (year / month / day, chosen from the span of the claims).
+ * Its branches are the period's claims; claims stating the same information are already merged, so a
+ * claim with more sources is better supported. The summary is written from those claims only.
+ */
+export interface TimelinePeriodDto {
+  id: string;
+  /** e.g. "2010", "June 2010", "12 Jun 2010", "Undated". */
+  label: string;
+  granularity: 'year' | 'month' | 'day' | 'undated';
+  /** Start of the period (ISO date), absent for "Undated". */
+  start?: string;
+  headline: string;
+  /** Short neutral summary of the period's claims (each sentence cites at least one claim). */
+  summary: string;
+  claimIds: string[];
+  sources: TimelineSourceDto[];
+  established: number;
+  unverified: number;
+  writer: 'llm' | 'fallback';
 }
 
 export interface ClaimLinkDto {

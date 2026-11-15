@@ -19,6 +19,12 @@ export interface BranchItem {
   vetTag?: string;
   /** Red flag: propaganda score above the threshold. Lines are shown in the hover tooltip. */
   flag?: { score?: number; lines: string[] };
+  /** Full heading, shown (wrapped) while the tip is hovered/focused; `name` is the short label. */
+  fullName?: string;
+  /** Timeline view: number of independent sources stating this claim (tip grows with it). */
+  sources?: number;
+  /** Timeline view: the claim is unverified (single source so far): dashed tip ring. */
+  unverifiedClaim?: boolean;
 }
 
 export interface SpineNode {

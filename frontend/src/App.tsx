@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { ArrowLeft, ArrowUpRight, LoaderCircle, Pencil, Tag, MoreHorizontal } from 'lucide-react';
-import type { FocusTarget, SpineNode } from './types/tree';
+import type { BranchNode, FocusTarget, SpineNode } from './types/tree';
+import { ClaimSourcesCard, PeriodCard } from './components/TimelineCards';
 import { useLiveTimeline } from './hooks/useLiveTimeline';
 import { TreeCanvasAdapter } from './components/investigationTree/TreeCanvasAdapter';
 import './components/investigationTree/treeCanvas.css';
@@ -10,6 +11,7 @@ import { investigationRepository, rolesFrom, vettingRepository, watchInvestigati
 import { isMockInvestigationMode, mockInvestigationRepository } from './services/mockInvestigations';
 import { SourceVettingBadge } from './components/SourceVetting';
 import { NewspaperEdition } from './components/NewspaperEdition';
+import { FlaggingRulesButton } from './components/FlaggingRules';
 import { LiveMonitor, host as siteHost } from './components/LiveMonitor';
 import { addLiveIds, liveMarksAt, pruneLiveIds } from './utils/liveMarks';
 import { ResearchChat } from './components/ResearchChat';
@@ -104,6 +106,14 @@ function HomeTypography() {
 
 function safeHostname(value: string): string | undefined {
   try { return new URL(value).hostname; } catch { return undefined; }
+}
+
+/** Claim dates may be partial ("2010", "2010-06"): show them at their own precision. */
+function claimDateLabel(value?: string) {
+  if (!value) return null;
+  const m = value.match(/^(\d{4})(?:-(\d{2}))?$/);
+  if (m) return m[2] ? new Date(Number(m[1]), Number(m[2]) - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) : m[1]!;
+  return asDate(value);
 }
 
 function asDate(value?: string) {
@@ -217,9 +227,13 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
 
   /** Claim timeline (Entity -> Topic -> Claims -> Evidence), present once claims were built. */
   const [claimGraph, setClaimGraph] = useState<{ nodes: SpineNode[]; links: ClaimLink[]; hiddenPending: number; entity?: string; mode?: 'news' | 'politician' } | null>(null);
-  const [graphMode, setGraphMode] = useState<'claims' | 'runs'>('claims');
-  const showClaims = graphMode === 'claims' && Boolean(claimGraph?.nodes.length);
+  /** Timeline view (default): spine = period with a written summary, branches = its claims. */
+  const [timelineNodes, setTimelineNodes] = useState<SpineNode[] | null>(null);
+  const [graphMode, setGraphMode] = useState<'timeline' | 'claims' | 'runs'>('timeline');
+  const showTimeline = graphMode === 'timeline' && Boolean(timelineNodes?.length);
+  const showClaims = (graphMode === 'claims' || (graphMode === 'timeline' && !showTimeline)) && Boolean(claimGraph?.nodes.length);
   const applyGraph = (graph: InvestigationGraph) => {
+    setTimelineNodes((previous) => (graph.timelineNodes?.length ? animateGraphAdditions(previous, graph.timelineNodes) : null));
     if (!graph.claimNodes?.length) { setClaimGraph(null); return; }
     // Unverified lane shows the most relevant pending claims (linked, best supported, most recent);
     // the full list stays in the chat summary.
@@ -237,7 +251,19 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
     const nodes = graph.claimNodes.filter((n) => politician || n.claimStatus !== 'pending' || shown.has(n.id));
     setClaimGraph((previous) => ({ nodes: animateGraphAdditions(previous?.nodes ?? null, nodes), links: links.filter((l) => nodes.some((n) => n.id === l.from) && nodes.some((n) => n.id === l.to)), hiddenPending: politician ? 0 : pending.length - shown.size, ...(graph.entity ? { entity: graph.entity } : {}), ...(graph.mode ? { mode: graph.mode } : {}) }));
   };
-  const activeNodes = showClaims ? claimGraph!.nodes : workspaceNodes ?? [];
+  const activeNodes = showTimeline ? timelineNodes! : showClaims ? claimGraph!.nodes : workspaceNodes ?? [];
+  /** Timeline view: answers cite claims (now branches) and articles (inside claims) -> highlight those claims and their periods. */
+  const canvasHighlight = useMemo(() => {
+    if (!highlight || !showTimeline || highlight.roles) return highlight;
+    const claims = new Set<string>();
+    const periods = new Set<string>();
+    for (const period of timelineNodes!) {
+      for (const b of period.branches) {
+        if (highlight.eventIds.has(b.id) || highlight.evidenceIds.has(b.id) || (b.claimEvidenceIds ?? []).some((id) => highlight.evidenceIds.has(id))) { claims.add(b.id); periods.add(period.id); }
+      }
+    }
+    return { ...highlight, evidenceIds: claims, eventIds: periods };
+  }, [highlight, showTimeline, timelineNodes]);
   const [viewTransform, setViewTransform] = useState({ k: 1, x: 0, y: 0 });
   const [canvasElement, setCanvasElement] = useState<SVGSVGElement | null>(null);
   const workspaceBodyRef = useRef<HTMLDivElement>(null);
@@ -362,7 +388,7 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
     graphSnapshotRef.current = null;
     setResearchRunning(false);
     setClaimGraph(null);
-    setGraphMode('claims');
+    setGraphMode('timeline');
     void loadPublicInvestigations();
   };
 
@@ -491,7 +517,7 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
     setHighlight(null);
     setWhatChanged(null);
     setClaimGraph(null);
-    setGraphMode('claims');
+    setGraphMode('timeline');
     setActiveNodeCard(null);
     cardOffsets.current.clear();
     graphSnapshotRef.current = null;
@@ -560,7 +586,7 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
     if (!acceptGraphSnapshot(event.graph.investigationId, event.graph.revision, mapped.nodes)) return;
     const hadClaims = Boolean(claimGraph);
     applyGraph(mapped);
-    if (mapped.claimNodes?.length && !hadClaims) setGraphMode('claims');
+    if (mapped.claimNodes?.length && !hadClaims) setGraphMode('timeline');
     bumpEdition();
     setWorkspaceFitSignal((value) => value + 1);
   }, [selectedInvestigation, claimGraph, acceptGraphSnapshot, bumpEdition]);
@@ -698,8 +724,9 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
         <button className="gh-back" onClick={returnHome} aria-label="Back to investigations"><ArrowLeft size={16} /><span className="gh-topbar-brand">TRACEWIRE</span></button>
         <div className="gh-title-edit">{editingTitle ? <input autoFocus maxLength={120} value={titleDraft} aria-label="Graph title" onChange={(event) => setTitleDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); } if (event.key === 'Escape') { setTitleDraft(selectedInvestigation?.title ?? ''); event.currentTarget.blur(); } }} onBlur={() => void saveTitle()} /> : <><span className="gh-workspace-title" title={selectedInvestigation?.title}>{claimGraph?.entity && <><span className="gh-entity">{claimGraph.entity}</span><span className="gh-crumb-sep">›</span></>}{selectedInvestigation?.title ?? 'Investigation'}</span><button type="button" className="gh-title-edit-button" aria-label="Edit graph title" onClick={() => { setTitleDraft(selectedInvestigation?.title ?? ''); setEditingTitle(true); }}><Pencil size={14} /></button></>}</div>
         {claimGraph && <div className="gh-graph-mode" role="group" aria-label="Graph view">
+          {timelineNodes?.length ? <button type="button" className={showTimeline ? 'on' : ''} aria-pressed={showTimeline} onClick={() => { setGraphMode('timeline'); setSelectedIndex(0); setPinnedFocus(null); setActiveNodeCard(null); setWorkspaceFitSignal((v) => v + 1); }}>Timeline</button> : null}
           <button type="button" className={showClaims ? 'on' : ''} aria-pressed={showClaims} onClick={() => { setGraphMode('claims'); setSelectedIndex(0); setPinnedFocus(null); setActiveNodeCard(null); setWorkspaceFitSignal((v) => v + 1); }}>Claims</button>
-          <button type="button" className={!showClaims ? 'on' : ''} aria-pressed={!showClaims} onClick={() => { setGraphMode('runs'); setSelectedIndex(0); setPinnedFocus(null); setActiveNodeCard(null); setWorkspaceFitSignal((v) => v + 1); }}>Research runs</button>
+          <button type="button" className={!showClaims && !showTimeline ? 'on' : ''} aria-pressed={!showClaims && !showTimeline} onClick={() => { setGraphMode('runs'); setSelectedIndex(0); setPinnedFocus(null); setActiveNodeCard(null); setWorkspaceFitSignal((v) => v + 1); }}>Research runs</button>
         </div>}
       </header>
       <div className="gh-workspace-body" ref={workspaceBodyRef}>
@@ -708,20 +735,26 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
           {temporaryTimelineContext && <p className="gh-context-notice" role="status">Temporary timeline context; not a saved investigation.</p>}
           {selectedInvestigation && (mockMode
             ? <MockResearchChat key={selectedInvestigation.id} onAddEvent={async (prompt) => { const graph = await repository.extendInvestigation(selectedInvestigation.id, { topic: prompt }); acceptGraphSnapshot(graph.investigationId, graph.revision, graph.nodes); setWorkspaceFitSignal((value) => value + 1); }} />
-            : <ResearchChat key={selectedInvestigation.id} investigationId={selectedInvestigation.id} historyAvailable={!temporaryTimelineContext} disabled={workspaceLoading || Boolean(workspaceError) || temporaryTimelineContext} onGraphUpdated={applyResearchGraph} onHighlight={(nodeIds, evidenceIds, roles) => { const roleMap = rolesFrom(roles); setHighlight(nodeIds.length || evidenceIds.length ? { messageId: 'sse', evidenceIds: new Set(evidenceIds), eventIds: new Set(nodeIds), final: true, ...(roleMap && { roles: roleMap }) } : null); }} onShowSources={(evidenceIds, eventIds, roles) => { const roleMap = rolesFrom(roles); setHighlight({ messageId: 'local', evidenceIds: new Set(evidenceIds), eventIds: new Set(eventIds), final: true, ...(roleMap && { roles: roleMap }) }); }} selectedEvent={temporaryTimelineContext || showClaims ? null : activeNodes[selectedIndex] ? { id: activeNodes[selectedIndex].id, title: activeNodes[selectedIndex].name } : null} />)}
+            : <ResearchChat key={selectedInvestigation.id} investigationId={selectedInvestigation.id} historyAvailable={!temporaryTimelineContext} disabled={workspaceLoading || Boolean(workspaceError) || temporaryTimelineContext} onGraphUpdated={applyResearchGraph} onHighlight={(nodeIds, evidenceIds, roles) => { const roleMap = rolesFrom(roles); setHighlight(nodeIds.length || evidenceIds.length ? { messageId: 'sse', evidenceIds: new Set(evidenceIds), eventIds: new Set(nodeIds), final: true, ...(roleMap && { roles: roleMap }) } : null); }} onShowSources={(evidenceIds, eventIds, roles) => { const roleMap = rolesFrom(roles); setHighlight({ messageId: 'local', evidenceIds: new Set(evidenceIds), eventIds: new Set(eventIds), final: true, ...(roleMap && { roles: roleMap }) }); }} selectedEvent={temporaryTimelineContext || showClaims || showTimeline ? null : activeNodes[selectedIndex] ? { id: activeNodes[selectedIndex].id, title: activeNodes[selectedIndex].name } : null} />)}
         </div>
         </DraggableChatPanel>
         <div className="gh-main-column">
-        <section className="gh-graph" aria-label={showClaims ? 'Claim timeline' : 'Evidence graph'}>
+        <section className="gh-graph" aria-label={showTimeline ? 'Timeline by period' : showClaims ? 'Claim timeline' : 'Evidence graph'}>
           {workspaceNodes && <TreeCanvasAdapter
             spine={activeNodes} selectedIndex={selectedIndex} focus={activeFocus} moving={motionOn}
             detailLevel={detailLevel} researching={researchRunning || continuing} fitSignal={workspaceFitSignal}
             onHoverTarget={setHoverFocus} onSelectTarget={focusTarget} onClearPin={() => setPinnedFocus(null)}
-            onContinue={() => void continueGraph()} isContinuing={continuing} highlight={highlight}
+            onContinue={() => void continueGraph()} isContinuing={continuing} highlight={canvasHighlight}
             liveMarks={liveMarks} links={showClaims ? claimGraph?.links : undefined}
             laneNote={undefined}
             onViewChange={setViewTransform} onCanvasReady={setCanvasElement} onGrowthComplete={completeGraphGrowth}
           />}
+          {showTimeline && !highlight?.roles && <details className="gh-claim-legend">
+            <summary>Legend &amp; timeline</summary>
+            <p>{timelineNodes!.length} period{timelineNodes!.length === 1 ? '' : 's'} · {timelineNodes!.reduce((n, p) => n + p.branches.length, 0)} claims · {timelineNodes!.reduce((n, p) => n + (p.period?.sources.length ?? 0), 0)} sources</p>
+            <div aria-label="Timeline legend"><span className="lg-supports"><i />Established claim</span><span className="lg-pending"><i />Unverified (one source)</span><span className="lg-contradicts"><i />Disputed</span></div>
+            <p>Each spine node is a period with a summary of its claims. Each branch is one claim; articles saying the same thing are merged into it, and the number on its tip is how many independent sources state it (bigger tip = better supported). Partial overlaps stay separate claims.</p>
+          </details>}
           {showClaims && !highlight?.roles && <details className="gh-claim-legend">
             <summary>Legend &amp; timeline</summary>
             <p>{activeNodes.filter((n) => n.claimStatus === 'established').length} established · {activeNodes.filter((n) => n.claimStatus === 'pending').length + (claimGraph?.hiddenPending ?? 0)} unverified · {claimGraph?.links.length ?? 0} links</p>
@@ -736,7 +769,7 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
           <div className="gh-graph-controls">
             {selectedInvestigation && !temporaryTimelineContext && !mockMode && <SourceVettingBadge key={`vet-${selectedInvestigation.id}`} sources={allSources} activity={vettingActivity} />}
             {selectedInvestigation && !temporaryTimelineContext && !mockMode && <LiveMonitor key={selectedInvestigation.id} investigationId={selectedInvestigation.id} topic={selectedInvestigation.title} activity={monitorActivity} disabled={workspaceLoading || Boolean(workspaceError)} onMonitorsChange={setTrackedMonitors} />}
-            {whatChanged && !showClaims && <button type="button" className="gh-what-changed" onClick={focusWhatChanged} title={`New since graph revision ${whatChanged.revision}`}>What changed · {whatChanged.additions.events.length + whatChanged.additions.evidence.length}</button>}
+            {whatChanged && !showClaims && !showTimeline && <button type="button" className="gh-what-changed" onClick={focusWhatChanged} title={`New since graph revision ${whatChanged.revision}`}>What changed · {whatChanged.additions.events.length + whatChanged.additions.evidence.length}</button>}
             {highlight?.roles && <div className="gh-proof-legend" aria-label="Proof roles"><span className="role-consensus"><i />Shared facts</span><span className="role-angle"><i />Own angle</span><span className="role-dispute"><i />Disputed</span><span className="role-unreadable"><i />Unreadable</span></div>}
             {highlight && <button type="button" className="gh-highlight-clear" onClick={() => setHighlight(null)} title="Show the whole graph again">{highlight.roles ? `Comparing ${highlight.evidenceIds.size} articles` : highlight.final ? `Showing ${highlight.evidenceIds.size} cited sources` : 'Citing sources…'} · Clear</button>}
             <button type="button" aria-pressed={motionOn && !reducedMotion} disabled={reducedMotion} title={reducedMotion ? 'Disabled by your reduced-motion preference' : undefined} onClick={() => setMotionOn((value) => !value)}>{motionOn && !reducedMotion ? 'Pause motion' : 'Resume motion'}</button>
@@ -749,7 +782,7 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
           {workspaceLoading && <div className="gh-graph-state">Loading investigation graph…</div>}
           {workspaceError && <div className="gh-graph-state"><p>{workspaceError}</p><button onClick={() => selectedInvestigation && void openWorkspace(selectedInvestigation)}>Retry</button></div>}
           {!workspaceLoading && !workspaceError && workspaceNodes?.length === 0 && <div className="gh-graph-state">{researchRunning ? 'Researching… evidence will appear here as it is found.' : 'This investigation has no evidence yet.'}</div>}
-          {workspaceNodes && !showClaims && <SpineNav spine={activeNodes} selectedIndex={selectedIndex} onHoverNode={setHoverFocus} onSelectNode={(index) => focusTarget({ i: index })} />}
+          {workspaceNodes && !showClaims && !showTimeline && <SpineNav spine={activeNodes} selectedIndex={selectedIndex} onHoverNode={setHoverFocus} onSelectNode={(index) => focusTarget({ i: index })} />}
           {workspaceNodes && activeNodeCard && (() => {
             const cardInfo = activeNodeCard;
             const cardId = nodeCardId(cardInfo);
@@ -764,12 +797,16 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
             const positionKey = `${graphMode}:${anchorId}`;
             const savedOffset = cardOffsets.current.get(positionKey);
             const nodeRef = { current: canvasElement };
-            return <NodeCard key={positionKey} node={targetNode} isBranch={isBranch} anchorId={anchorId} view={viewTransform} svgRef={nodeRef} workspaceRef={workspaceBodyRef} offset={savedOffset} revision={cardRevision} onClose={() => setActiveNodeCard((active) => closeNodeCard(active, cardId))} onDragEnd={(_id, offset) => { cardOffsets.current.set(positionKey, offset); setCardRevision((n) => n + 1); }} cardKey={cardId} label={showClaims ? (isBranch ? 'Evidence' : node.claimStatus === 'pending' ? 'Unverified claim' : 'Claim') : undefined}>
+            return <NodeCard key={positionKey} node={targetNode} isBranch={isBranch} anchorId={anchorId} view={viewTransform} svgRef={nodeRef} workspaceRef={workspaceBodyRef} offset={savedOffset} revision={cardRevision} onClose={() => setActiveNodeCard((active) => closeNodeCard(active, cardId))} onDragEnd={(_id, offset) => { cardOffsets.current.set(positionKey, offset); setCardRevision((n) => n + 1); }} cardKey={cardId} label={showTimeline ? (isBranch ? ((targetNode as BranchNode).claimStatus === 'pending' ? 'Unverified claim' : 'Claim') : node.period?.label ?? 'Period') : showClaims ? (isBranch ? 'Evidence' : node.claimStatus === 'pending' ? 'Unverified claim' : 'Claim') : undefined}>
+              {showTimeline && (isBranch
+                ? <ClaimSourcesCard claim={targetNode as BranchNode} periodLabel={node.period?.label ?? ''} dateLabel={claimDateLabel((targetNode as BranchNode).publishedAt)} onBack={() => focusTarget({ i: spineIdx })} />
+                : <PeriodCard node={node} onOpenClaim={(j) => focusTarget({ i: spineIdx, j })} />)}
               {showClaims && (isBranch
                 ? <button type="button" className="node-card-back" onClick={() => focusTarget({ i: spineIdx })}>← Claim: {node.name}</button>
                 : <section className="node-card-sources" aria-label="Claim sources"><h4>{node.branches.length ? `${node.branches.length} source${node.branches.length === 1 ? '' : 's'}` : 'No sources attached yet'}</h4><ul>{node.branches.map((b, j) => <li key={b.id}><button type="button" onClick={() => focusTarget({ i: spineIdx, j })}><span className="node-card-relation">{b.relation ?? b.stance}</span><strong>{b.name}</strong><span className="node-card-source-meta">{[b.sourceDomain, asDate(b.publishedAt)].filter(Boolean).join(' · ')}</span></button></li>)}</ul></section>)}
             </NodeCard>;
           })()}
+          {selectedInvestigation && !temporaryTimelineContext && <FlaggingRulesButton />}
           {selectedInvestigation && !temporaryTimelineContext && !mockMode && !workspaceLoading && !workspaceError && <button type="button" className="tw-paper-jump" onClick={() => editionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Today's edition <span aria-hidden="true">↓</span></button>}
         </section>
         {selectedInvestigation && !temporaryTimelineContext && !mockMode && !workspaceError && <NewspaperEdition ref={editionRef} key={selectedInvestigation.id} investigationId={selectedInvestigation.id} version={editionVersion} />}

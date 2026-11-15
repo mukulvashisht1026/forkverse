@@ -26,7 +26,15 @@ import { zoomViewAtWheel } from '../utils/wheelZoom';
 
 /** Claim view: y of the dashed lane holding pending (unverified) claims. */
 const UNVERIFIED_LANE_Y = 290;
-/** Claim view: wrap a claim statement into at most two short lines (ellipsis after). */
+/** Node spacing grows with branch count only up to this many (a fan's width stops growing after that). */
+const FAN_SPACING_BRANCHES = 8;
+/** Claim / timeline view: wrap a node title into short lines of equal width (ellipsis only past maxLines). */
+/** Node titles keep a fixed column width and grow upward (last line stays just above the line). */
+const TITLE_MAX_LINES = 8;
+/** Branch tip heading while hovered: characters per line, max lines, line height. */
+const TIP_FULL_WIDTH = 38;
+const TIP_FULL_LINES = 8;
+const TIP_LINE = 12;
 function wrapLabel(text: string, width = 26, maxLines = 2): string[] {
   const words = text.replace(/\s+/g, ' ').trim().split(' ');
   const lines: string[] = [];
@@ -127,6 +135,9 @@ interface BranchViewProps {
   onSelectBranch: (spineIndex: number, branchIndex: number) => void;
   onSetFocus: (target: FocusTarget | null) => void;
   onGrowthComplete: (eventId: string, evidenceId?: string) => void;
+  /** Pointer is over this branch's circle or line: show its full heading. */
+  showHeading: boolean;
+  onHeadingHover: (on: boolean) => void;
 }
 
 function BranchView({
@@ -146,6 +157,8 @@ function BranchView({
   onSelectBranch,
   onSetFocus,
   onGrowthComplete,
+  showHeading,
+  onHeadingHover,
 }: BranchViewProps) {
   const pathRef = useRef<SVGPathElement>(null);
   const penRef = useRef<SVGCircleElement>(null);
@@ -311,6 +324,8 @@ function BranchView({
         strokeLinejoin="round"
         style={{ transition: 'stroke 0.2s ease, stroke-width 0.2s ease' }}
       />
+      {/* Invisible, wider hit area along the line: hovering the line shows the full heading. */}
+      <path d={geometry.pathD} fill="none" stroke="transparent" strokeWidth={10} pointerEvents="stroke" onMouseEnter={() => onHeadingHover(true)} onMouseLeave={() => onHeadingHover(false)} />
       <g className={`branch-current${isPaused ? ' paused' : ''}`} aria-hidden="true">
         <path d={geometry.pathD} fill="none" stroke={accent} strokeWidth="5.5" strokeLinecap="round" opacity="0.12" />
         <path d={geometry.pathD} fill="none" stroke={accent} strokeWidth="2.2" strokeLinecap="round" strokeDasharray="34 1100" className="branch-current-trail" style={{ animationDelay: `${(spineIndex * 0.83 + branchIndex * 1.37) % 7}s` }} />
@@ -354,14 +369,20 @@ function BranchView({
         }}
       >
         <circle
-          className="tip-core"
-          r={7.5}
+          onMouseEnter={() => onHeadingHover(true)}
+          onMouseLeave={() => onHeadingHover(false)}
+          className={`tip-core${branch.unverifiedClaim ? ' tip-unverified' : ''}`}
+          r={tipRadius(branch.sources)}
           fill="#060d1f"
           stroke={isTipHot ? '#f5f2e8' : accent}
           strokeWidth={2.6}
         />
+        {branch.sources !== undefined && branch.sources > 1 && (
+          <text className="tip-source-count" y={3.5} textAnchor="middle" aria-label={`${branch.sources} sources`}>{branch.sources}</text>
+        )}
         <circle className="keyboard-focus-ring" r={14} fill="none" />
-        <circle className="fill-transparent" r={22} />
+        {/* Hit target of the tip circle (drawn over it): hovering it shows the full heading. */}
+        <circle className="fill-transparent" r={16} onMouseEnter={() => onHeadingHover(true)} onMouseLeave={() => onHeadingHover(false)} />
         {branch.flag && <RedFlag x={6} y={-9} />}
         {branch.flag && isTipHot && <FlagTooltip lines={branch.flag.lines} x={14} y={-18} scale={1 / geometry.depthScale} />}
         {branch.vetTag && (
@@ -377,13 +398,35 @@ function BranchView({
             <text className="live-new-tag" x={13} y={geometry.dir < 0 ? 14 : -10}>NEW</text>
           </g>
         )}
-        <text
-          className="tip-label"
-          fill="#ffffff"
-          y={geometry.dir < 0 ? -17 : 29}
-          textAnchor="middle"
-        >
-          {branch.name}
+        {/* While hovered, the full heading is drawn by TipHeadingOverlay (above sibling branches). */}
+        {!(showHeading && branch.fullName) && (
+          <text className="tip-label" fill="#ffffff" y={geometry.dir < 0 ? -17 : 29} textAnchor="middle">
+            {branch.name}
+          </text>
+        )}
+      </g>
+    </g>
+  );
+}
+
+/** Timeline view: a claim stated by more independent sources gets a bigger tip (capped). */
+export function tipRadius(sources?: number): number {
+  return sources && sources > 1 ? 7.5 + Math.min(sources - 1, 4) * 1.6 : 7.5;
+}
+
+/**
+ * Full heading of the hovered branch tip, drawn after the node's other branches so no sibling tip
+ * covers it. Same transforms as BranchView (depth scale around the origin, then the tip position).
+ */
+function TipHeadingOverlay({ branch, geometry }: { branch: BranchItem; geometry: BranchGeometry }) {
+  const lines = wrapLabel(branch.fullName ?? branch.name, TIP_FULL_WIDTH, TIP_FULL_LINES);
+  const y0 = geometry.dir < 0 ? -17 - (lines.length - 1) * TIP_LINE : 29;
+  const o = geometry.points[0];
+  return (
+    <g className="tip-heading-overlay" aria-hidden="true" pointerEvents="none" transform={`translate(${o.x} ${o.y}) scale(${geometry.depthScale}) translate(${-o.x} ${-o.y})`}>
+      <g transform={`translate(${geometry.tip.x} ${geometry.tip.y})`}>
+        <text className="tip-label" fill="#ffffff" y={y0} textAnchor="middle">
+          {lines.map((line, li) => <tspan key={li} x={0} dy={li ? TIP_LINE : 0}>{line}</tspan>)}
         </text>
       </g>
     </g>
@@ -401,8 +444,6 @@ export function TreeCanvas({
   onSelectBranch,
   onSetFocus,
   onGrowthComplete,
-  onContinue,
-  isContinuing,
   onViewChange,
   onCanvasReady,
   className = '',
@@ -427,6 +468,8 @@ export function TreeCanvas({
   } | null>(null);
   const dragMovedRef = useRef(false);
   const [isDragging, setIsDragging] = useState(false);
+  /** Branch whose circle or line is under the pointer (its full heading is shown). */
+  const [headingTip, setHeadingTip] = useState<{ s: number; b: number } | null>(null);
   /** Edge scroll ("game camera"): direction held (-1 = look left, 1 = look right), speed 0..1. */
   const edgeRef = useRef<{ dir: -1 | 0 | 1; strength: number; velocity: number }>({ dir: 0, strength: 0, velocity: 0 });
   const bboxRef = useRef<{ box: DOMRect | null; at: number }>({ box: null, at: 0 });
@@ -436,13 +479,15 @@ export function TreeCanvas({
   const ambientStars = useMemo(() => generateAmbientStars(68, 1979), []);
   // Timeline layout: event nodes spaced so their articles fit along the line, in date order.
   const layout = useMemo(() => {
-    if (!claimView) return computeSpineLayout(spine.map((n) => n.branches.length));
-    // Claim view: main (established) and unverified lanes each laid out compactly from x = 0.
+    // Every view: branches fan out of their node, so nodes use the compact spacing. Claim view also
+    // has an unverified lane; other views only have the main lane (pending is unset).
     const lane = (pending: boolean) => spine.map((n, i) => ({ n, i })).filter(({ n }) => Boolean(n.pending) === pending);
     const main = lane(false);
     const pend = lane(true);
-    const mainL = computeSpineLayout(main.map(({ n }) => n.branches.length), CLAIM_GAP);
-    const pendL = computeSpineLayout(pend.map(({ n }) => n.branches.length), CLAIM_GAP);
+    // Fans grow out of the node, so spacing only needs room for a fan, not one origin per branch.
+    const fan = (n: number) => Math.min(n, FAN_SPACING_BRANCHES);
+    const mainL = computeSpineLayout(main.map(({ n }) => fan(n.branches.length)), CLAIM_GAP);
+    const pendL = computeSpineLayout(pend.map(({ n }) => fan(n.branches.length)), CLAIM_GAP);
     const nodeX = new Array<number>(spine.length);
     const originStart = new Array<number>(spine.length);
     main.forEach(({ i }, k) => { nodeX[i] = mainL.nodeX[k]!; originStart[i] = mainL.originStart[k]!; });
@@ -469,8 +514,7 @@ export function TreeCanvas({
       const cx = layout.nodeX[spineIdx] ?? spineIdx * SPINE_GAP;
       const accent = NODE_ACCENTS[spineIdx % NODE_ACCENTS.length];
       const lensParticles = generateLensParticles(spineIdx * 53 + 11, 14.5, 42);
-      // Each article sprouts from its own point on the line, ordered by publish date,
-      // alternating above (-1) and below (+1) the line.
+      // Branches fan out of the node itself, ordered by date, alternating above (-1) and below (+1).
       const rank = branchOrder(node.branches.map((b) => b.publishedAt));
       // Pending (unverified) claims sit on their own lane below; their branches only grow downward
       // so they never reach the main timeline.
@@ -478,20 +522,12 @@ export function TreeCanvas({
       const branches = node.branches.map((b, branchIdx) => {
         const pos = rank[branchIdx] ?? branchIdx;
         const dir: 1 | -1 = node.pending ? 1 : pos % 2 ? 1 : -1;
-        // Claim view: sources fan out of the claim node itself (alternating up/down) so each child
-        // is visibly attached to the linked-list node it proves.
-        if (claimView) {
-          return {
-            branch: b,
-            tick: { x: cx, dir, label: tickLabel(b.publishedAt), show: false },
-            geometry: generateBranchGeometry(cx, dir, node.pending ? pos : Math.floor(pos / 2), b.seed, accent),
-          };
-        }
-        const originX = (layout.originStart[spineIdx] ?? cx) + pos * ORIGIN_STEP;
+        // Every child is visibly attached to the node it belongs to (same design in every view,
+        // including nodes that arrive live over the WebSocket).
         return {
           branch: b,
-          tick: { x: originX, dir, label: tickLabel(b.publishedAt), show: false },
-          geometry: generateBranchGeometry(cx, dir, node.pending ? pos : Math.floor(pos / 2), b.seed, accent, originX),
+          tick: { x: cx, dir, label: tickLabel(b.publishedAt), show: false },
+          geometry: generateBranchGeometry(cx, dir, node.pending ? pos : Math.floor(pos / 2), b.seed, accent),
         };
       });
       return { node, cx, laneY, accent, lensParticles, branches };
@@ -500,7 +536,8 @@ export function TreeCanvas({
     const MIN_LABEL_GAP = 56;
     let lastX = -Infinity;
     let lastLabel: string | null = null;
-    const ticks = result.filter((g) => !g.laneY).flatMap((g) => g.branches.map((b) => b.tick)).sort((a, b) => a.x - b.x);
+    // Branches fan out of the node itself, so a per-branch date tick would sit on the node: none.
+    const ticks: (typeof result)[number]['branches'][number]['tick'][] = [];
     for (const t of ticks) {
       // Below-line labels only under upward branches, so no stem passes through the text.
       if (!t.label || t.dir > 0 || t.label === lastLabel || t.x - lastX < MIN_LABEL_GAP) continue;
@@ -931,25 +968,6 @@ export function TreeCanvas({
           <circle r={4} />
           <text x={10} y={4}>Researching sources…</text>
         </g>}
-        <g
-          className="continuation-control"
-          style={{ cursor: isContinuing ? 'wait' : 'pointer' }}
-          transform={`translate(${totalSpineWidth + 174} 0)`}
-          role="button"
-          tabIndex={0}
-          aria-label={isContinuing ? 'Researching next event' : 'Continue research with next event'}
-          aria-disabled={isContinuing}
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={(event) => { event.stopPropagation(); if (!isContinuing) onContinue(); }}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') {
-              event.preventDefault(); event.stopPropagation(); if (!isContinuing) onContinue();
-            }
-          }}
-        >
-          <circle r={21} fill="#ffffff" stroke="#8b9690" strokeWidth={1.4} />
-          {isContinuing ? <path d="M-5,-7 L5,0 L-5,7" fill="none" stroke="#343d38" strokeWidth={2.5} /> : <path d="M-7,0 H7 M2,-5 L7,0 L2,5" fill="none" stroke="#343d38" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />}
-        </g>
 
         {/* Unverified lane: pending claims, visually separated from established ones */}
         {(() => {
@@ -1073,8 +1091,15 @@ export function TreeCanvas({
                     onSelectBranch={onSelectBranch}
                     onSetFocus={onSetFocus}
                     onGrowthComplete={onGrowthComplete}
+                    showHeading={headingTip?.s === spineIdx && headingTip.b === branchIdx}
+                    onHeadingHover={(on) => setHeadingTip((cur) => (on ? { s: spineIdx, b: branchIdx } : cur?.s === spineIdx && cur.b === branchIdx ? null : cur))}
                   />
                 ))}
+
+                {(() => {
+                  const hot = headingTip?.s === spineIdx ? branches[headingTip.b] : undefined;
+                  return hot?.branch.fullName ? <TipHeadingOverlay branch={hot.branch} geometry={hot.geometry} /> : null;
+                })()}
 
                 {/* Main spine node: hybrid of Tree Map numbered instrument coin & Living Tree particle lens */}
                 <g
@@ -1220,15 +1245,13 @@ export function TreeCanvas({
                   <text
                     className="main-label"
                     fill="#f5f2e8"
-                    x={-34}
-                    y={claimView ? -26 : -18}
+                    x={-42}
+                    y={-13 - (wrapLabel(node.name, 26, TITLE_MAX_LINES).length - 1) * 13}
                     textAnchor="end"
                   >
-                    {claimView
-                      ? wrapLabel(node.name).map((line, li) => (
-                          <tspan key={li} x={-34} dy={li ? 13 : 0}>{line}</tspan>
-                        ))
-                      : node.name}
+                    {wrapLabel(node.name, 26, TITLE_MAX_LINES).map((line, li) => (
+                      <tspan key={li} x={-42} dy={li ? 13 : 0}>{line}</tspan>
+                    ))}
                   </text>
                 </g>
                 {/* Drawn last so the hover card sits above this node's branches */}

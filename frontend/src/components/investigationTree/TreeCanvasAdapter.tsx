@@ -72,7 +72,7 @@ export function shortLabel(name: string, max = 44): string {
 
 export function mapTreeModels(spine: AppSpine[], liveMarks?: ReadonlyMap<string, 'fresh' | 'recent'>) {
   return spine.map((node) => ({
-    id: node.id, name: node.claimStatus ? node.name : shortLabel(node.name, 46), info: node.info,
+    id: node.id, name: shortLabel(node.name, 140), info: node.info,
     isNew: Boolean(node._animateGrowth),
     // News view: pending claims go to the separate unverified lane. Politician view: the main line IS
     // the claim tracker, so single-source claims stay on it with an UNVERIFIED badge instead.
@@ -82,7 +82,7 @@ export function mapTreeModels(spine: AppSpine[], liveMarks?: ReadonlyMap<string,
     ...((() => { const own = liveMarks?.get(node.id); const kids = node.branches.map((b) => liveMarks?.get(b.id)); const m = own === 'fresh' || kids.includes('fresh') ? 'fresh' : own ?? kids.find(Boolean); return m ? { live: m } : {}; })()),
     // Red flags: count and strongest score of this node's flagged sources (hover summary).
     ...((() => {
-      const flagged = node.branches.map((b) => ({ b, f: propagandaFlag(b.vetting) })).filter((x) => x.f);
+      const flagged = node.branches.map((b) => ({ b, f: b.redFlag ?? propagandaFlag(b.vetting) })).filter((x) => x.f);
       if (!flagged.length) return {};
       const scores = flagged.map((x) => x.f!.score).filter((n): n is number => n !== undefined);
       const max = scores.length ? Math.max(...scores) : undefined;
@@ -91,11 +91,13 @@ export function mapTreeModels(spine: AppSpine[], liveMarks?: ReadonlyMap<string,
       return { flags: { count: flagged.length, ...(max !== undefined && { max }), lines } };
     })()),
     branches: node.branches.map((branch) => ({
-      id: branch.id, name: shortLabel(branch.name), info: branch.info, seed: branch.seed, publishedAt: branch.publishedAt, ...(branch.stance && { stance: branch.stance }), ...(branch.outcomeReport && { outcomeReport: true }), ...(branch.sourceReport && { sourceReport: true }),
+      id: branch.id, name: shortLabel(branch.name), ...(branch.name.length > 44 && { fullName: branch.name.replace(/\s+/g, ' ').trim() }), info: branch.info, seed: branch.seed, publishedAt: branch.publishedAt, ...(branch.stance && { stance: branch.stance }), ...(branch.outcomeReport && { outcomeReport: true }), ...(branch.sourceReport && { sourceReport: true }),
       ...(liveMarks?.get(branch.id) && { live: liveMarks.get(branch.id) }),
       ...(branch.vetting && { vet: branch.vetting.verdict }),
       ...(vetTag(branch.vetting) && { vetTag: vetTag(branch.vetting) }),
-      ...(propagandaFlag(branch.vetting) && { flag: propagandaFlag(branch.vetting) }),
+      ...((branch.redFlag ?? propagandaFlag(branch.vetting)) && { flag: branch.redFlag ?? propagandaFlag(branch.vetting) }),
+      ...(branch.claimSources && { sources: new Set(branch.claimSources.map((x) => x.publisher ?? x.url ?? x.title)).size }),
+      ...(branch.claimStatus === 'pending' && { unverifiedClaim: true }),
       // Branches a live monitor just added re-grow on screen.
       isNew: Boolean(branch._animateGrowth || (branch._prog !== undefined && branch._prog < 1) || liveMarks?.get(branch.id) === 'fresh'),
     })),
@@ -112,7 +114,7 @@ export function TreeCanvasAdapter({ spine, selectedIndex, focus, moving, detailL
     onHoverTarget({ i: target.spineIndex, ...(target.branchIndex === undefined ? {} : { j: target.branchIndex }) });
   };
   const selectBranch = (i: number, j: number) => onSelectTarget({ i, j });
-  return <div className={`itl-tree ${detailLevel === 'minimal' ? 'detail-minimal' : ''} ${moving ? '' : 'motion-paused'}`}><TreeCanvas spine={models} selectedIndex={selectedIndex} focusTarget={focus ? { spineIndex: focus.i, ...(focus.j === undefined ? {} : { branchIndex: focus.j }) } : null} isPaused={!moving} researching={researching} fitRequest={{ id: fitSignal, instant: fitSignal === 0 }} onSelectNode={selectNode} onSelectBranch={selectBranch} onSetFocus={setFocus} onGrowthComplete={onGrowthComplete} onContinue={onContinue} isContinuing={isContinuing} highlight={highlight} links={links} claimView={links !== undefined} laneNote={laneNote} onViewChange={onViewChange} onCanvasReady={onCanvasReady} className="itl-svg" />
+  return <div className={`itl-tree ${detailLevel === 'minimal' ? 'detail-minimal' : ''} ${moving ? '' : 'motion-paused'}`}><TreeCanvas spine={models} selectedIndex={selectedIndex} focusTarget={focus ? { spineIndex: focus.i, ...(focus.j === undefined ? {} : { branchIndex: focus.j }) } : null} isPaused={!moving} researching={researching} fitRequest={{ id: fitSignal, instant: fitSignal === 0 }} onSelectNode={selectNode} onSelectBranch={selectBranch} onSetFocus={setFocus} onGrowthComplete={onGrowthComplete} onContinue={onContinue} isContinuing={isContinuing} highlight={highlight} links={links} claimView={links !== undefined || spine.some((n) => n.period)} laneNote={laneNote} onViewChange={onViewChange} onCanvasReady={onCanvasReady} className="itl-svg" />
     {spine.map((node, i) => node.branches.map((branch, j) => <button key={`${node.id}:${branch.id}`} className="itl-branch-hit" style={{ left: `${((i + 0.5) / Math.max(spine.length, 1)) * 100}%`, top: `${j % 2 ? 62 : 38}%` }} aria-label={`Select evidence: ${branch.name}`} onMouseEnter={() => onHoverTarget({ i, j })} onMouseLeave={() => onHoverTarget(null)} onClick={() => selectBranch(i, j)} />))}
     {selectedBranch && <span className="itl-source-preserve" aria-hidden="true">{selectedBranch.sourceUrl}{selectedBranch.sourceDomain}{selectedBranch.publishedAt}{selectedBranch.sourceType}{selectedBranch.impactAngle}</span>}
     <button className="itl-clear" aria-label="Clear selection" onClick={onClearPin} />

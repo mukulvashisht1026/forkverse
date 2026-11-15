@@ -60,9 +60,10 @@ export function VettingCard({ vetting, onScreen, screening }: { vetting?: Source
  * this only reports the state: sources screened, red-flagged ones, and live progress.
  */
 export function SourceVettingBadge({ sources, activity }: { sources: BranchNode[]; activity: VettingActivity[] }) {
-  const counts = useMemo(() => {
+  const { counts, flagged } = useMemo(() => {
     const seen = new Set<string>();
     const c = { flagged: 0, manipulative: 0, uncertain: 0, credible: 0, screened: 0, total: 0 };
+    const list: { id: string; url: string; host: string; title: string; score?: number; verdict: SourceVetting['verdict']; why: string; techniques: string[] }[] = [];
     for (const b of sources) {
       if (seen.has(b.id) || !b.sourceUrl) continue;
       seen.add(b.id);
@@ -71,25 +72,62 @@ export function SourceVettingBadge({ sources, activity }: { sources: BranchNode[
       if (!v) continue;
       c[v.verdict] += 1;
       if (v.depth === 'content') c.screened += 1;
-      if (v.propagandaScore !== undefined ? v.propagandaScore > 60 : v.verdict === 'manipulative') c.flagged += 1;
+      const isFlagged = v.propagandaScore !== undefined ? v.propagandaScore > 60 : v.verdict === 'manipulative';
+      if (!isFlagged) continue;
+      c.flagged += 1;
+      const r = v.rhetoric;
+      list.push({
+        id: b.id,
+        url: b.sourceUrl,
+        host: hostOf(b.sourceUrl),
+        title: b.name,
+        ...(v.propagandaScore !== undefined && { score: v.propagandaScore }),
+        verdict: v.verdict,
+        why: (r?.verdict === 'likely_propaganda' && r.rationale) || v.reasons[0] || 'Screened as manipulative.',
+        techniques: [...new Set((r?.techniques ?? []).filter((t) => t.voice === 'author').map((t) => TECHNIQUE[t.technique] ?? t.technique))].slice(0, 4),
+      });
     }
-    return c;
+    list.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+    return { counts: c, flagged: list };
   }, [sources]);
   const last = activity.at(-1);
   const running = Boolean(last && (last.phase === 'started' || last.phase === 'checked'));
   if (!counts.total && !running) return null;
-  const title = [
-    'Propaganda screening (automatic for every source used in the graph)',
-    `${counts.screened} of ${counts.total} sources screened in depth`,
-    `${counts.manipulative} manipulative · ${counts.uncertain} uncertain · ${counts.credible} credible`,
-    counts.flagged ? `${counts.flagged} red-flagged (score above 60%): hover the red flags in the graph` : 'No red flags',
-    ...(running && last ? [`Now: ${last.message}`] : []),
-  ].join('\n');
+  const summary = `${counts.screened} of ${counts.total} sources screened in depth · ${counts.manipulative} manipulative · ${counts.uncertain} uncertain · ${counts.credible} credible`;
   return (
-    <span className={`tw-vet-badge${counts.flagged ? ' is-flagged' : ''}`} title={title} role="status" aria-label={title}>
+    <span className={`tw-vet-badge${counts.flagged ? ' is-flagged' : ''}`} tabIndex={0} role="status" aria-label={`Propaganda screening: ${summary}; ${counts.flagged} red-flagged`}>
       {running ? <LoaderCircle className="gh-spin" size={12} aria-hidden="true" /> : counts.flagged ? <ShieldAlert size={12} aria-hidden="true" /> : <ShieldCheck size={12} aria-hidden="true" />}
       {running && last?.total ? `Screening ${last.checked ?? 0}/${last.total}` : `${counts.screened} screened`}
       {counts.flagged > 0 && <b>⚑ {counts.flagged} flagged</b>}
+      <span className="tw-vet-pop" role="tooltip">
+        <strong className="tw-vet-pop-title">Propaganda screening</strong>
+        <span className="tw-vet-pop-sub">Automatic for every source used in the graph. {summary}.</span>
+        {running && last && <span className="tw-vet-pop-now"><LoaderCircle className="gh-spin" size={11} aria-hidden="true" /> {last.message}</span>}
+        {flagged.length ? <>
+          <span className="tw-vet-pop-head">⚑ Red-flagged websites ({flagged.length})</span>
+          <ul>{flagged.slice(0, 8).map((f) => (
+            <li key={f.id}>
+              <span className="tw-vet-pop-row">
+                <a href={f.url} target="_blank" rel="noopener noreferrer" title={f.title}>{f.host}</a>
+                <span className="tw-vet-pop-score">{f.score !== undefined ? `${f.score}%` : VERDICT_LABEL[f.verdict]}</span>
+              </span>
+              <span className="tw-vet-pop-why">{clip(f.why, 180)}</span>
+              {f.techniques.length > 0 && <span className="tw-vet-pop-tech">{f.techniques.join(' · ')}</span>}
+            </li>
+          ))}</ul>
+          {flagged.length > 8 && <span className="tw-vet-pop-more">+{flagged.length - 8} more: hover the red flags in the graph</span>}
+          <span className="tw-vet-pop-note">Flagged sources are shown faded and never count towards a claim. A screening aid, not proof of intent or falsity.</span>
+        </> : <span className="tw-vet-pop-ok">No red-flagged websites so far.</span>}
+      </span>
     </span>
   );
+}
+
+function hostOf(url: string): string {
+  try { return new URL(url).hostname.replace(/^www\./i, ''); } catch { return url; }
+}
+
+function clip(text: string, max: number): string {
+  const t = text.replace(/\s+/g, ' ').trim();
+  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
 }

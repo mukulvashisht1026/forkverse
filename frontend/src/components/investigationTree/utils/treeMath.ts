@@ -59,6 +59,9 @@ export function branchOrder(dates: Array<string | undefined>): number[] {
 /** Short date label for a timeline tick, e.g. "3 Feb 25"; null when the date is missing/invalid. */
 export function tickLabel(date?: string): string | null {
   if (!date) return null;
+  // Partial dates (stated "2010" / "2010-06") keep their precision.
+  const partial = date.match(/^(\d{4})(?:-(\d{2}))?$/);
+  if (partial) return partial[2] ? new Date(Date.UTC(Number(partial[1]), Number(partial[2]) - 1, 1)).toLocaleDateString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' }) : partial[1]!;
   const t = new Date(date);
   if (Number.isNaN(t.getTime())) return null;
   return t.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit', timeZone: 'UTC' });

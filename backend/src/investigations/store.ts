@@ -13,6 +13,7 @@ import type { Collection } from 'mongodb';
 import type {
   ChatMessageDto,
   ClaimDto,
+  TimelinePeriodDto,
   ClaimLinkDto,
   InvestigationEventDto,
   InvestigationEvidenceDto,
@@ -38,7 +39,7 @@ export interface InvestigationStore {
   /** Attach a vetting result to every occurrence of an evidence item. Bumps the revision. */
   setEvidenceVetting(id: string, evidenceId: string, vetting: SourceVettingDto): Promise<number>;
   /** Replace the claim timeline built from the evidence (and the inferred entity). */
-  setClaims(id: string, claims: { claims: ClaimDto[]; links: ClaimLinkDto[]; entity?: string }): Promise<number>;
+  setClaims(id: string, claims: { claims: ClaimDto[]; links: ClaimLinkDto[]; entity?: string; periods?: TimelinePeriodDto[] }): Promise<number>;
 
   createRun(run: ResearchRunDto): Promise<void>;
   updateRun(run: ResearchRunDto): Promise<void>;
@@ -184,9 +185,10 @@ export class MongoInvestigationStore implements InvestigationStore {
     return this.bump(id, { $set: { 'events.$[].evidence.$[ev].vetting': vetting } }, {}, [{ 'ev.id': evidenceId }]);
   }
 
-  setClaims(id: string, { claims, links, entity }: { claims: ClaimDto[]; links: ClaimLinkDto[]; entity?: string }) {
+  setClaims(id: string, { claims, links, entity, periods }: { claims: ClaimDto[]; links: ClaimLinkDto[]; entity?: string; periods?: TimelinePeriodDto[] }) {
     return this.bump(id, {
-      $set: { claims, claimLinks: links, claimsUpdatedAt: nowIso(), ...(entity && { entity }) },
+      $set: { claims, claimLinks: links, claimsUpdatedAt: nowIso(), ...(entity && { entity }), ...(periods && { periods }) },
+      ...(!periods && { $unset: { periods: '' } }),
     });
   }
 
@@ -320,9 +322,11 @@ export class MemoryInvestigationStore implements InvestigationStore {
     });
   }
 
-  async setClaims(id: string, { claims, links, entity }: { claims: ClaimDto[]; links: ClaimLinkDto[]; entity?: string }) {
+  async setClaims(id: string, { claims, links, entity, periods }: { claims: ClaimDto[]; links: ClaimLinkDto[]; entity?: string; periods?: TimelinePeriodDto[] }) {
     return this.mutate(id, (r) => {
       r.claims = structuredClone(claims);
+      if (periods) r.periods = structuredClone(periods);
+      else delete r.periods;
       r.claimLinks = structuredClone(links);
       r.claimsUpdatedAt = nowIso();
       if (entity) r.entity = entity;

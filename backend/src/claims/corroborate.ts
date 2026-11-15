@@ -17,6 +17,11 @@ import type { ClaimDto, ClaimEvidenceDto, InvestigationRecord } from '../investi
 import { verifyQuote } from '../utils/quotes.js';
 import { logger } from '../utils/logger.js';
 import { decideStatus, mapLimit } from './builder.js';
+import { LINKS_PER_NODE, SEARCH_RESULTS } from '../limits.js';
+
+/** Claims that get a corroboration search (one Context.dev call each), weakest first. */
+const MAX_CORROBORATED_CLAIMS = 12;
+
 
 export type NewsSearch = (query: string) => Promise<Article[]>;
 
@@ -24,7 +29,7 @@ export const contextDevNewsSearch: NewsSearch = async (query) => {
   const tool: StructuredToolInterface | undefined = getTools().find((t) => t.name === 'context_get-news-search');
   if (!tool) return [];
   try {
-    const raw = await tool.invoke({ query, limit: 10 } as never);
+    const raw = await tool.invoke({ query, limit: SEARCH_RESULTS } as never);
     return extractArticles(typeof raw === 'string' ? safeJson(raw) : raw, tool.name);
   } catch (err) {
     logger.warn({ err, query }, 'corroboration search failed');
@@ -111,7 +116,7 @@ export async function corroborateClaims(record: InvestigationRecord, claims: Cla
     .map((c, i) => ({ c, i, outlets: new Set(c.evidence.map(outletOf)).size }))
     .filter((x) => x.outlets < target)
     .sort((a, b) => a.outlets - b.outlets || a.i - b.i)
-    .slice(0, deps.maxClaims ?? 30);
+    .slice(0, deps.maxClaims ?? MAX_CORROBORATED_CLAIMS);
 
   const updated = [...claims];
   await mapLimit(needy, 6, async ({ c, i }) => {
@@ -123,7 +128,7 @@ export async function corroborateClaims(record: InvestigationRecord, claims: Cla
       const outlet = (a.sourceName || a.domain).toLowerCase();
       if (have.has(outlet) || haveUrls.has(normalizeUrl(a.url)) || candidates.some((x) => (x.sourceName || x.domain).toLowerCase() === outlet)) continue;
       candidates.push(a);
-      if (candidates.length >= 6) break;
+      if (candidates.length >= SEARCH_RESULTS) break;
     }
     if (!candidates.length) return;
 
@@ -135,11 +140,15 @@ export async function corroborateClaims(record: InvestigationRecord, claims: Cla
 
     const evidence = [...c.evidence];
     for (const m of out.matches) {
+      if (evidence.length >= LINKS_PER_NODE) break; // a claim (node) keeps at most LINKS_PER_NODE sources
       const a = candidates[Number(m.ref.replace(/\D/g, '')) - 1];
       if (!a) continue;
       if (!verifyQuote(m.quote, `${a.title}. ${a.description ?? ''}`)) continue;
       const id = articleBranchId(a.url);
       if (evidence.some((e) => e.evidenceId === id)) continue;
+      // New pages are stored on one "Corroborating sources" node: at most LINKS_PER_NODE per build.
+      const isNew = !seenUrls.has(normalizeUrl(a.url)) && !added.has(id);
+      if (isNew && added.size >= LINKS_PER_NODE) continue;
       evidence.push({
         evidenceId: id,
         stance: m.stance,

@@ -40,13 +40,15 @@ export function getNodeCardPresentation(node: SpineNode | BranchNode, isBranch: 
     ...(sourceTypes[event.scrapeEngine] ? { sourceType: sourceTypes[event.scrapeEngine] } : {}),
     ...(hostname(event.sourceUrl) ? { sourceDomain: hostname(event.sourceUrl) } : {}),
     ...(event.sourceUrl ? { sourceUrl: event.sourceUrl } : {}),
-    ...(event.timestamp && event.timestamp !== 'Live update' && event.timestamp !== 'Live scrape' ? { publishedAt: event.timestamp } : {}),
+    ...(!event.period && event.timestamp && event.timestamp !== 'Live update' && event.timestamp !== 'Live scrape' ? { publishedAt: event.timestamp } : {}),
     ...(event.info ? { description: event.info } : {}),
   };
 }
 
 export function formatCardDate(value?: string): string | undefined {
   if (!value || value === 'Live update' || value === 'Live scrape') return undefined;
+  const partial = value.match(/^(\d{4})(?:-(\d{2}))?$/);
+  if (partial) return partial[2] ? new Date(Date.UTC(Number(partial[1]), Number(partial[2]) - 1, 1)).toLocaleDateString(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' }) : partial[1];
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? undefined : date.toLocaleDateString();
 }

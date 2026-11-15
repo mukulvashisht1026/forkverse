@@ -268,7 +268,7 @@ export class ResearchChatService {
     const count = resolved.claimIds.length + (resolved.claimIds.length ? 0 : sources.length);
     const what = resolved.claimIds.length ? `${resolved.claimIds.length} claim${resolved.claimIds.length === 1 ? '' : 's'}` : `${count} article${count === 1 ? '' : 's'}`;
     return {
-      content: `${resolved.answer}${outcomeCaveat(record, resolved.claimIds)}\n\n→ Highlighted ${what} on the graph.`,
+      content: `${resolved.answer}${outcomeCaveat(record, resolved.claimIds)}\n\n→ Highlighted ${what} on the graph.${resolved.partial ? ' For newer or fuller information, use **Extend evidence graph**.' : ''}`,
       sources,
       nodeIds: resolved.claimIds,
     };

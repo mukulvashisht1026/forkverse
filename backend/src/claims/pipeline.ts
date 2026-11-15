@@ -7,7 +7,7 @@
  *   3. corroborate each claim with independent outlets (claims/corroborate.ts);
  *   4. screen   the new corroborating pages too; manipulative ones are stored (faded, with the
  *               reason) but removed from the claims, whose status is recomputed;
- *   5. store    corroborating evidence + claims.
+ *   5. store    corroborating evidence + claims, grouped into timeline periods (claims/periods.ts).
  * Without a VettingService (tests, disabled) steps 1 and 4 are skipped.
  */
 import type { InvestigationStore } from '../investigations/store.js';
@@ -18,6 +18,7 @@ import { articleBranchId } from '../research/articles.js';
 import type { VettingService } from '../vetting/service.js';
 import { buildClaims, decideStatus, type BuildResult } from './builder.js';
 import { corroborateClaims, outcomeOf, storeCorroboration, type NewsSearch } from './corroborate.js';
+import { buildPeriods } from './periods.js';
 
 export interface ClaimPipelineDeps {
   store: InvestigationStore;
@@ -82,7 +83,10 @@ export async function buildClaimGraph(investigationId: string, deps: ClaimPipeli
 
   // 5. Store: every corroborating page is kept as evidence (with its screening), claims without the pruned ones.
   await storeCorroboration(store, investigationId, corroborated.added, screenedAdded);
-  await store.setClaims(investigationId, { claims, links: built.links.filter((l) => claims.some((c) => c.id === l.from) && claims.some((c) => c.id === l.to)), entity: built.entity ?? record.entity });
+  // 5b. Timeline spine: claims grouped into periods, each with a summary written from its claims.
+  token?.('- Writing the timeline (one summary per period)…\n');
+  const periods = await buildPeriods(claims, { topic: record.topic, ...(deps.json && { json: deps.json }) });
+  await store.setClaims(investigationId, { claims, links: built.links.filter((l) => claims.some((c) => c.id === l.from) && claims.some((c) => c.id === l.to)), entity: built.entity ?? record.entity, periods });
   if (manipulative.size) token?.(`- ${manipulative.size} corroborating source${manipulative.size === 1 ? '' : 's'} flagged as manipulative and left out of the claims.\n`);
 
   return { built: { ...built, claims }, claims, corroborationAdded: corroborated.added.length, screened: first.checked + screenedAdded.size, pruned: first.flagged + manipulative.size };

@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { col } from '../../db/client.js';
 import { getEmbeddings } from '../../db/vectorStore.js';
 import { SourceIndex } from '../../vetting/sourceIndex.js';
+import { VECTOR_MAX, VECTOR_RESULTS } from '../../limits.js';
 import { ok } from './result.js';
 
 export const searchSourcesTool = tool(
@@ -24,7 +25,7 @@ export const searchSourcesTool = tool(
       'flagged, how a site was rated, or which sources used a given technique.',
     schema: z.object({
       query: z.string().describe('What to look for, e.g. a site name, topic or technique'),
-      n: z.number().int().min(1).max(20).default(5),
+      n: z.number().int().min(1).max(VECTOR_MAX).default(VECTOR_RESULTS),
       flagged_only: z.boolean().default(false).describe('Only sources with a propaganda score above 60'),
     }),
   },
