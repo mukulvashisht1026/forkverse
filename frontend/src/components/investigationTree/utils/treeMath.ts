@@ -586,3 +586,34 @@ export function computeFitTransform(
     y: top + availH / 2 - (bbox.y + bbox.height / 2) * k,
   };
 }
+
+/** Same zoom in every view (Timeline / Claims / Research runs), so nodes and branches keep one size. */
+export const GRAPH_SCALE = 0.9;
+
+/**
+ * Camera for a graph drawn at a FIXED scale: centred when it fits on screen, otherwise showing its
+ * start (right of `leftInset`, e.g. a docked chat panel) and the rest is reached by scrolling.
+ */
+export function computeFixedTransform(
+  bbox: BoundingBox,
+  viewportWidth: number,
+  viewportHeight: number,
+  opts: { k?: number; leftInset?: number } = {},
+): ViewTransform {
+  const k = opts.k ?? GRAPH_SCALE;
+  if (viewportWidth <= 0 || viewportHeight <= 0) return { k, x: 0, y: 0 };
+  const inset = Math.max(0, opts.leftInset ?? 0);
+  const padX = viewportWidth < 640 ? 24 : 56;
+  const availW = Math.max(120, viewportWidth - inset - 2 * padX);
+  const contentW = bbox.width * k;
+  const x = contentW <= availW
+    ? inset + padX + (availW - contentW) / 2 - bbox.x * k
+    : inset + padX - bbox.x * k;
+  const top = 96;
+  const bottom = 64;
+  const availH = Math.max(120, viewportHeight - top - bottom);
+  const contentH = bbox.height * k;
+  // Fits vertically: centre the drawing; too tall: keep the spine (y = 0) in the middle.
+  const y = contentH <= availH ? top + (availH - contentH) / 2 - bbox.y * k : viewportHeight / 2;
+  return { k, x, y };
+}

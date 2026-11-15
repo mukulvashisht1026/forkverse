@@ -167,3 +167,9 @@
 .itl-tree .branch .branch-hit{stroke:transparent!important;stroke-dasharray:none!important}
 /* Flagged branch: normal line weight, only the colour and dash change. */
 .itl-tree .branch.vet-manipulative .branch-current path{stroke-width:inherit}
+
+/* Spine: flowing shimmer along the line (paused with motion off / reduced motion). */
+.itl-tree .spine-flow{animation:itl-spine-flow 3.2s linear infinite}
+@keyframes itl-spine-flow{to{stroke-dashoffset:-36}}
+.itl-tree.motion-paused .spine-flow{animation-play-state:paused}
+@media(prefers-reduced-motion:reduce){.itl-tree .spine-flow{animation:none}}

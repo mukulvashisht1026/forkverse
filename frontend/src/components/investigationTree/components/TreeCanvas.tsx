@@ -9,7 +9,7 @@ import type {
 } from '../types/tree';
 import {
   computeBranchProgress,
-  computeFitTransform,
+  computeFixedTransform,
   generateAmbientStars,
   generateBranchGeometry,
   generateGroundParticles,
@@ -457,6 +457,8 @@ export function TreeCanvas({
   useEffect(() => { onCanvasReady?.(svgRef.current); }, [onCanvasReady]);
 
   const viewRef = useRef<ViewTransform>({ k: 1, x: 0, y: 0 });
+  /** Length of the drawn spine, so the camera measures the graph itself and not the background decoration. */
+  const contentWidthRef = useRef(0);
   const goalRef = useRef<ViewTransform | null>(null);
   const cameraRafRef = useRef<number | null>(null);
   const scheduleCameraRef = useRef<() => void>(() => {});
@@ -590,16 +592,16 @@ export function TreeCanvas({
     // SVG elements may report empty dimensions while graph data is still rendering.
     const bbox = world.getBBox();
     if (!bbox.width || !bbox.height) return;
-    // Long claim timelines: never zoom out until labels are unreadable; show the start of the
-    // timeline at a readable scale and let the user pan/zoom along it.
-    const MIN_CLAIM_SCALE = 0.85;
-    const maxWidth = svg.clientWidth / MIN_CLAIM_SCALE;
-    const view = claimView && bbox.width > maxWidth ? { x: bbox.x, y: bbox.y, width: maxWidth, height: bbox.height } : bbox;
-    const nextGoal = computeFitTransform(
-      view,
-      svg.clientWidth,
-      svg.clientHeight
-    );
+    // Every view uses the same scale (nodes/branches keep one size); long graphs start at their
+    // beginning and are scrolled. Keep the start clear of a chat panel docked on the left.
+    const svgRect = svg.getBoundingClientRect();
+    const chat = document.querySelector('.gh-chat-window')?.getBoundingClientRect();
+    const chatOnLeft = chat && chat.width > 0 && chat.left - svgRect.left < 80 && chat.right > svgRect.left && chat.right < svgRect.left + svgRect.width * 0.6;
+    const leftInset = chatOnLeft ? chat.right - svgRect.left + 16 : 0;
+    // Horizontal extent from the layout (first node's title ... arrow at the end); the world bbox
+    // also contains background stars and particles, which would push the start off screen.
+    const content = { x: -260, width: contentWidthRef.current + 420, y: bbox.y, height: bbox.height };
+    const nextGoal = computeFixedTransform(content, svg.clientWidth, svg.clientHeight, { leftInset });
     if (instant) {
       viewRef.current = nextGoal;
       goalRef.current = null;
@@ -740,7 +742,17 @@ export function TreeCanvas({
       e.preventDefault();
       const rect = svg.getBoundingClientRect();
       const v = viewRef.current;
-      Object.assign(v, zoomViewAtWheel(v, e.deltaY, { x: e.clientX, y: e.clientY }, rect));
+      if (e.ctrlKey || e.metaKey) {
+        // Pinch (trackpads send ctrl+wheel) or Ctrl/Cmd + wheel: zoom at the cursor.
+        Object.assign(v, zoomViewAtWheel(v, e.deltaY, { x: e.clientX, y: e.clientY }, rect));
+      } else {
+        // Plain wheel / two-finger scroll: move along the timeline (vertical wheel scrolls
+        // sideways; Shift + wheel or a vertical trackpad gesture with a sideways one moves up/down).
+        const sideways = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.shiftKey ? 0 : e.deltaY;
+        const vertical = e.shiftKey ? e.deltaY : 0;
+        v.x -= sideways;
+        v.y -= vertical;
+      }
       goalRef.current = null;
       applyViewToDom();
     };
@@ -815,6 +827,7 @@ export function TreeCanvas({
   };
 
   const totalSpineWidth = layout.end;
+  contentWidthRef.current = totalSpineWidth;
   const isFocusing = focusTarget !== null;
   const isCiting = Boolean(highlight && (highlight.evidenceIds.size > 0 || highlight.eventIds.size > 0));
 
@@ -928,39 +941,24 @@ export function TreeCanvas({
           ))}
           </g>
 
-          {/* Retro-tech ruled baseline & marching calibration ties */}
-          <line
-            x1={-100}
-            y1={5}
-            x2={totalSpineWidth + 124}
-            y2={5}
-            stroke="#a9b1ac"
-            strokeWidth={1}
-          />
-          <line
-            x1={-100}
-            y1={0}
-            x2={totalSpineWidth + 132}
-            y2={0}
-            stroke="#68746e"
-            opacity={0.72}
-            strokeWidth={1.8}
-            strokeLinecap="round"
-          />
-          <line
-            className="ties-march"
-            x1={-100}
-            y1={0}
-            x2={totalSpineWidth + 114}
-            y2={0}
-            stroke="#8b9690"
-            strokeWidth={11}
-            strokeDasharray="2 14"
-            opacity={0.35}
-          />
+          {/* Spine: soft glow band, gradient line (start -> end of the story), light highlight
+              and a slow flowing shimmer; gradients in user space (a horizontal line has no height). */}
+          <defs>
+            <linearGradient id="spine-gradient" gradientUnits="userSpaceOnUse" x1={-100} y1={0} x2={totalSpineWidth + 152} y2={0}>
+              <stop offset="0%" stopColor="#5fa591" stopOpacity={0} />
+              <stop offset="5%" stopColor="#5fa591" />
+              <stop offset="55%" stopColor="#5f86b5" />
+              <stop offset="100%" stopColor="#c9924f" />
+            </linearGradient>
+          </defs>
+          <line className="spine-glow" x1={-100} y1={0} x2={totalSpineWidth + 130} y2={0} stroke="url(#spine-gradient)" strokeWidth={14} strokeLinecap="round" opacity={0.13} />
+          <line className="spine-line" x1={-100} y1={0} x2={totalSpineWidth + 132} y2={0} stroke="url(#spine-gradient)" strokeWidth={3.2} strokeLinecap="round" />
+          <line className="spine-highlight" x1={-60} y1={-0.8} x2={totalSpineWidth + 120} y2={-0.8} stroke="#ffffff" strokeWidth={0.9} strokeLinecap="round" opacity={0.55} />
+          <line className="spine-flow" x1={-60} y1={0} x2={totalSpineWidth + 120} y2={0} stroke="#ffffff" strokeWidth={2.2} strokeLinecap="round" strokeDasharray="2 34" opacity={0.75} />
           <path
-            d={`M${totalSpineWidth + 128},-8.5 L${totalSpineWidth + 152},0 L${totalSpineWidth + 128},8.5 Z`}
-            fill="#68746e"
+            className="spine-arrow"
+            d={`M${totalSpineWidth + 126},-7 L${totalSpineWidth + 148},0 L${totalSpineWidth + 126},7 Q${totalSpineWidth + 130},0 ${totalSpineWidth + 126},-7 Z`}
+            fill="#c9924f"
           />
         </g>
         {researching && spine.length > 0 && <g className={`research-frontier${isPaused ? ' is-static' : ''}`} transform={`translate(${totalSpineWidth + 42} 0)`} role="status" aria-label="Researching sources">
