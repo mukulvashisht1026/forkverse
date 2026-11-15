@@ -1,7 +1,8 @@
+import { isManipulativeVetting } from '../../../../contracts/investigations';
 import { useMemo } from 'react';
 import type { BranchNode, FocusTarget as AppFocus, SpineNode as AppSpine } from '../../types/tree';
 
-const FLAG_THRESHOLD = 60; // PROPAGANDA_FLAG_THRESHOLD in contracts/investigations.ts
+const FLAG_THRESHOLD = 74; // PROPAGANDA_FLAG_THRESHOLD in contracts/investigations.ts
 const clip = (t: string, n: number) => (t.length > n ? `${t.slice(0, n - 1).trimEnd()}…` : t);
 const TECH: Record<string, string> = {
   loaded_language: 'Loaded language', fear_or_prejudice: 'Fear / prejudice', name_calling: 'Name calling', false_dilemma: 'False dilemma',
@@ -26,7 +27,7 @@ export function propagandaFlag(v: BranchNode['vetting']): { score?: number; line
 /** Tip tag for a vetted source: only shown when there is something to warn about. */
 export function vetTag(v: BranchNode['vetting']): string | undefined {
   if (!v) return undefined;
-  if (v.verdict === 'manipulative') return 'MANIPULATIVE';
+  if (isManipulativeVetting(v)) return 'MANIPULATIVE';
   switch (v.rating?.kind) {
     case 'state_media': return 'STATE MEDIA';
     case 'unreliable': return 'LOW CREDIBILITY';
@@ -95,7 +96,7 @@ export function mapTreeModels(spine: AppSpine[], liveMarks?: ReadonlyMap<string,
       return {
         id: branch.id, name: shortLabel(branch.name), ...(branch.name.length > 44 && { fullName: branch.name.replace(/\s+/g, ' ').trim() }), info: branch.info, seed: branch.seed, publishedAt: branch.publishedAt, ...(branch.stance && { stance: branch.stance }), ...(branch.outcomeReport && { outcomeReport: true }), ...(branch.sourceReport && { sourceReport: true }),
         ...(branchLive && { live: branchLive }),
-        ...(branch.vetting && { vet: branch.vetting.verdict }),
+        ...(branch.vetting && { vet: isManipulativeVetting(branch.vetting) ? 'manipulative' as const : branch.vetting.verdict === 'manipulative' ? 'uncertain' as const : branch.vetting.verdict }),
         ...(vetTag(branch.vetting) && { vetTag: vetTag(branch.vetting) }),
         ...((branch.redFlag ?? propagandaFlag(branch.vetting)) && { flag: branch.redFlag ?? propagandaFlag(branch.vetting) }),
         ...(branch.claimSources && { sources: new Set(branch.claimSources.map((x) => x.publisher ?? x.url ?? x.title)).size }),

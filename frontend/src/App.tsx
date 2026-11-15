@@ -12,6 +12,7 @@ import { isMockInvestigationMode, mockInvestigationRepository } from './services
 import { SourceVettingBadge } from './components/SourceVetting';
 import { NewspaperEdition } from './components/NewspaperEdition';
 import { FlaggingRulesButton } from './components/FlaggingRules';
+import { GraphBuildLoader, type BuildPhase } from './components/GraphBuildLoader';
 import { LiveMonitor, host as siteHost } from './components/LiveMonitor';
 import { addLiveIds, liveMarksAt, pruneLiveIds } from './utils/liveMarks';
 import { ResearchChat } from './components/ResearchChat';
@@ -258,6 +259,30 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
   };
   const runNodes = useMemo(() => groupResearchRunInsights(workspaceNodes ?? [], claimGraph?.allNodes ?? []), [workspaceNodes, claimGraph?.allNodes]);
   const activeNodes = showTimeline ? timelineNodes! : showClaims ? claimGraph!.nodes : runNodes;
+  /**
+   * First build of a graph (after the user's first prompt): research -> screening -> claims, until
+   * the claim timeline exists. Cleared on failure, when switching investigations, or after 4 min.
+   */
+  const [buildStage, setBuildStage] = useState<'research' | 'after' | null>(null);
+  const hasTimeline = Boolean(claimGraph?.nodes.length || timelineNodes?.length);
+  useEffect(() => {
+    if (hasTimeline) { setBuildStage(null); return; }
+    if (researchRunning) { setBuildStage('research'); return; }
+    setBuildStage((stage) => (stage === 'research' ? 'after' : stage));
+  }, [researchRunning, hasTimeline]);
+  useEffect(() => { setBuildStage(null); }, [selectedInvestigation?.id]);
+  useEffect(() => {
+    if (buildStage !== 'after') return;
+    const t = window.setTimeout(() => setBuildStage(null), 240_000);
+    return () => window.clearTimeout(t);
+  }, [buildStage]);
+  const lastVet = vettingActivity.at(-1);
+  const vettingNow = Boolean(lastVet && (lastVet.phase === 'started' || lastVet.phase === 'checked'));
+  const buildPhase: BuildPhase | null = workspaceLoading ? 'loading'
+    : buildStage === 'research' ? 'research'
+    : buildStage === 'after' ? (vettingNow ? 'screening' : 'claims')
+    : null;
+  const articlesFound = useMemo(() => (workspaceNodes ?? []).reduce((n, node) => n + node.branches.length, 0), [workspaceNodes]);
   /** Timeline view: answers cite claims (now branches) and articles (inside claims) -> highlight those claims and their periods. */
   const canvasHighlight = useMemo(() => {
     if (!highlight || !showTimeline || highlight.roles) return highlight;
@@ -461,6 +486,7 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
     const stop = watchInvestigation(liveInvestigationId, {
       onUpdate: (update) => {
         setResearchRunning(update.runStatus === 'queued' || update.runStatus === 'running');
+        if (update.runStatus === 'failed') setBuildStage(null);
         if (update.runStatus === 'succeeded' || update.runStatus === 'failed') bumpEdition();
         // Live monitor runs ("mon-…"): the new source and its "Live update" event animate in.
         if (update.runId?.startsWith('mon-')) markLive([update.evidenceId, update.eventId]);
@@ -786,9 +812,9 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
           {liveToast && <div className={`tw-live-toast p-${liveToast.phase}`} role="status" aria-live="polite"><span className="tw-live-toast-tag"><i className="tw-live-dot" aria-hidden="true" />LIVE</span><span>{liveToast.message}{liveToast.url && <> · <a href={liveToast.url} target="_blank" rel="noopener noreferrer" title={liveToast.url}>{siteHost(liveToast.url)}</a></>}</span><button type="button" aria-label="Dismiss live update" onClick={() => setLiveToast(null)}>×</button></div>}
           {trackedMonitors.length > 0 && <div className="tw-tracking-strip" aria-label="Websites tracked live"><span className="tw-tracking-tag"><i className="tw-live-dot" aria-hidden="true" />TRACKING</span>{trackedMonitors.map((m) => <a key={m.id} href={m.url} target="_blank" rel="noopener noreferrer" title={`${m.label}\n${m.url}`} className={`s-${m.status}`}>{siteHost(m.url)}</a>)}</div>}
           {vetToast && <div className={`tw-live-toast tw-vet-toast ${vetToast.verdict ? `v-${vetToast.verdict}` : `p-${vetToast.phase}`}`} role="status" aria-live="polite"><span className="tw-live-toast-tag">VETTING</span><span>{vetToast.message}</span><button type="button" aria-label="Dismiss" onClick={() => setVetToast(null)}>×</button></div>}
-          {workspaceLoading && <div className="gh-graph-state">Loading investigation graph…</div>}
+          {buildPhase && <GraphBuildLoader phase={buildPhase} articles={articlesFound} {...(lastVet?.total ? { screened: { checked: lastVet.checked ?? 0, total: lastVet.total } } : {})} compact={buildPhase !== 'loading' && articlesFound > 0} />}
           {workspaceError && <div className="gh-graph-state"><p>{workspaceError}</p><button onClick={() => selectedInvestigation && void openWorkspace(selectedInvestigation)}>Retry</button></div>}
-          {!workspaceLoading && !workspaceError && workspaceNodes?.length === 0 && <div className="gh-graph-state">{researchRunning ? 'Researching… evidence will appear here as it is found.' : 'This investigation has no evidence yet.'}</div>}
+          {!workspaceLoading && !workspaceError && !buildPhase && workspaceNodes?.length === 0 && <div className="gh-graph-state">{researchRunning ? 'Researching… evidence will appear here as it is found.' : 'This investigation has no evidence yet.'}</div>}
           {workspaceNodes && !showClaims && !showTimeline && <SpineNav spine={activeNodes} selectedIndex={selectedIndex} onHoverNode={setHoverFocus} onSelectNode={(index) => focusTarget({ i: index })} />}
           {workspaceNodes && activeNodeCard && (() => {
             const cardInfo = activeNodeCard;

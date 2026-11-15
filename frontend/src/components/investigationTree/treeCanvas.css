@@ -151,3 +151,19 @@
 .itl-tree .tip-group.hot { isolation: isolate; }
 .itl-tree .itl-canvas .tip-heading-overlay .tip-label,
 .itl-tree .itl-canvas.claim-view .tip-heading-overlay .tip-label { opacity: 1; }
+/* Flagged sources: light orange (was red). */
+.itl-tree .red-flag-pole{stroke:#d98a3d}
+.itl-tree .red-flag-cloth{fill:#f6a04d;stroke:#ffc58a}
+.itl-tree .branch:has(.red-flag) .tip-core{stroke:#f6a04d;filter:drop-shadow(0 0 6px rgba(246,160,77,.7))}
+.itl-tree .node-flag-count{fill:#d9822b;stroke:#fffaf4}
+.itl-tree .flag-tooltip rect{fill:#fffaf4;stroke:#f6a04d}
+.itl-tree .flag-tooltip-title{fill:#b8641c}
+.itl-tree .flag-tooltip-line{fill:#3c4641}
+.itl-tree .branch.vet-manipulative path{stroke:#f4a259!important}
+.itl-tree .branch.vet-manipulative .tip-core{fill:#fff3e6;stroke:#f4a259}
+.itl-tree .vet-tip-ring{stroke:#f4a259}
+.itl-tree .branch.vet-manipulative .vet-tag{fill:#d9822b}
+/* The invisible hover strip along a branch never takes a colour (flagged branches recolour their paths). */
+.itl-tree .branch .branch-hit{stroke:transparent!important;stroke-dasharray:none!important}
+/* Flagged branch: normal line weight, only the colour and dash change. */
+.itl-tree .branch.vet-manipulative .branch-current path{stroke-width:inherit}

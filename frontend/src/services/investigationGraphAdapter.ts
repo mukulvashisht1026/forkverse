@@ -174,6 +174,7 @@ function claimDay(c: ClaimDto): string | undefined {
 }
 
 const LIVE_SUFFIX = '~live';
+const SNAPSHOT_SUFFIX = '~now';
 
 /** Same rule as backend claims/periods.ts liveDay: a monitor change is the claim's first report. */
 function liveDay(c: ClaimDto, liveIds: ReadonlySet<string>): string | undefined {
@@ -209,7 +210,8 @@ export function liveEvidenceIds(events: readonly InvestigationEventDto[]): Set<s
   return new Set(events.filter((e) => e.id.startsWith('evt-mon-')).flatMap((e) => e.evidence.map((x) => x.id)));
 }
 
-export function fallbackPeriods(claims: ClaimDto[], liveIds: ReadonlySet<string> = new Set()): TimelinePeriodDto[] {
+export function fallbackPeriods(claims: ClaimDto[], liveIds: ReadonlySet<string> = new Set(), scope: 'timeline' | 'snapshot' = 'timeline'): TimelinePeriodDto[] {
+  const today = new Date().toISOString().slice(0, 10);
   const days = claims.filter((c) => !liveDay(c, liveIds)).map(claimDay).filter((d): d is string => Boolean(d)).sort();
   const month = (d: string) => Number(d.slice(0, 4)) * 12 + Number(d.slice(5, 7) || 1) - 1;
   const yearSpan = days.length ? Number(days.at(-1)!.slice(0, 4)) - Number(days[0]!.slice(0, 4)) : 0;
@@ -219,20 +221,22 @@ export function fallbackPeriods(claims: ClaimDto[], liveIds: ReadonlySet<string>
   for (const c of claims) {
     const d = claimDay(c);
     const live = liveDay(c, liveIds);
-    const key = live ? `${live}${LIVE_SUFFIX}` : d ? d.slice(0, Math.min(len, d.length)) : 'undated';
+    // Snapshot (point-in-time question): one spine node; live updates keep their own.
+    const key = live ? `${live}${LIVE_SUFFIX}` : scope === 'snapshot' ? `${today}${SNAPSHOT_SUFFIX}` : d ? d.slice(0, Math.min(len, d.length)) : 'undated';
     (groups.get(key) ?? groups.set(key, []).get(key)!).push(c);
   }
   return [...groups.entries()]
-    .sort(([a], [b]) => (a === 'undated' ? 1 : b === 'undated' ? -1 : a.localeCompare(b)))
+    .sort(([a], [b]) => (a === 'undated' ? 1 : b === 'undated' ? -1 : a.endsWith(SNAPSHOT_SUFFIX) ? -1 : b.endsWith(SNAPSHOT_SUFFIX) ? 1 : a.localeCompare(b)))
     .map(([rawKey, list]) => {
       const live = rawKey.endsWith(LIVE_SUFFIX);
-      const key = rawKey.replace(LIVE_SUFFIX, '');
+      const snapshot = rawKey.endsWith(SNAPSHOT_SUFFIX);
+      const key = rawKey.replace(LIVE_SUFFIX, '').replace(SNAPSHOT_SUFFIX, '');
       const lead = [...list].sort((a, b) => Number(b.status === 'established') - Number(a.status === 'established') || b.evidence.length - a.evidence.length)[0]!;
       const est = list.filter((c) => c.status === 'established');
       const pend = list.filter((c) => c.status !== 'established');
       return {
-        id: `period-${key}${live ? '-live' : ''}`,
-        label: live ? `Live · ${labelOf(key)}` : labelOf(key),
+        id: snapshot ? 'period-snapshot' : `period-${key}${live ? '-live' : ''}`,
+        label: live ? `Live · ${labelOf(key)}` : snapshot ? `Now · ${labelOf(key)}` : labelOf(key),
         ...(live && { live: true }),
         granularity: key === 'undated' ? 'undated' : key.length === 4 ? 'year' : key.length === 7 ? 'month' : 'day',
         ...(key !== 'undated' && { start: key.length === 4 ? `${key}-01-01` : key.length === 7 ? `${key}-01` : key }),

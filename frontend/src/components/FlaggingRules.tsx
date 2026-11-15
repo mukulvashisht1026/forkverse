@@ -28,7 +28,7 @@ export function FlaggingRulesButton() {
               <button type="button" className="tw-rules-close" onClick={() => setOpen(false)} aria-label="Close"><X size={16} /></button>
             </header>
             <div className="tw-rules-body">
-              <p className="tw-rules-lead">Every source used to build the graph is screened automatically, with two independent checks. A red flag means the <strong>propaganda score is above 60%</strong>. Flagged sources stay visible (faded, with the reason) but <strong>never count as evidence</strong> for a claim.</p>
+              <p className="tw-rules-lead">Every source used to build the graph is screened automatically, with two independent checks. A flag means the <strong>propaganda score is above 74%</strong>. Flagged sources stay visible (faded, with the reason) but <strong>never count as evidence</strong> for a claim.</p>
 
               <section>
                 <h3><span>1</span> Domain lists</h3>
@@ -48,6 +48,8 @@ export function FlaggingRulesButton() {
                   <li>Every quoted passage must appear <b>word for word</b> in the page, otherwise it is discarded.</li>
                   <li>Only the <b>author's own words</b> count. Quoting someone else's propaganda is reporting, not propaganda.</li>
                   <li>A propaganda finding needs <b>at least 2 different verified passages</b> in the author's voice.</li>
+                  <li>A propaganda finding also needs a score <b>above 74%</b>; anything lower stays <em>uncertain</em>.</li>
+                  <li><b>Data pages</b> (weather, market prices, sports scores, schedules, tables) only display data: <em>never assessed</em>, score 0.</li>
                   <li>Satire, ads, landing pages, unclear genres or partially read pages → <em>uncertain</em>, never flagged.</li>
                 </ul>
               </section>
@@ -59,17 +61,18 @@ export function FlaggingRulesButton() {
                     <tr><td>0–20%</td><td>neutral reporting</td></tr>
                     <tr><td>21–40%</td><td>some persuasive or emotive language</td></tr>
                     <tr><td>41–60%</td><td>notable one-sided framing</td></tr>
-                    <tr className="is-flag"><td>61–80%</td><td>systematic manipulative rhetoric ⚑</td></tr>
-                    <tr className="is-flag"><td>81–100%</td><td>pervasive propaganda (dehumanisation, fabricated enemies, fear-based calls to action) ⚑</td></tr>
+                    <tr><td>61–74%</td><td>strongly one-sided rhetoric (not flagged)</td></tr>
+                    <tr className="is-flag"><td>75–89%</td><td>systematic manipulative rhetoric ⚑</td></tr>
+                    <tr className="is-flag"><td>90–100%</td><td>pervasive propaganda (dehumanisation, fabricated enemies, fear-based calls to action) ⚑</td></tr>
                   </tbody>
                 </table>
-                <p>The score is capped so it always agrees with the verified evidence: <b>above 60% only with a verified propaganda finding</b>, at most 40% when there is no clear evidence, and at most 60% when uncertain.</p>
+                <p>The score is capped so it always agrees with the verified evidence: <b>above 74% only with a verified propaganda finding</b>, at most 40% when there is no clear evidence, at most 74% when uncertain, and 0% for data pages.</p>
               </section>
 
               <section>
                 <h3><span>4</span> Final verdict</h3>
                 <ul>
-                  <li><b className="k-bad">Manipulative</b>: a documented influence operation <em>or</em> a verified propaganda finding in the text. Pruned from claims.</li>
+                  <li><b className="k-bad">Manipulative</b>: a documented influence operation <em>or</em> a verified propaganda finding (score above 74%) in the text. Pruned from claims.</li>
                   <li><b className="k-good">Credible</b>: a positive signal (reliable listing or no clear evidence in the text) and no caution listing.</li>
                   <li><b className="k-warn">Uncertain</b>: everything else. A failed check (unreadable page, unknown domain) only lowers coverage; it never counts as risky or as safe.</li>
                 </ul>

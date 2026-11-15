@@ -131,3 +131,31 @@ describe('live articles from feeds', () => {
     expect(groupClaims([old, fromFeed], ids).map((g) => g.key)).toEqual(['2026-11-01', '2026-11-15~live']);
   });
 });
+
+describe('snapshot investigations', () => {
+  it('a point-in-time question gets ONE spine node with every claim; live updates still get their own', async () => {
+    const { groupClaims, buildPeriods } = await import('../src/claims/periods.js');
+    const live = { evidenceId: 'mon-chg_w', stance: 'supports' as const, quote: 'q', title: 'Live', publisher: 'live.example', url: 'https://live.example/w', publishedAt: '2026-11-15T09:00:00Z' };
+    const claims = [
+      claim('rain', { occurredAt: '2026-11-15T06:00:00Z' }),
+      claim('wind', { occurredAt: '2026-11-14T22:00:00Z' }),
+      claim('old', { happenedAt: '2019' }),
+      claim('upd', { occurredAt: '2026-11-15T09:00:00Z' }, 'pending', [live]),
+    ];
+    expect(groupClaims(claims, new Set(), 'snapshot').map((g) => [g.key, g.claims.map((c) => c.id)])).toEqual([
+      ['snapshot', ['rain', 'wind', 'old']], ['2026-11-15~live', ['upd']],
+    ]);
+    const periods = await buildPeriods(claims.slice(0, 2), { topic: 'weather', scope: 'snapshot', json: vi.fn(async () => { throw new Error('x'); }) as never });
+    expect(periods).toHaveLength(1);
+    expect(periods[0]).toMatchObject({ id: 'period-snapshot', granularity: 'day', claimIds: ['rain', 'wind'] });
+    expect(periods[0]!.label).toMatch(/^Now · /);
+  });
+
+  it('planner fallback: "today/current" questions are snapshots, history questions are timelines', async () => {
+    const { planTopic } = await import('../src/research/planner.js');
+    const down = vi.fn(async () => { throw new Error('down'); }) as never;
+    expect((await planTopic("what's the weather in Helsinki today", down)).scope).toBe('snapshot');
+    expect((await planTopic('bitcoin price history since 2015', down)).scope).toBe('timeline');
+    expect((await planTopic('Taylor Swift controversies', down)).scope).toBe('timeline');
+  });
+});

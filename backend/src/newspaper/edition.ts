@@ -19,6 +19,7 @@ import type {
   NewspaperSourceDto,
   NewspaperStoryDto,
 } from '../investigations/types.js';
+import { isManipulativeVetting } from '../investigations/types.js';
 import type { JsonLlm } from '../proof/agents.js';
 import { logger } from '../utils/logger.js';
 
@@ -33,7 +34,7 @@ export interface EditionDeps {
   now?: () => Date;
 }
 
-const isManipulative = (e?: InvestigationEvidenceDto) => e?.vetting?.verdict === 'manipulative';
+const isManipulative = (e?: InvestigationEvidenceDto) => isManipulativeVetting(e?.vetting);
 const isFlagged = (e: InvestigationEvidenceDto) => (e.vetting?.propagandaScore !== undefined ? e.vetting.propagandaScore > 60 : isManipulative(e));
 
 /** Changes whenever the edition's inputs change (claims rebuilt, sources added, screening). */

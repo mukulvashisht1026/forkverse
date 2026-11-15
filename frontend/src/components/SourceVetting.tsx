@@ -1,3 +1,4 @@
+import { isManipulativeVetting } from '../../../contracts/investigations';
 import { useMemo } from 'react';
 import { LoaderCircle, ShieldAlert, ShieldCheck, ShieldQuestion } from 'lucide-react';
 import type { BranchNode } from '../types/tree';
@@ -10,6 +11,9 @@ const TECHNIQUE: Record<string, string> = {
   appeal_to_popularity: 'Appeal to popularity', appeal_to_authority: 'Appeal to authority', flag_waving: 'Flag waving',
   slogans: 'Slogans', doubt: 'Casting doubt', dehumanization: 'Dehumanisation', smears: 'Smears', other: 'Other',
 };
+
+/** Red flag above this propaganda score (PROPAGANDA_FLAG_THRESHOLD in contracts/investigations.ts). */
+const FLAG_AT = 74;
 
 const VERDICT_LABEL = { credible: 'Credible', uncertain: 'Uncertain', manipulative: 'Manipulative' } as const;
 
@@ -36,7 +40,7 @@ export function VettingCard({ vetting, onScreen, screening }: { vetting?: Source
       <div className="tw-vet-head">
         <VerdictIcon verdict={vetting.verdict} />
         <strong>{VERDICT_LABEL[vetting.verdict]}</strong>
-        {vetting.propagandaScore !== undefined && <span className={`tw-vet-score${vetting.propagandaScore > 60 ? ' is-flagged' : ''}`}>{vetting.propagandaScore > 60 ? '⚑ ' : ''}Propaganda score {vetting.propagandaScore}%</span>}
+        {vetting.propagandaScore !== undefined && <span className={`tw-vet-score${vetting.propagandaScore > FLAG_AT ? ' is-flagged' : ''}`}>{vetting.propagandaScore > FLAG_AT ? '⚑ ' : ''}Propaganda score {vetting.propagandaScore}%</span>}
         <span className="tw-vet-meta">{vetting.depth === 'content' ? 'domain + text' : 'domain lists only'} · coverage {Math.round(vetting.coverage * 100)}%</span>
       </div>
       <ul className="tw-vet-reasons">{vetting.reasons.map((x, i) => <li key={i}>{x}</li>)}</ul>
@@ -48,7 +52,7 @@ export function VettingCard({ vetting, onScreen, screening }: { vetting?: Source
       </div>}
       {r && r.counterevidence.length > 0 && <p className="tw-vet-note">Against a propaganda reading: {r.counterevidence.slice(0, 3).join('; ')}</p>}
       {r && r.warnings.length > 0 && <p className="tw-vet-note">{r.warnings.join(' ')}</p>}
-      {vetting.verdict === 'manipulative' && <p className="tw-vet-note">Pruned: this source is shown faded and is never used to establish a claim.</p>}
+      {isManipulativeVetting(vetting) && <p className="tw-vet-note">Pruned: this source is shown faded and is never used to establish a claim.</p>}
       <p className="tw-vet-disclaimer">A screening aid, not proof of intent, coordination or falsity.</p>
       {onScreen && vetting.depth !== 'content' && <button type="button" className="tw-vet-btn" onClick={onScreen} disabled={screening}>{screening ? <><LoaderCircle className="gh-spin" size={12} /> Screening…</> : 'Screen the page text too'}</button>}
     </div>
@@ -70,9 +74,9 @@ export function SourceVettingBadge({ sources, activity }: { sources: BranchNode[
       c.total += 1;
       const v = b.vetting;
       if (!v) continue;
-      c[v.verdict] += 1;
+      c[isManipulativeVetting(v) ? 'manipulative' : v.verdict === 'manipulative' ? 'uncertain' : v.verdict] += 1;
       if (v.depth === 'content') c.screened += 1;
-      const isFlagged = v.propagandaScore !== undefined ? v.propagandaScore > 60 : v.verdict === 'manipulative';
+      const isFlagged = v.propagandaScore !== undefined ? v.propagandaScore > FLAG_AT : isManipulativeVetting(v);
       if (!isFlagged) continue;
       c.flagged += 1;
       const r = v.rhetoric;

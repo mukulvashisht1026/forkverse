@@ -30,6 +30,7 @@ import { defaultJsonLlm, type JsonLlm } from '../proof/agents.js';
 import { normalizeForMatch } from '../utils/text.js';
 import { verifyQuote } from '../utils/quotes.js';
 import { LINKS_PER_NODE } from '../limits.js';
+import { isManipulativeVetting } from '../investigations/types.js';
 
 
 /** Articles read (scraped) per claim build. */
@@ -180,7 +181,7 @@ const publisherOf = (e: InvestigationEvidenceDto) => (e.sourceName || hostOf(e.s
 export function pickEvidence(record: InvestigationRecord, max = MAX_ARTICLES, prefer: readonly string[] = []): InvestigationEvidenceDto[] {
   const seenUrl = new Set<string>();
   // Sources vetted as manipulative are pruned: they stay visible (faded) but never support claims.
-  const all = record.events.flatMap((ev) => ev.evidence).filter((e) => e.vetting?.verdict !== 'manipulative');
+  const all = record.events.flatMap((ev) => ev.evidence).filter((e) => !isManipulativeVetting(e.vetting));
   const preferred = new Set(prefer);
   const first: InvestigationEvidenceDto[] = [];
   for (const e of all) {

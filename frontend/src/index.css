@@ -1219,3 +1219,46 @@ button { color: inherit; }
 .tw-live-speed button:disabled { cursor: default; opacity: .6; }
 .tw-live-speed button.on:disabled { opacity: 1; }
 .tw-live-speed-note { display: inline-flex; align-items: center; gap: 5px; margin-left: 4px; color: #a3332b; font-weight: 600; }
+
+/* Flagged sources: light orange instead of red (badge, panel, card, rules). */
+.gh-graph-controls .tw-vet-badge b { color: #d9822b; }
+.gh-graph-controls .tw-vet-badge.is-flagged { border-color: #f7c89a; }
+.gh-graph-controls .tw-vet-badge.is-flagged svg { color: #e08a2e; }
+.tw-vet-score.is-flagged { background: #fff1e2; color: #b8641c; }
+.tw-vet-pop-head { color: #c46a1f; }
+.tw-vet-pop li { border-color: #f7dcc0; border-left-color: #f4a259; background: #fffaf4; }
+.tw-vet-pop-score { background: #f08c2e; }
+.tw-vet-pop-tech { color: #9a5a22; }
+.tw-rules-btn svg, .tw-rules h2 svg { color: #e08a2e; }
+.tw-rules-lead { border-left-color: #f4a259; background: #fffaf4; }
+.tw-rules .k-bad { color: #c46a1f; }
+.tw-rules tr.is-flag td { background: #fff4e8; color: #a65a1b; }
+
+/* First graph build: centred card (empty canvas) or compact pill (graph growing). */
+.tw-build { position: absolute; z-index: 5; color: #2b332f; }
+.tw-build.is-card { top: 50%; left: 50%; display: flex; width: min(380px, calc(100% - 40px)); flex-direction: column; align-items: center; gap: 10px; transform: translate(-50%, -50%); border: 1px solid #dfe4e0; border-radius: 14px; background: rgba(255, 255, 255, .97); padding: 24px 24px 18px; box-shadow: 0 18px 50px rgba(20, 30, 25, .12); text-align: center; }
+.tw-build.is-card > strong { font-size: 15px; }
+.tw-build.is-card > svg { color: #2f7d68; }
+.tw-build ol { display: grid; gap: 7px; width: 100%; margin: 4px 0 0; padding: 0; list-style: none; text-align: left; }
+.tw-build li { display: flex; align-items: center; gap: 9px; color: #8a938e; font-size: 13px; }
+.tw-build li.on { color: #1d2421; font-weight: 600; }
+.tw-build li.done { color: #4f7d68; }
+.tw-build-icon { display: inline-grid; width: 22px; height: 22px; flex: 0 0 auto; place-items: center; border: 1px solid #dfe4e0; border-radius: 50%; background: #fff; color: #8a938e; font-size: 11px; font-weight: 700; }
+.tw-build li.on .tw-build-icon { border-color: #2f7d68; color: #2f7d68; }
+.tw-build li.done .tw-build-icon { border-color: #2f7d68; background: #2f7d68; color: #fff; }
+.tw-build.is-card p { margin: 0; color: #4f5954; font-size: 12px; }
+.tw-build.is-card p.tw-build-note { color: #8a938e; font-size: 11px; }
+.tw-build-orbit { position: relative; width: 54px; height: 54px; }
+.tw-build-orbit span { position: absolute; inset: 0; border: 2px solid transparent; border-top-color: #2f7d68; border-radius: 50%; animation: tw-build-spin 1.4s linear infinite; }
+.tw-build-orbit span:nth-child(2) { inset: 8px; border-top-color: #f4a259; animation-duration: 1.9s; animation-direction: reverse; }
+.tw-build-orbit span:nth-child(3) { inset: 17px; border-top-color: #7b9bd1; animation-duration: 1.1s; }
+@keyframes tw-build-spin { to { transform: rotate(360deg); } }
+.tw-build.is-pill { top: 64px; left: 50%; display: inline-flex; max-width: calc(100% - 40px); align-items: center; gap: 8px; transform: translateX(-50%); border: 1px solid #dfe4e0; border-radius: 18px; background: rgba(255, 255, 255, .96); padding: 7px 14px; box-shadow: 0 6px 20px rgba(20, 30, 25, .1); font-size: 12px; white-space: nowrap; }
+.tw-build.is-pill > svg { color: #2f7d68; flex: 0 0 auto; }
+.tw-build.is-pill > span:first-of-type { overflow: hidden; text-overflow: ellipsis; }
+.tw-build-dots { display: inline-flex; gap: 4px; margin-left: 2px; }
+.tw-build-dots i { width: 6px; height: 6px; border-radius: 50%; background: #dfe4e0; }
+.tw-build-dots i.on { background: #2f7d68; animation: tw-build-pulse 1s ease-in-out infinite; }
+.tw-build-dots i.done { background: #8fbfa9; }
+@keyframes tw-build-pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .tw-build-orbit span, .tw-build-dots i.on { animation: none; } }

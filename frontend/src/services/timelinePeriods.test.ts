@@ -40,3 +40,11 @@ test('fallback: claims first reported by a live update get a "Live · <day>" per
   const periods = fallbackPeriods(claims);
   assert.deepEqual(periods.map((p) => [p.label, p.claimIds, p.live ?? false]), [['2016', ['old'], false], ['2026', ['mid'], false], ['Live · 15 Nov 2026', ['now'], true]]);
 });
+
+test('fallback: a snapshot investigation gets one "Now" spine node', () => {
+  const claims = [claim('a', '2026-11-15', 'established'), claim('b', '2026-11-14', 'pending'), claim('c', '2019', 'established')];
+  const periods = fallbackPeriods(claims, new Set(), 'snapshot');
+  assert.equal(periods.length, 1);
+  assert.match(periods[0]!.label, /^Now · /);
+  assert.deepEqual(periods[0]!.claimIds, ['a', 'b', 'c']);
+});

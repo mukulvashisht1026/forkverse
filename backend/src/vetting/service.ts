@@ -19,6 +19,7 @@ import type {
   ResearchRunDto,
   SourceVettingDto,
 } from '../investigations/types.js';
+import { isManipulativeVetting } from '../investigations/types.js';
 import { MAX_ARTICLES, mapLimit, pickEvidence } from '../claims/builder.js';
 import { logger } from '../utils/logger.js';
 import { domainVetting, vetUrl, type VetDeps } from './vet.js';
@@ -88,7 +89,7 @@ export class VettingService {
         const vetting = await this.vetOne(ev.sourceUrl!, ev.title, investigationId);
         const revision = await store.setEvidenceVetting(investigationId, ev.id, vetting);
         checked += 1;
-        if (vetting.verdict === 'manipulative') flagged += 1;
+        if (isManipulativeVetting(vetting)) flagged += 1;
         publish({ type: 'investigation:updated', payload: { investigationId, revision, run: { id: `vet-auto-${investigationId}`, investigationId, status: 'running', startedAt: new Date().toISOString() } }, timestamp: new Date().toISOString() });
         this.say(investigationId, { phase: 'checked', evidenceId: ev.id, verdict: vetting.verdict, checked, total: Math.max(checked, pending.length), message: `${ev.sourceName ?? ev.title}: ${vetting.verdict}${vetting.error ? ' (page unreadable)' : ''}` });
       });
@@ -162,7 +163,7 @@ export class VettingService {
         const vetting = await this.vetOne(ev.sourceUrl!, ev.title, investigationId);
         const revision = await store.setEvidenceVetting(investigationId, ev.id, vetting);
         checked += 1;
-        if (vetting.verdict === 'manipulative') flagged += 1;
+        if (isManipulativeVetting(vetting)) flagged += 1;
         publish({ type: 'investigation:updated', payload: { investigationId, revision, run }, timestamp: new Date().toISOString() });
         this.say(investigationId, {
           phase: 'checked',

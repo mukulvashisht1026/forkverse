@@ -8,11 +8,14 @@
  *   verdict becomes `uncertain`;
  * - `likely_propaganda` needs at least two distinct grounded passages in the AUTHOR's voice
  *   (quoted speakers, e.g. a politician's speech being reported, do not count);
- * - satire, advertising, landing pages, other genres and partial text are always `uncertain`.
+ * - a finding also needs a score above PROPAGANDA_FLAG_THRESHOLD (74), so a red flag always means
+ *   systematic manipulative rhetoric;
+ * - data pages (weather, prices, scores, schedules), satire, advertising, landing pages, other
+ *   genres and partial text are always `uncertain`; data pages score 0.
  * The result is a review aid, not proof of intent, coordination or falsity.
  */
 import { z } from 'zod';
-import type { RhetoricAnalysisDto, RhetoricTechniqueDto } from '../investigations/types.js';
+import { PROPAGANDA_FLAG_THRESHOLD, type RhetoricAnalysisDto, type RhetoricTechniqueDto } from '../investigations/types.js';
 import type { JsonLlm } from '../proof/agents.js';
 import { verifyQuote } from '../utils/quotes.js';
 
@@ -25,7 +28,7 @@ const TECHNIQUES = [
   'appeal_to_authority', 'flag_waving', 'slogans', 'doubt', 'dehumanization', 'smears', 'other',
 ] as const;
 const VERDICTS = ['likely_propaganda', 'no_clear_evidence', 'uncertain'] as const;
-const GENRES = ['reporting', 'opinion', 'satire', 'advertising', 'landing_page', 'other'] as const;
+const GENRES = ['reporting', 'opinion', 'satire', 'advertising', 'landing_page', 'data', 'other'] as const;
 
 export const RhetoricOutput = z.object({
   verdict: z.enum(VERDICTS).catch('uncertain'),
@@ -65,12 +68,17 @@ Verdicts:
 - "no_clear_evidence": the text does not show that pattern (this does not certify truth or neutrality).
 - "uncertain": too little text, unclear attribution, non-article page, or you cannot tell.
 
+Genre "data": the page mainly DISPLAYS DATA rather than arguing anything - weather forecasts, market prices or tickers,
+sports scores, schedules, timetables, listings, tables, dashboards, search results. Data pages are never propaganda:
+use verdict "uncertain", score 0 and no techniques.
+
 Every "quote" must be a short (under 30 words) VERBATIM substring of the supplied text, including punctuation.
 "score" (0-100): how strongly the page's OWN text relies on propaganda techniques: 0-20 neutral reporting,
-21-40 some persuasive or emotive language, 41-60 notable one-sided framing, 61-80 systematic manipulative rhetoric,
-81-100 pervasive propaganda (dehumanisation, fabricated enemies, calls to action built on fear). Quoted speakers do not raise it.
+21-40 some persuasive or emotive language, 41-60 notable one-sided framing, 61-74 strongly one-sided rhetoric,
+75-89 systematic manipulative rhetoric, 90-100 pervasive propaganda (dehumanisation, fabricated enemies, calls to action
+built on fear). Only use 75 or more for "likely_propaganda". Quoted speakers do not raise it.
 Return JSON only:
-{"verdict":"likely_propaganda|no_clear_evidence|uncertain","score":<0-100>,"genre":"reporting|opinion|satire|advertising|landing_page|other",
+{"verdict":"likely_propaganda|no_clear_evidence|uncertain","score":<0-100>,"genre":"reporting|opinion|satire|advertising|landing_page|data|other",
  "language":"<ISO code>","rationale":"<2-3 neutral sentences>",
  "techniques":[{"technique":"<id>","quote":"<verbatim>","explanation":"<why>","voice":"author|quoted_speaker|unclear"}],
  "counterevidence":["<signs against a propaganda reading, e.g. named sources, opposing views quoted, corrections>"]}`;
@@ -90,11 +98,19 @@ export function groundRhetoric(raw: RhetoricOutputT, text: string, partial = fal
     warnings.push('A propaganda finding needs at least two distinct verified passages in the author\'s own voice.');
   }
   if (partial) warnings.push('Only part of the page text was analysed.');
-  if (['satire', 'advertising', 'landing_page', 'other'].includes(raw.genre)) warnings.push(`Genre "${raw.genre}" is not assessed as news content.`);
-  if (warnings.length) verdict = 'uncertain';
-  // The score must agree with the grounded verdict: a red flag (> 60) needs a verified finding.
   const rawScore = Math.round(Math.min(100, Math.max(0, raw.score)));
-  const score = verdict === 'likely_propaganda' ? Math.max(rawScore, 61) : verdict === 'no_clear_evidence' ? Math.min(rawScore, 40) : Math.min(rawScore, 60);
+  if (raw.genre === 'data') warnings.push('Data page (e.g. weather, prices, scores, schedules): not assessed for propaganda.');
+  else if (['satire', 'advertising', 'landing_page', 'other'].includes(raw.genre)) warnings.push(`Genre "${raw.genre}" is not assessed as news content.`);
+  if (verdict === 'likely_propaganda' && rawScore <= PROPAGANDA_FLAG_THRESHOLD) {
+    warnings.push(`A propaganda finding needs a score above ${PROPAGANDA_FLAG_THRESHOLD}% (model gave ${rawScore}%).`);
+  }
+  if (warnings.length) verdict = 'uncertain';
+  // The score must agree with the grounded verdict: a red flag (> 74) needs a verified finding;
+  // data pages are not assessed at all.
+  const score = raw.genre === 'data' ? 0
+    : verdict === 'likely_propaganda' ? rawScore
+    : verdict === 'no_clear_evidence' ? Math.min(rawScore, 40)
+    : Math.min(rawScore, PROPAGANDA_FLAG_THRESHOLD);
   return {
     verdict,
     modelVerdict: raw.verdict,

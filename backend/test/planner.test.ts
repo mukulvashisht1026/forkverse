@@ -60,7 +60,7 @@ describe('create uses the plan and builds the graph after research', () => {
     let built = '';
     const service = new InvestigationService({
       store, publish: () => {},
-      plan: async () => ({ title: 'Narendra Modi', mode: 'politician', entity: 'Narendra Modi', queries: ['Modi promises'], keyTerms: ['modi'] }),
+      plan: async () => ({ title: 'Narendra Modi', mode: 'politician', entity: 'Narendra Modi', queries: ['Modi promises'], keyTerms: ['modi'], scope: 'timeline' }),
       collect: async (req, on) => { seen = { keyTerms: req.keyTerms, queries: req.queries }; await on({ url: 'https://a.test/1', title: 'Modi speech', description: null, domain: 'a.test', sourceName: 'A', publishedAt: null, tool: 'context_get-news-search' }, 1); return { articles: 1, summary: '' }; },
       afterRun: async (id) => { built = id; },
     });

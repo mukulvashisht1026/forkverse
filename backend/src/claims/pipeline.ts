@@ -11,7 +11,7 @@
  * Without a VettingService (tests, disabled) steps 1 and 4 are skipped.
  */
 import type { InvestigationStore } from '../investigations/store.js';
-import type { ClaimDto, InvestigationRecord, SourceVettingDto } from '../investigations/types.js';
+import { isManipulativeVetting, type ClaimDto, type InvestigationRecord, type SourceVettingDto } from '../investigations/types.js';
 import type { JsonLlm } from '../proof/agents.js';
 import type { Scraper } from '../proof/articles.js';
 import { articleBranchId } from '../research/articles.js';
@@ -78,14 +78,14 @@ export async function buildClaimGraph(investigationId: string, deps: ClaimPipeli
     token?.(`- Screening ${corroborated.added.length} corroborating source${corroborated.added.length === 1 ? '' : 's'} for propaganda…\n`);
     screenedAdded = await vetting.vetUrls(investigationId, corroborated.added.map((a) => ({ url: a.url, title: a.title })));
   }
-  const manipulative = new Set(corroborated.added.filter((a) => screenedAdded.get(a.url)?.verdict === 'manipulative').map((a) => articleBranchId(a.url)));
+  const manipulative = new Set(corroborated.added.filter((a) => isManipulativeVetting(screenedAdded.get(a.url))).map((a) => articleBranchId(a.url)));
   const claims = pruneClaims(record, corroborated.claims, manipulative);
 
   // 5. Store: every corroborating page is kept as evidence (with its screening), claims without the pruned ones.
   await storeCorroboration(store, investigationId, corroborated.added, screenedAdded);
   // 5b. Timeline spine: claims grouped into periods, each with a summary written from its claims.
   token?.('- Writing the timeline (one summary per period)…\n');
-  const periods = await buildPeriods(claims, { topic: record.topic, liveEvidenceIds: liveEvidenceIds(record.events), ...(deps.json && { json: deps.json }) });
+  const periods = await buildPeriods(claims, { topic: record.topic, liveEvidenceIds: liveEvidenceIds(record.events), ...(record.scope && { scope: record.scope }), ...(deps.json && { json: deps.json }) });
   await store.setClaims(investigationId, { claims, links: built.links.filter((l) => claims.some((c) => c.id === l.from) && claims.some((c) => c.id === l.to)), entity: built.entity ?? record.entity, periods });
   if (manipulative.size) token?.(`- ${manipulative.size} corroborating source${manipulative.size === 1 ? '' : 's'} flagged as manipulative and left out of the claims.\n`);
 

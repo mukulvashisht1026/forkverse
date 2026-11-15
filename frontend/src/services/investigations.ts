@@ -98,7 +98,7 @@ export function mapInvestigationGraphDto(dto: InvestigationGraphDto): Investigat
       return {
         claimNodes: claimsToSpineNodes(dto.claims, dto.mode, vetting),
         claimLinks: dto.claimLinks ?? [],
-        timelineNodes: periodsToSpineNodes(dto.periods?.length ? dto.periods : fallbackPeriods(dto.claims, liveEvidenceIds(dto.events)), dto.claims, vetting),
+        timelineNodes: periodsToSpineNodes(dto.periods?.length ? dto.periods : fallbackPeriods(dto.claims, liveEvidenceIds(dto.events), dto.scope), dto.claims, vetting),
       };
     })() : {}),
     ...(dto.entity ? { entity: dto.entity } : {}),

@@ -67,12 +67,21 @@ describe('rhetoric grounding', () => {
 });
 
 describe('propaganda score', () => {
-  it('agrees with the grounded verdict: > 60 only with a verified finding', () => {
-    expect(groundRhetoric(raw({ score: 75 }), ARTICLE).score).toBe(75);
-    expect(groundRhetoric(raw({ score: 40 }), ARTICLE).score).toBe(61);
-    // Downgraded (quoted speakers only): capped at 60, never flagged.
-    expect(groundRhetoric(raw({ score: 95, techniques: raw().techniques.map((t) => ({ ...t, voice: 'quoted_speaker' as const })) }), ARTICLE).score).toBe(60);
+  it('agrees with the grounded verdict: > 74 only with a verified finding', () => {
+    expect(groundRhetoric(raw({ score: 75 }), ARTICLE)).toMatchObject({ verdict: 'likely_propaganda', score: 75 });
+    // A finding with a score at or below 74 is not enough: uncertain, capped at 74, never flagged.
+    const weak = groundRhetoric(raw({ score: 65 }), ARTICLE);
+    expect(weak).toMatchObject({ verdict: 'uncertain', score: 65 });
+    expect(weak.warnings.join(' ')).toMatch(/above 74%/);
+    // Downgraded (quoted speakers only): capped at 74, never flagged.
+    expect(groundRhetoric(raw({ score: 95, techniques: raw().techniques.map((t) => ({ ...t, voice: 'quoted_speaker' as const })) }), ARTICLE).score).toBe(74);
     expect(groundRhetoric(raw({ verdict: 'no_clear_evidence', score: 70, techniques: [], genre: 'reporting' }), ARTICLE).score).toBe(40);
+  });
+  it('data pages (weather, prices, scores) are never assessed: uncertain, score 0', () => {
+    const r = groundRhetoric(raw({ genre: 'data', score: 90 }), ARTICLE);
+    expect(r).toMatchObject({ verdict: 'uncertain', score: 0 });
+    expect(r.warnings.join(' ')).toMatch(/Data page/);
+    expect(combineVetting('https://weather.example/today', undefined, r).verdict).toBe('uncertain');
   });
   it('documented influence operations score at least 90; unknown without any signal', () => {
     expect(domainVetting('https://049122.com/x')?.propagandaScore).toBe(90);

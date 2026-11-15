@@ -86,6 +86,7 @@ export function toGraphDto(r: InvestigationRecord): InvestigationGraphDto {
     ...(r.claims && { claims: r.claims, claimLinks: r.claimLinks ?? [], ...(r.periods && { periods: r.periods }), ...(r.claimsUpdatedAt && { claimsUpdatedAt: r.claimsUpdatedAt }) }),
     ...(r.entity && { entity: r.entity }),
     ...(r.mode && { mode: r.mode }),
+    ...(r.scope && { scope: r.scope }),
   };
 }
 
@@ -153,7 +154,7 @@ export class InvestigationService {
       title: topic.slice(0, MAX_TITLE),
       topic,
       ...(description && { description }),
-      ...(plan && { mode: plan.mode, plan: { queries: plan.queries, keyTerms: plan.keyTerms } }),
+      ...(plan && { mode: plan.mode, scope: plan.scope, plan: { queries: plan.queries, keyTerms: plan.keyTerms } }),
       ...(plan?.entity && { entity: plan.entity }),
       visibility: 'public', // no authentication yet: every investigation is public
       status: 'active',

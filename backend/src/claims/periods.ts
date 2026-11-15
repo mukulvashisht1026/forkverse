@@ -51,8 +51,9 @@ export function chooseGranularity(claims: readonly Pick<ClaimDto, 'happenedAt' |
   return monthSpan >= 1 || yearSpan >= 1 ? 'month' : 'day';
 }
 
-export function periodLabel(key: string): string {
+export function periodLabel(key: string, now = new Date()): string {
   if (isLiveKey(key)) return `Live · ${periodLabel(baseKey(key))}`;
+  if (key === SNAPSHOT_KEY) return `Now · ${periodLabel(now.toISOString().slice(0, 10))}`;
   const [y, m, d] = key.split('-');
   if (!y) return 'Undated';
   if (!m) return y;
@@ -62,6 +63,7 @@ export function periodLabel(key: string): string {
 
 function granularityOf(rawKey: string): Granularity {
   const key = baseKey(rawKey);
+  if (key === SNAPSHOT_KEY) return 'day';
   return key === 'undated' ? 'undated' : key.length === 4 ? 'year' : key.length === 7 ? 'month' : 'day';
 }
 
@@ -75,17 +77,19 @@ export interface PeriodGroup {
  * coarser than the chosen granularity (only "2010" in a monthly timeline) gets its own coarser
  * period, placed before that year's months.
  */
-export function groupClaims(claims: readonly ClaimDto[], liveIds: ReadonlySet<string> = new Set()): PeriodGroup[] {
+export function groupClaims(claims: readonly ClaimDto[], liveIds: ReadonlySet<string> = new Set(), scope: 'timeline' | 'snapshot' = 'timeline'): PeriodGroup[] {
   const g = chooseGranularity(claims.filter((c) => !liveDay(c, liveIds)));
   const map = new Map<string, ClaimDto[]>();
   for (const c of claims) {
     const day = claimDay(c);
     const live = liveDay(c, liveIds);
-    const key = live ? `${live}${LIVE_SUFFIX}` : day ? keyAt(day, day.length < keyLength(g) ? (day.length === 4 ? 'year' : 'month') : g) : 'undated';
+    // Snapshot (point-in-time question, e.g. today's weather): one spine node for everything;
+    // live updates still get their own node, since they are new readings.
+    const key = live ? `${live}${LIVE_SUFFIX}` : scope === 'snapshot' ? SNAPSHOT_KEY : day ? keyAt(day, day.length < keyLength(g) ? (day.length === 4 ? 'year' : 'month') : g) : 'undated';
     (map.get(key) ?? map.set(key, []).get(key)!).push(c);
   }
   return [...map.entries()]
-    .sort(([a], [b]) => (a === 'undated' ? 1 : b === 'undated' ? -1 : a.localeCompare(b)))
+    .sort(([a], [b]) => (a === 'undated' ? 1 : b === 'undated' ? -1 : a === SNAPSHOT_KEY ? -1 : b === SNAPSHOT_KEY ? 1 : a.localeCompare(b)))
     .map(([key, list]) => ({ key, claims: list }));
 }
 
@@ -116,6 +120,8 @@ export function liveDay(c: Pick<ClaimDto, 'evidence' | 'happenedAt' | 'occurredA
 }
 
 const baseKey = (key: string) => key.replace(LIVE_SUFFIX, '');
+/** Single group of a snapshot investigation (sorted first; live days after it, undated last). */
+const SNAPSHOT_KEY = 'snapshot';
 export const isLiveKey = (key: string) => key.endsWith(LIVE_SUFFIX);
 
 function keyLength(g: Granularity): number {
@@ -196,10 +202,10 @@ function listing(groups: readonly PeriodGroup[]): { text: string; labels: Map<st
 /** Build the timeline periods for a set of claims (one LLM call; deterministic fallback). */
 export async function buildPeriods(
   claims: readonly ClaimDto[],
-  deps: { topic: string; json?: JsonLlm; /** Evidence ids added by live tracking (liveEvidenceIds). */ liveEvidenceIds?: ReadonlySet<string> },
+  deps: { topic: string; json?: JsonLlm; /** Evidence ids added by live tracking (liveEvidenceIds). */ liveEvidenceIds?: ReadonlySet<string>; /** From the planner: snapshot = one spine node. */ scope?: 'timeline' | 'snapshot' },
 ): Promise<TimelinePeriodDto[]> {
   if (!claims.length) return [];
-  const groups = groupClaims(claims, deps.liveEvidenceIds);
+  const groups = groupClaims(claims, deps.liveEvidenceIds, deps.scope);
   const { text, labels } = listing(groups);
   const json = deps.json ?? defaultJsonLlm;
   let written: z.infer<typeof PeriodsOutput>['periods'] = [];
@@ -221,7 +227,7 @@ export async function buildPeriods(
       .slice(0, MAX_SENTENCES);
     const fb = fallbackText(g.claims);
     const llm = Boolean(out?.headline.trim() && sentences.length);
-    const k = baseKey(g.key);
+    const k = g.key === SNAPSHOT_KEY ? new Date().toISOString().slice(0, 10) : baseKey(g.key);
     const day = k === 'undated' ? undefined : k.length === 4 ? `${k}-01-01` : k.length === 7 ? `${k}-01` : k;
     return {
       id: `period-${baseKey(g.key)}${isLiveKey(g.key) ? '-live' : ''}`,

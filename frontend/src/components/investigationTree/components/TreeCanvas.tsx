@@ -325,7 +325,7 @@ function BranchView({
         style={{ transition: 'stroke 0.2s ease, stroke-width 0.2s ease' }}
       />
       {/* Invisible, wider hit area along the line: hovering the line shows the full heading. */}
-      <path d={geometry.pathD} fill="none" stroke="transparent" strokeWidth={10} pointerEvents="stroke" onMouseEnter={() => onHeadingHover(true)} onMouseLeave={() => onHeadingHover(false)} />
+      <path className="branch-hit" d={geometry.pathD} fill="none" stroke="transparent" strokeWidth={10} pointerEvents="stroke" onMouseEnter={() => onHeadingHover(true)} onMouseLeave={() => onHeadingHover(false)} />
       <g className={`branch-current${isPaused ? ' paused' : ''}`} aria-hidden="true">
         <path d={geometry.pathD} fill="none" stroke={accent} strokeWidth="5.5" strokeLinecap="round" opacity="0.12" />
         <path d={geometry.pathD} fill="none" stroke={accent} strokeWidth="2.2" strokeLinecap="round" strokeDasharray="34 1100" className="branch-current-trail" style={{ animationDelay: `${(spineIndex * 0.83 + branchIndex * 1.37) % 7}s` }} />
