@@ -63,6 +63,9 @@ button { color: inherit; }
 .gh-home .gh-topic-label { display: block; }
 .gh-home .gh-research-composer { width: 100%; overflow: hidden; border: 1px solid var(--border-default); border-radius: 8px; transition: border-color .16s ease, box-shadow .16s ease; }
 .gh-home .gh-research-composer textarea { display: block; width: 100%; min-height: 108px; resize: vertical; border: 0; outline: 0; background: transparent; padding: 15px 16px 10px; line-height: 1.55; }
+.gh-home .gh-source-suggestions { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; padding: 0 16px 10px; }
+.gh-home .gh-source-hint { margin-right: 3px; color: var(--text-muted); font-size: 10px; }
+.gh-home .gh-source-pill { display: inline-flex; align-items: center; min-height: 20px; border: 1px solid var(--border-subtle); padding: 2px 6px; color: var(--text-muted); font-size: 10px; line-height: 1.2; letter-spacing: .01em; }
 .gh-home .gh-composer-footer { display: flex; min-height: 58px; align-items: center; justify-content: space-between; gap: 16px; border-top: 1px solid var(--border-subtle); padding: 9px 12px 9px 16px; }
 .gh-home .gh-composer-note { min-width: 0; line-height: 1.45; }
 .gh-home .gh-composer-footer .gh-primary { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 7px; white-space: nowrap; }
