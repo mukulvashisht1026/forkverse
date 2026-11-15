@@ -151,9 +151,10 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
     try { return !reduced && window.sessionStorage.getItem('tracewire-motion') !== 'paused'; }
     catch { return !reduced; }
   });
-  const [detailLevel, setDetailLevel] = useState<'detailed' | 'minimal'>(() => {
-    try { return window.sessionStorage.getItem('tracewire-graph-detail') === 'minimal' ? 'minimal' : 'detailed'; }
-    catch { return 'detailed'; }
+  /** Graph: every branch shows its full heading (and background decoration is hidden). */
+  const [allHeadings, setAllHeadings] = useState<boolean>(() => {
+    try { return window.sessionStorage.getItem('tracewire-graph-headings') === 'all'; }
+    catch { return false; }
   });
   const [topic, setTopic] = useState('');
   const [exampleOffset, setExampleOffset] = useState(0);
@@ -302,8 +303,8 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
   const [cardRevision, setCardRevision] = useState(0);
 
   useEffect(() => {
-    try { window.sessionStorage.setItem('tracewire-graph-detail', detailLevel); } catch { /* session preference is optional */ }
-  }, [detailLevel]);
+    try { window.sessionStorage.setItem('tracewire-graph-headings', allHeadings ? 'all' : 'hover'); } catch { /* session preference is optional */ }
+  }, [allHeadings]);
   useEffect(() => {
     try { window.sessionStorage.setItem('tracewire-motion', motionOn ? 'playing' : 'paused'); } catch { /* session preference is optional */ }
   }, [motionOn]);
@@ -775,7 +776,7 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
         <section className="gh-graph" aria-label={showTimeline ? 'Timeline by period' : showClaims ? 'Claim timeline' : 'Evidence graph'}>
           {workspaceNodes && <TreeCanvasAdapter
             spine={activeNodes} selectedIndex={selectedIndex} focus={activeFocus} moving={motionOn}
-            detailLevel={detailLevel} researching={researchRunning || continuing} fitSignal={workspaceFitSignal}
+            allHeadings={allHeadings} researching={researchRunning || continuing} fitSignal={workspaceFitSignal}
             onHoverTarget={setHoverFocus} onSelectTarget={focusTarget} onClearPin={() => setPinnedFocus(null)}
             onContinue={() => void continueGraph()} isContinuing={continuing} highlight={canvasHighlight}
             liveMarks={liveMarks} links={showClaims ? claimGraph?.links : undefined}
@@ -806,7 +807,7 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
             {highlight?.roles && <div className="gh-proof-legend" aria-label="Proof roles"><span className="role-consensus"><i />Shared facts</span><span className="role-angle"><i />Own angle</span><span className="role-dispute"><i />Disputed</span><span className="role-unreadable"><i />Unreadable</span></div>}
             {highlight && <button type="button" className="gh-highlight-clear" onClick={() => setHighlight(null)} title="Show the whole graph again">{highlight.roles ? `Comparing ${highlight.evidenceIds.size} articles` : highlight.final ? `Showing ${highlight.evidenceIds.size} cited sources` : 'Citing sources…'} · Clear</button>}
             <button type="button" aria-pressed={motionOn && !reducedMotion} disabled={reducedMotion} title={reducedMotion ? 'Disabled by your reduced-motion preference' : undefined} onClick={() => setMotionOn((value) => !value)}>{motionOn && !reducedMotion ? 'Pause motion' : 'Resume motion'}</button>
-            <button type="button" aria-pressed={detailLevel === 'detailed'} onClick={() => setDetailLevel((level) => level === 'detailed' ? 'minimal' : 'detailed')}>{detailLevel === 'detailed' ? 'Detailed view' : 'Minimal view'}</button>
+            <button type="button" aria-pressed={allHeadings} onClick={() => setAllHeadings((on) => !on)} title={allHeadings ? 'Back to short labels (full heading on hover)' : 'Show the full heading of every branch'}>{allHeadings ? 'Hide headings' : 'Show all headings'}</button>
             <button type="button" onClick={fitGraph} title="Back to the start of the graph at normal size">Reset view</button>
           </div>
           {liveToast && <div className={`tw-live-toast p-${liveToast.phase}`} role="status" aria-live="polite"><span className="tw-live-toast-tag"><i className="tw-live-dot" aria-hidden="true" />LIVE</span><span>{liveToast.message}{liveToast.url && <> · <a href={liveToast.url} target="_blank" rel="noopener noreferrer" title={liveToast.url}>{siteHost(liveToast.url)}</a></>}</span><button type="button" aria-label="Dismiss live update" onClick={() => setLiveToast(null)}>×</button></div>}

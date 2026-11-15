@@ -44,7 +44,8 @@ interface Props {
   selectedIndex: number;
   focus: AppFocus | null;
   moving: boolean;
-  detailLevel: 'detailed' | 'minimal';
+  /** Show every branch's full heading (and hide background decoration). */
+  allHeadings?: boolean;
   researching: boolean;
   fitSignal: number;
   onHoverTarget: (target: AppFocus | null) => void;
@@ -109,7 +110,7 @@ export function mapTreeModels(spine: AppSpine[], liveMarks?: ReadonlyMap<string,
   }));
 }
 
-export function TreeCanvasAdapter({ spine, selectedIndex, focus, moving, detailLevel, researching, fitSignal, onHoverTarget, onSelectTarget, onClearPin, onContinue, isContinuing, highlight = null, links, laneNote, liveMarks, onViewChange, onCanvasReady, onGrowthComplete }: Props) {
+export function TreeCanvasAdapter({ spine, selectedIndex, focus, moving, allHeadings = false, researching, fitSignal, onHoverTarget, onSelectTarget, onClearPin, onContinue, isContinuing, highlight = null, links, laneNote, liveMarks, onViewChange, onCanvasReady, onGrowthComplete }: Props) {
   const models = useMemo(() => mapTreeModels(spine, liveMarks), [spine, liveMarks]);
   const selected = focus ?? { i: selectedIndex };
   const selectedBranch: BranchNode | undefined = selected.j === undefined ? undefined : spine[selected.i]?.branches[selected.j];
@@ -119,7 +120,7 @@ export function TreeCanvasAdapter({ spine, selectedIndex, focus, moving, detailL
     onHoverTarget({ i: target.spineIndex, ...(target.branchIndex === undefined ? {} : { j: target.branchIndex }) });
   };
   const selectBranch = (i: number, j: number) => onSelectTarget({ i, j });
-  return <div className={`itl-tree ${detailLevel === 'minimal' ? 'detail-minimal' : ''} ${moving ? '' : 'motion-paused'}`}><TreeCanvas spine={models} selectedIndex={selectedIndex} focusTarget={focus ? { spineIndex: focus.i, ...(focus.j === undefined ? {} : { branchIndex: focus.j }) } : null} isPaused={!moving} researching={researching} fitRequest={{ id: fitSignal, instant: fitSignal === 0 }} onSelectNode={selectNode} onSelectBranch={selectBranch} onSetFocus={setFocus} onGrowthComplete={onGrowthComplete} onContinue={onContinue} isContinuing={isContinuing} highlight={highlight} links={links} claimView={links !== undefined || spine.some((n) => n.period)} laneNote={laneNote} onViewChange={onViewChange} onCanvasReady={onCanvasReady} className="itl-svg" />
+  return <div className={`itl-tree ${allHeadings ? 'detail-minimal headings-all' : ''} ${moving ? '' : 'motion-paused'}`}><TreeCanvas spine={models} selectedIndex={selectedIndex} focusTarget={focus ? { spineIndex: focus.i, ...(focus.j === undefined ? {} : { branchIndex: focus.j }) } : null} isPaused={!moving} researching={researching} fitRequest={{ id: fitSignal, instant: fitSignal === 0 }} onSelectNode={selectNode} onSelectBranch={selectBranch} onSetFocus={setFocus} onGrowthComplete={onGrowthComplete} onContinue={onContinue} isContinuing={isContinuing} highlight={highlight} links={links} claimView={links !== undefined || spine.some((n) => n.period)} showAllHeadings={allHeadings} laneNote={laneNote} onViewChange={onViewChange} onCanvasReady={onCanvasReady} className="itl-svg" />
     {spine.map((node, i) => node.branches.map((branch, j) => <button key={`${node.id}:${branch.id}`} className="itl-branch-hit" style={{ left: `${((i + 0.5) / Math.max(spine.length, 1)) * 100}%`, top: `${j % 2 ? 62 : 38}%` }} aria-label={`Select evidence: ${branch.name}`} onMouseEnter={() => onHoverTarget({ i, j })} onMouseLeave={() => onHoverTarget(null)} onClick={() => selectBranch(i, j)} />))}
     {selectedBranch && <span className="itl-source-preserve" aria-hidden="true">{selectedBranch.sourceUrl}{selectedBranch.sourceDomain}{selectedBranch.publishedAt}{selectedBranch.sourceType}{selectedBranch.impactAngle}</span>}
     <button className="itl-clear" aria-label="Clear selection" onClick={onClearPin} />

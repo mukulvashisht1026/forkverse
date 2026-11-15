@@ -173,3 +173,7 @@
 @keyframes itl-spine-flow{to{stroke-dashoffset:-36}}
 .itl-tree.motion-paused .spine-flow{animation-play-state:paused}
 @media(prefers-reduced-motion:reduce){.itl-tree .spine-flow{animation:none}}
+
+/* "Show all headings": every branch label is visible (claim views otherwise show them on hover). */
+.itl-tree.headings-all .itl-canvas .tip-label{opacity:1!important}
+.itl-tree.headings-all .tip-label{font-size:9px}

@@ -105,6 +105,8 @@ interface TreeCanvasProps {
   links?: TreeLink[];
   /** Claim view: established and pending claims are laid out on separate lanes, compactly. */
   claimView?: boolean;
+  /** Every branch shows its full heading (toolbar "Show all headings"). */
+  showAllHeadings?: boolean;
   /** Claim view: note shown at the end of the unverified lane (e.g. "+12 more unverified"). */
   laneNote?: string;
   onViewChange?: (view: ViewTransform) => void;
@@ -137,6 +139,8 @@ interface BranchViewProps {
   onGrowthComplete: (eventId: string, evidenceId?: string) => void;
   /** Pointer is over this branch's circle or line: show its full heading. */
   showHeading: boolean;
+  /** "Show all headings": every branch shows its full heading, not only on hover. */
+  showAllHeadings?: boolean;
   onHeadingHover: (on: boolean) => void;
 }
 
@@ -158,6 +162,7 @@ function BranchView({
   onSetFocus,
   onGrowthComplete,
   showHeading,
+  showAllHeadings = false,
   onHeadingHover,
 }: BranchViewProps) {
   const pathRef = useRef<SVGPathElement>(null);
@@ -399,11 +404,16 @@ function BranchView({
           </g>
         )}
         {/* While hovered, the full heading is drawn by TipHeadingOverlay (above sibling branches). */}
-        {!(showHeading && branch.fullName) && (
-          <text className="tip-label" fill="#ffffff" y={geometry.dir < 0 ? -17 : 29} textAnchor="middle">
-            {branch.name}
-          </text>
-        )}
+        {!(showHeading && branch.fullName) && (() => {
+          // "Show all headings": the full heading, wrapped, growing away from the tip.
+          const lines = showAllHeadings && branch.fullName ? wrapLabel(branch.fullName, TIP_FULL_WIDTH, TIP_FULL_LINES) : [branch.name];
+          const y0 = geometry.dir < 0 ? -17 - (lines.length - 1) * TIP_LINE : 29;
+          return (
+            <text className="tip-label" fill="#ffffff" y={y0} textAnchor="middle">
+              {lines.map((line, li) => <tspan key={li} x={0} dy={li ? TIP_LINE : 0}>{line}</tspan>)}
+            </text>
+          );
+        })()}
       </g>
     </g>
   );
@@ -450,6 +460,7 @@ export function TreeCanvas({
   highlight = null,
   links = [],
   claimView = false,
+  showAllHeadings = false,
   laneNote,
 }: TreeCanvasProps) {
   const svgRef = useRef<SVGSVGElement>(null);
@@ -1090,6 +1101,7 @@ export function TreeCanvas({
                     onSetFocus={onSetFocus}
                     onGrowthComplete={onGrowthComplete}
                     showHeading={headingTip?.s === spineIdx && headingTip.b === branchIdx}
+                    showAllHeadings={showAllHeadings}
                     onHeadingHover={(on) => setHeadingTip((cur) => (on ? { s: spineIdx, b: branchIdx } : cur?.s === spineIdx && cur.b === branchIdx ? null : cur))}
                   />
                 ))}
