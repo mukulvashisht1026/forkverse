@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://forkversewebqb1xft.z1.web.core.windows.net/sitemap.xml

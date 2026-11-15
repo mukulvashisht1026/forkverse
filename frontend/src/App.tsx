@@ -6,7 +6,7 @@ import { useLiveTimeline } from './hooks/useLiveTimeline';
 import { TreeCanvasAdapter } from './components/investigationTree/TreeCanvasAdapter';
 import './components/investigationTree/treeCanvas.css';
 import { SpineNav } from './components/SpineNav';
-import { investigationRepository, rolesFrom, watchInvestigation, type Investigation, type InvestigationHighlight, type Monitor, type MonitorActivity } from './services/investigations';
+import { investigationRepository, fetchResearchSuggestions, fetchSourcePreviews, rolesFrom, watchInvestigation, type Investigation, type InvestigationHighlight, type Monitor, type MonitorActivity, type PotentialSourcePreview, type TopicSuggestion } from './services/investigations';
 import { isMockInvestigationMode, mockInvestigationRepository } from './services/mockInvestigations';
 import { LiveMonitor, host as siteHost } from './components/LiveMonitor';
 import { addLiveIds, liveMarksAt, pruneLiveIds } from './utils/liveMarks';
@@ -139,6 +139,9 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
     catch { return 'detailed'; }
   });
   const [topic, setTopic] = useState('');
+  const [topicSuggestions, setTopicSuggestions] = useState<TopicSuggestion[]>([]);
+  const [sourcePreviews, setSourcePreviews] = useState<PotentialSourcePreview[]>([]);
+  const [autocompleteBusy, setAutocompleteBusy] = useState(false);
   const [exampleOffset, setExampleOffset] = useState(0);
   const [exampleHovered, setExampleHovered] = useState(false);
   const [exampleFocused, setExampleFocused] = useState(false);
@@ -254,6 +257,20 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
     'Investigate how central banks responded to inflation, comparing major decisions over time and tracing the evidence behind each shift.',
     'Trace changes in US tariffs and international trade policy, connecting official announcements with responses from affected trading partners.',
   ];
+  useEffect(() => {
+    const query = topic.trim();
+    if (query.length < 2) { setTopicSuggestions([]); setSourcePreviews([]); setAutocompleteBusy(false); return; }
+    const controller = new AbortController();
+    setAutocompleteBusy(true);
+    const timer = window.setTimeout(() => {
+      void Promise.all([fetchResearchSuggestions(query, controller.signal), fetchSourcePreviews(query, controller.signal)])
+        .then(([suggestions, sources]) => { setTopicSuggestions(suggestions); setSourcePreviews(sources); })
+        .catch((error) => { if (!(error instanceof DOMException && error.name === 'AbortError')) { setTopicSuggestions([]); setSourcePreviews([]); } })
+        .finally(() => { if (!controller.signal.aborted) setAutocompleteBusy(false); });
+    }, 450);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [topic]);
+
   const filteredHomeInvestigations = investigations.filter((item) => !activeTag || tagsFor(item).includes(activeTag));
   const examplePaused = exampleHovered || exampleFocused || topicFocused || creating || reducedMotion || view !== 'home';
 
@@ -604,8 +621,9 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
               <circle cx="272" cy="85" r="2.5" /><circle cx="358" cy="55" r="3" />
             </g>
           </svg>
-          <h1 id="tracewire-headline">Every story evolves. Never lose the evidence.</h1>
-          <p className="gh-lede">Turn scattered reporting into a living investigation of connected events, claims, and original sources.</p>
+          <h1 id="tracewire-headline">AI-powered investigations, built on evidence.</h1>
+          <p className="gh-lede">Trace how stories evolve by connecting events, claims, and original sources in a living research map.</p>
+          <p className="gh-seo-intro">TRACEWIRE helps researchers investigate complex topics, follow claims over time, and inspect the sources behind each connection.</p>
           <form onSubmit={createInvestigation} className="gh-form">
             <div className="gh-research-composer">
               <textarea id="research-topic" value={topic}
@@ -615,9 +633,12 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
                 placeholder="What would you like to investigate?" rows={4} disabled={creating}
                 aria-label="Research topic"
                 aria-describedby={createError ? 'topic-error' : undefined} />
-              {topic.trim().length >= 2 && <div className="gh-source-suggestions" aria-live="polite" aria-label="Potential sources">
-                <span className="gh-source-hint">Potential sources · demo</span>
-                <span className="gh-source-pill">Reuters</span><span className="gh-source-pill">Associated Press</span><span className="gh-source-pill">BBC News</span><span className="gh-source-pill">Official sources</span>
+              {topic.trim().length >= 2 && <div className="gh-source-suggestions" aria-live="polite" aria-label="Autocomplete suggestions">
+                {autocompleteBusy && <span className="gh-source-hint">Searching suggestions…</span>}
+                {!autocompleteBusy && topicSuggestions.length > 0 && <span className="gh-source-hint">Suggested topics</span>}
+                {topicSuggestions.map((suggestion) => <button type="button" className="gh-source-pill" key={`${suggestion.text}-${suggestion.url}`} onClick={() => setTopic(suggestion.text)} title={suggestion.description ?? suggestion.text}>{suggestion.text}</button>)}
+                {sourcePreviews.length > 0 && <span className="gh-source-hint">Potential sources · candidates, not verified</span>}
+                {sourcePreviews.map((source) => <a className="gh-source-pill" key={source.url} href={source.url} target="_blank" rel="noopener noreferrer" title={source.description ?? source.domain}><img src={source.favicon} alt="" width="12" height="12" /> {source.domain}</a>)}
               </div>}
               <div className="gh-composer-footer">
                 <button className="gh-primary" type="submit" disabled={creating || !topic.trim()}>

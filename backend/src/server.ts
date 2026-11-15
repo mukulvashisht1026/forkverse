@@ -9,6 +9,7 @@ import { config } from './config.js';
 import { col } from './db/client.js';
 import { RealtimeHub } from './realtime/hub.js';
 import { chatRouter } from './routes/chat.js';
+import { autocompleteRouter } from './routes/autocomplete.js';
 import { healthRouter } from './routes/health.js';
 import { helloRouter } from './routes/hello.js';
 import { investigationsRouter } from './routes/investigations.js';
@@ -69,6 +70,7 @@ export function buildServer({ store, hub, investigations, chat, monitors, corsOr
   api.use(healthRouter);
   api.use(helloRouter);
   api.use(chatRouter);
+  api.use(autocompleteRouter());
   api.use(transcriptionRouter({ apiKey: config.GEMINI_API_KEY, model: config.GEMINI_TRANSCRIPTION_MODEL }));
   api.use(timelineRouter({ store, hub }));
   if (investigations) api.use(investigationsRouter(investigations, chat, monitors));

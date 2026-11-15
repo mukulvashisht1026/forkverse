@@ -19,6 +19,9 @@ import { resolveApiUrl, resolveWsUrl } from '../utils/timelineReducer';
 import { claimsToSpineNodes, investigationEventsToSpineNodes } from './investigationGraphAdapter';
 
 /** View model consumed by Home and Workspace; isolated from wire DTOs. */
+export interface TopicSuggestion { text: string; description: string | null; url: string }
+export interface PotentialSourcePreview { title: string; url: string; domain: string; description: string | null; favicon: string; candidate: true; verified: false }
+
 export interface Investigation {
   id: string;
   title: string;
@@ -102,6 +105,16 @@ const API_BASE = import.meta.env?.VITE_API_BASE_URL ?? '';
 const WS_BASE = import.meta.env?.VITE_WS_URL ?? '';
 const RUN_POLL_MS = 1500;
 const RUN_TIMEOUT_MS = 5 * 60_000;
+
+export async function fetchResearchSuggestions(query: string, signal?: AbortSignal): Promise<TopicSuggestion[]> {
+  const response = await request<{ suggestions: TopicSuggestion[] }>(`/research/suggestions?q=${encodeURIComponent(query)}`, { signal });
+  return response.suggestions;
+}
+
+export async function fetchSourcePreviews(query: string, signal?: AbortSignal): Promise<PotentialSourcePreview[]> {
+  const response = await request<{ sources: PotentialSourcePreview[] }>(`/research/source-previews?q=${encodeURIComponent(query)}`, { signal });
+  return response.sources;
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;

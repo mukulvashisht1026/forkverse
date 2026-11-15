@@ -42,6 +42,7 @@ async function request(method: 'GET' | 'POST' | 'DELETE', endpoint: string, body
           ...(body !== undefined && { 'Content-Type': 'application/json' }),
         },
         ...(body !== undefined && { body: JSON.stringify(body) }),
+        signal: AbortSignal.timeout(12_000),
       });
       if (!res.ok) {
         const text = await res.text().catch(() => '');
