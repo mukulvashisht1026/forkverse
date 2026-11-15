@@ -617,14 +617,14 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
                 aria-describedby={createError ? 'topic-error' : undefined} />
               {topic.trim().length >= 2 && <div className="gh-source-suggestions" aria-live="polite" aria-label="Potential sources">
                 <span className="gh-source-hint">Potential sources · demo</span>
-                {[
-                  { name: 'Reuters', type: 'News', match: /news|war|election|policy|trade|company|market/i },
-                  { name: 'Associated Press', type: 'News', match: /news|war|election|policy|trade|company|market/i },
-                  { name: 'BBC News', type: 'News', match: /news|war|election|policy|trade|company|market/i },
+                {(() => { const matched = [
+                  { name: 'Reuters', type: 'News', match: /news|war|election|policy|trade|company|market|climate|technology|health|science|government|law|research|claim|fact|statement|president|politician/i },
+                  { name: 'Associated Press', type: 'News', match: /news|war|election|policy|trade|company|market|climate|technology|health|science|government|law|research|claim|fact|statement|president|politician/i },
+                  { name: 'BBC News', type: 'News', match: /news|war|election|policy|trade|company|market|climate|technology|health|science|government|law|research|claim|fact|statement|president|politician/i },
                   { name: 'Government & official sites', type: 'Official', match: /government|policy|law|regulation|election|president|official/i },
                   { name: 'Academic research', type: 'Research', match: /research|science|study|health|climate|technology/i },
                   { name: 'FactCheck.org', type: 'Fact-check', match: /claim|fact|statement|election|president|politician/i },
-                ].filter((source) => source.match.test(topic)).slice(0, 4).map((source) => <span className="gh-source-pill" key={source.name} title={`${source.type} · demo suggestion`}>{source.name}</span>)}
+                ].filter((source) => source.match.test(topic)).slice(0, 4); return matched.length ? matched.map((source) => <span className="gh-source-pill" key={source.name} title={`${source.type} · demo suggestion`}>{source.name}</span>) : <span className="gh-source-pill">General news</span>; })()}
               </div>}
               <div className="gh-composer-footer">
                 <button className="gh-primary" type="submit" disabled={creating || !topic.trim()}>
