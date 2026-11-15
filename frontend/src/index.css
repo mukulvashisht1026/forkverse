@@ -1262,3 +1262,4 @@ button { color: inherit; }
 .tw-build-dots i.done { background: #8fbfa9; }
 @keyframes tw-build-pulse { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .tw-build-orbit span, .tw-build-dots i.on { animation: none; } }
+.gh-workspace .itl-tree .research-frontier-pill { fill: rgba(255, 253, 245, .95); stroke: #e3d6a8; stroke-width: 1; }

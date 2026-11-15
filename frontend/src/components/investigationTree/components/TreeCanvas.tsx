@@ -975,7 +975,9 @@ export function TreeCanvas({
         {researching && spine.length > 0 && <g className={`research-frontier${isPaused ? ' is-static' : ''}`} transform={`translate(${totalSpineWidth + 42} 0)`} role="status" aria-label="Researching sources">
           <line x1={-32} y1={0} x2={-10} y2={0} />
           <circle r={4} />
-          <text x={10} y={4}>Researching sources…</text>
+          {/* Label sits above the spine (not on it), on a light pill so the line never runs through it. */}
+          <rect className="research-frontier-pill" x={-6} y={-38} width={150} height={22} rx={11} />
+          <text x={69} y={-23} textAnchor="middle">Researching sources…</text>
         </g>}
 
         {/* Unverified lane: pending claims, visually separated from established ones */}
