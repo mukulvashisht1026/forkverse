@@ -26,6 +26,7 @@ import { NodeCard } from './components/NodeCard';
 import { DraggableChatPanel } from './components/DraggableChatPanel';
 import { closeNodeCard, keepExistingNodeCard, nodeCardId, openNodeCard, shouldDismissNodeCardPointer, type ActiveNodeCard } from './utils/nodeCardState';
 import { animateGraphAdditions, findGraphAdditions, isNewerGraphRevision, type GraphAdditions } from './utils/graphAdditions';
+import { homeGlyphOpacity } from './utils/homeTypography';
 
 function HomeTypography() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -54,14 +55,17 @@ function HomeTypography() {
       const step = width < 600 ? 15 : 13;
       glyphs = [];
       const protectedRect = content.getBoundingClientRect();
+      const protectedLocal = {
+        left: protectedRect.left - rect.left,
+        right: protectedRect.right - rect.left,
+        top: protectedRect.top - rect.top,
+        bottom: protectedRect.bottom - rect.top,
+      };
       const fieldTop = Math.max(0, protectedRect.top - rect.top - 150);
       for (let y = fieldTop; y < height + 20; y += 26) for (let x = 10; x < width; x += step) {
-        const px = rect.left + x, py = rect.top + y;
-        if (px >= protectedRect.left - 24 && px <= protectedRect.right + 24 && py >= protectedRect.top - 24 && py <= protectedRect.bottom + 24) continue;
-        // Fade only toward side edges; keep visible glyphs above and below protected content.
-        const sideDistance = px < protectedRect.left - 24 ? protectedRect.left - 24 - px : px > protectedRect.right + 24 ? px - protectedRect.right - 24 : 0;
-        const sideFade = Math.min(1, sideDistance / 140);
-        glyphs.push({ x, y, char: chars[Math.floor(Math.random() * chars.length)], dx: 0, dy: 0, vx: 0, vy: 0, opacity: .12 * sideFade, phase: Math.floor(Math.random() * 75), changeAt: 20 + Math.floor(Math.random() * 75) });
+        const opacity = homeGlyphOpacity(x, y, protectedLocal);
+        if (!opacity) continue;
+        glyphs.push({ x, y, char: chars[Math.floor(Math.random() * chars.length)], dx: 0, dy: 0, vx: 0, vy: 0, opacity, phase: Math.floor(Math.random() * 75), changeAt: 20 + Math.floor(Math.random() * 75) });
       }
     };
     const move = (event: PointerEvent) => { pointer = { x: event.clientX, y: event.clientY }; };
