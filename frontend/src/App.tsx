@@ -26,6 +26,7 @@ import { NodeCard } from './components/NodeCard';
 import { DraggableChatPanel } from './components/DraggableChatPanel';
 import { closeNodeCard, keepExistingNodeCard, nodeCardId, openNodeCard, shouldDismissNodeCardPointer, type ActiveNodeCard } from './utils/nodeCardState';
 import { animateGraphAdditions, findGraphAdditions, isNewerGraphRevision, type GraphAdditions } from './utils/graphAdditions';
+import { homeGlyphOpacity } from './utils/homeTypography';
 
 function HomeTypography() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -54,14 +55,17 @@ function HomeTypography() {
       const step = width < 600 ? 15 : 13;
       glyphs = [];
       const protectedRect = content.getBoundingClientRect();
+      const protectedLocal = {
+        left: protectedRect.left - rect.left,
+        right: protectedRect.right - rect.left,
+        top: protectedRect.top - rect.top,
+        bottom: protectedRect.bottom - rect.top,
+      };
       const fieldTop = Math.max(0, protectedRect.top - rect.top - 150);
       for (let y = fieldTop; y < height + 20; y += 26) for (let x = 10; x < width; x += step) {
-        const px = rect.left + x, py = rect.top + y;
-        if (px >= protectedRect.left - 24 && px <= protectedRect.right + 24 && py >= protectedRect.top - 24 && py <= protectedRect.bottom + 24) continue;
-        // Fade only toward side edges; keep visible glyphs above and below protected content.
-        const sideDistance = px < protectedRect.left - 24 ? protectedRect.left - 24 - px : px > protectedRect.right + 24 ? px - protectedRect.right - 24 : 0;
-        const sideFade = Math.min(1, sideDistance / 140);
-        glyphs.push({ x, y, char: chars[Math.floor(Math.random() * chars.length)], dx: 0, dy: 0, vx: 0, vy: 0, opacity: .12 * sideFade, phase: Math.floor(Math.random() * 75), changeAt: 20 + Math.floor(Math.random() * 75) });
+        const opacity = homeGlyphOpacity(x, y, protectedLocal);
+        if (!opacity) continue;
+        glyphs.push({ x, y, char: chars[Math.floor(Math.random() * chars.length)], dx: 0, dy: 0, vx: 0, vy: 0, opacity, phase: Math.floor(Math.random() * 75), changeAt: 20 + Math.floor(Math.random() * 75) });
       }
     };
     const move = (event: PointerEvent) => { pointer = { x: event.clientX, y: event.clientY }; };
@@ -657,7 +661,7 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
     <main className="gh-home">
       <HomeTypography />
       <div className="gh-home-content">
-        <div className="gh-brand"><span className="gh-mark">T</span><span>TRACEWIRE</span></div>
+        <header className="gh-brand"><span className="gh-mark" aria-hidden="true">T</span><span>TRACEWIRE</span></header>
         <section className="gh-create" aria-labelledby="tracewire-headline">
           <svg className="tw-hero-network" viewBox="0 0 380 180" aria-hidden="true" focusable="false">
             <defs><linearGradient id="tw-line-wave"><stop offset="0" stopColor="#d1a900" stopOpacity=".12" /><stop offset=".5" stopColor="#d1a900" stopOpacity=".65" /><stop offset="1" stopColor="#d1a900" stopOpacity=".12" /></linearGradient></defs>
@@ -673,8 +677,9 @@ const { sendPrompt } = useLiveTimeline(fitGraph);
               <circle cx="272" cy="85" r="2.5" /><circle cx="358" cy="55" r="3" />
             </g>
           </svg>
-          <h1 id="tracewire-headline">Every story evolves. Never lose the evidence.</h1>
-          <p className="gh-lede">Turn scattered reporting into a living investigation of connected events, claims, and original sources.</p>
+          <h1 id="tracewire-headline">AI-powered research for stories that keep changing.</h1>
+          <p className="gh-lede">TRACEWIRE connects events, claims, and original sources in visual investigations, helping you follow how a story develops and verify each insight against its evidence.</p>
+          <p className="gh-explainer">Start an investigation from a question, then trace its claims and sources as new evidence emerges.</p>
           <form onSubmit={createInvestigation} className="gh-form">
             <div className="gh-research-composer">
               <textarea id="research-topic" value={topic}
