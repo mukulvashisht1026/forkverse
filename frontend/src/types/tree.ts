@@ -116,7 +116,7 @@ export interface SpineNode {
   /** Politician view: what later reports say happened to the claim. */
   outcome?: 'fulfilled' | 'not_fulfilled' | 'in_progress' | 'no_update';
   /** Timeline view: this spine node is a period (its branches are the period's claims). */
-  period?: { label: string; headline: string; sources: ClaimSourceRef[]; established: number; unverified: number };
+  period?: { label: string; headline: string; sources: ClaimSourceRef[]; established: number; unverified: number; live?: boolean };
 }
 
 export interface FocusTarget {

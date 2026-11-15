@@ -225,6 +225,41 @@ describe('MonitorService', () => {
     expect((await store.get('inv1'))!.events).toHaveLength(1);
   });
 
+  it('fast checking: triggers runs every N seconds without spamming "no change", stops on demand, rejects other gaps', async () => {
+    const getRun = vi.fn(async () => ({ id: 'run_1', status: 'completed', change_id: null }));
+    const { service, client, store, frames } = await setup(fakeClient({ getRun }));
+    await service.create('inv1', { kind: 'news_feed' });
+    const dto = await service.setFastCheck('inv1', 'mon_1', 5);
+    expect(dto.fastCheckSeconds).toBe(5);
+    expect(Date.parse(dto.fastUntil!) - Date.now()).toBeGreaterThan(29 * 60_000);
+    await vi.waitFor(() => expect(client.runNow).toHaveBeenCalled());
+    await vi.waitFor(async () => expect((await store.get('inv1'))!.monitors![0]!.lastCheckedAt).toBeDefined());
+    expect(frames.filter((f) => f.payload.phase === 'no_change')).toHaveLength(0); // quiet loop
+    await expect(service.setFastCheck('inv1', 'mon_1', 7)).rejects.toMatchObject({ status: 400 });
+    const off = await service.setFastCheck('inv1', 'mon_1', 0);
+    expect(off.fastCheckSeconds).toBeUndefined();
+    expect((await store.get('inv1'))!.monitors![0]).not.toHaveProperty('fastUntil');
+    service.stopPolling();
+  });
+
+  it('fast checking switches itself off once its time is up', async () => {
+    let now = Date.now();
+    const store = new MemoryInvestigationStore();
+    await store.create(record());
+    const frames: { type: string; payload: Record<string, unknown> }[] = [];
+    const client = fakeClient({ getRun: vi.fn(async () => ({ id: 'run_1', status: 'completed', change_id: null })) });
+    const service = new MonitorService({ store, client, publish: (f) => frames.push(f as never), sleep: async () => {}, now: () => new Date(now) });
+    await service.create('inv1', { kind: 'news_feed' });
+    await service.setFastCheck('inv1', 'mon_1', 30);
+    await vi.waitFor(() => expect(client.runNow).toHaveBeenCalledTimes(1));
+    now += 31 * 60_000; // past the 30 min limit
+    await (service as unknown as { fastTick: (i: string, m: string) => Promise<void> }).fastTick('inv1', 'mon_1');
+    expect((await store.get('inv1'))!.monitors![0]!.fastCheckSeconds).toBeUndefined();
+    expect(frames.some((f) => String(f.payload.message).includes('Fast checking') && String(f.payload.message).includes('ended'))).toBe(true);
+    expect(client.runNow).toHaveBeenCalledTimes(1);
+    service.stopPolling();
+  });
+
   it('reports no change when the run found none', async () => {
     const { service, frames, store } = await setup(fakeClient({ getRun: vi.fn(async () => ({ id: 'run_1', status: 'completed', change_id: null })) }));
     await service.create('inv1', { kind: 'news_feed' });

@@ -79,7 +79,7 @@ export function mapTreeModels(spine: AppSpine[], liveMarks?: ReadonlyMap<string,
     ...(node.claimStatus === 'pending' && (node.outcome ? { unverified: true } : { pending: true })),
     ...(node.disputed && { disputed: true }), ...(node.outcome && { outcome: node.outcome }),
     // A node counts as live-updated when it, or any of its sources, was just added by a monitor.
-    ...((() => { const own = liveMarks?.get(node.id); const kids = node.branches.flatMap((b) => [liveMarks?.get(b.id), ...(b.groupedSources?.map((source) => liveMarks?.get(source.id)) ?? [])]); const m = own === 'fresh' || kids.includes('fresh') ? 'fresh' : own ?? kids.find(Boolean); return m ? { live: m } : {}; })()),
+    ...((() => { const own = liveMarks?.get(node.id); const kids = node.branches.flatMap((b) => [liveMarks?.get(b.id), ...(b.groupedSources?.map((source) => liveMarks?.get(source.id)) ?? [])]); const m = own === 'fresh' || kids.includes('fresh') ? 'fresh' : own ?? kids.find(Boolean) ?? (node.period?.live ? 'recent' : undefined); return m ? { live: m } : {}; })()),
     // Red flags: count and strongest score of this node's flagged sources (hover summary).
     ...((() => {
       const flagged = node.branches.map((b) => ({ b, f: b.redFlag ?? propagandaFlag(b.vetting) })).filter((x) => x.f);

@@ -18,7 +18,7 @@ const EnvSchema = z.object({
   CONTEXT_DEV_BASE_URL: z.string().url().default('https://api.context.dev/v1'),
   CONTEXT_DEV_CONCURRENCY: z.coerce.number().int().min(1).max(50).default(10),
   // Live monitors: how often to pull detected changes from Context.dev (0 = webhook only).
-  MONITOR_POLL_MS: z.coerce.number().int().min(0).default(60_000),
+  MONITOR_POLL_MS: z.coerce.number().int().min(0).default(30_000),
   // Screen every source for propaganda (page text + domain lists) before it is used to build
   // the claim graph. false = domain lists only (no extra scrape/LLM cost).
   AUTO_VET_SOURCES: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),

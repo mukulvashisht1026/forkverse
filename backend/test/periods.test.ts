@@ -100,3 +100,34 @@ describe('result limits', () => {
     ]);
   });
 });
+
+describe('live update periods', () => {
+  const live = (id: string, at: string) => ({ evidenceId: `mon-chg_${id}`, stance: 'supports' as const, quote: 'q', title: `Live ${id}`, publisher: 'live.example', url: `https://live.example/${id}`, publishedAt: at });
+  it('claims first reported by a live monitor update get their own "Live · <day>" spine node at the end', async () => {
+    const { groupClaims, liveDay, buildPeriods } = await import('../src/claims/periods.js');
+    const old = claim('old', { occurredAt: '2026-11-02T10:00:00Z' });
+    const fresh = claim('fresh', { occurredAt: '2026-11-15T02:05:45Z' }, 'pending', [live('a', '2026-11-15T02:05:45Z')]);
+    // A live source that re-confirms an older fact stays in its own period.
+    const reconfirmed = claim('re', { occurredAt: '2026-11-03T10:00:00Z' }, 'established', [ev('r1', 'one.example'), live('b', '2026-11-15T03:00:00Z')]);
+    const stated2016 = claim('s', { happenedAt: '2016-07', occurredAt: '2026-11-15T02:05:45Z' }, 'pending', [live('c', '2026-11-15T02:05:45Z')]);
+    expect(liveDay(fresh)).toBe('2026-11-15');
+    expect(liveDay(reconfirmed)).toBeUndefined();
+    expect(liveDay(stated2016)).toBeUndefined();
+    expect(groupClaims([fresh, old, reconfirmed, stated2016]).map((g) => [g.key, g.claims.map((c) => c.id)])).toEqual([
+      ['2016', ['s']], ['2026', ['old', 're']], ['2026-11-15~live', ['fresh']],
+    ]);
+    const periods = await buildPeriods([old, fresh], { topic: 't', json: vi.fn(async () => { throw new Error('x'); }) as never });
+    expect(periods.at(-1)).toMatchObject({ id: 'period-2026-11-15-live', label: 'Live · 15 Nov 2026', granularity: 'day', start: '2026-11-15', live: true, claimIds: ['fresh'] });
+  });
+});
+
+describe('live articles from feeds', () => {
+  it('evidence stored under a live-update event counts as live even with an article id', async () => {
+    const { groupClaims, liveEvidenceIds } = await import('../src/claims/periods.js');
+    const ids = liveEvidenceIds([{ id: 'evt-mon-chg_1', evidence: [{ id: 'art-feed1' }] }, { id: 'evt-1', evidence: [{ id: 'art-old' }] }]);
+    expect([...ids]).toEqual(['art-feed1']);
+    const fromFeed = claim('feed', { occurredAt: '2026-11-15T09:00:00Z' }, 'pending', [{ ...ev('feed1', 'reuters.example'), evidenceId: 'art-feed1', publishedAt: '2026-11-15T09:00:00Z' }] as never);
+    const old = claim('old', { occurredAt: '2026-11-01T09:00:00Z' });
+    expect(groupClaims([old, fromFeed], ids).map((g) => g.key)).toEqual(['2026-11-01', '2026-11-15~live']);
+  });
+});

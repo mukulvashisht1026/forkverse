@@ -34,6 +34,9 @@ import { logger } from '../utils/logger.js';
 import { changeToEvidence, newsFeedUrl } from './ingest.js';
 
 export const MAX_MONITORS_PER_INVESTIGATION = 3;
+/** Fast-check gaps offered in the UI (seconds) and how long fast checking stays on. */
+export const FAST_CHECK_SECONDS = [5, 10, 30] as const;
+export const FAST_CHECK_MAX_MS = 30 * 60_000;
 const DEFAULT_INTERVAL = 15;
 const RUN_WAIT_MS = 3 * 60_000;
 const RUN_POLL_MS = 4000;
@@ -90,6 +93,8 @@ export class MonitorService {
   /** Change ids being applied right now (webhook and poller can race). */
   private inFlight = new Set<string>();
   private pollTimer?: NodeJS.Timeout;
+  /** Fast-check loops by monitor id (one at a time per monitor). */
+  private fast = new Map<string, NodeJS.Timeout>();
   private polling = false;
   private sleep: (ms: number) => Promise<void>;
   private now: () => Date;
@@ -188,11 +193,76 @@ export class MonitorService {
 
   async remove(investigationId: string, monitorId: string): Promise<void> {
     const m = await this.monitor(investigationId, monitorId);
+    this.stopFast(monitorId);
     await this.deps.client.remove(m.id).catch((err) => logger.warn({ err, monitorId }, 'context.dev monitor delete failed; removing locally'));
     await this.deps.store.removeMonitor(investigationId, monitorId);
   }
 
   /** Trigger a run now; the result is applied in the background (progress on /ws). */
+  /**
+   * Fast checking for live demos: Context.dev schedules no faster than every 10 minutes, so the
+   * backend triggers a run itself every N seconds (the next only after the previous finished, so
+   * runs never overlap). 1 Context.dev credit per run; switches itself off after FAST_CHECK_MAX_MS.
+   */
+  async setFastCheck(investigationId: string, monitorId: string, seconds: number): Promise<MonitorDto> {
+    if (seconds !== 0 && !(FAST_CHECK_SECONDS as readonly number[]).includes(seconds)) {
+      throw new InvestigationError(400, 'invalid_fast_check', `fastCheckSeconds must be 0 or one of ${FAST_CHECK_SECONDS.join(', ')}.`);
+    }
+    const m = await this.monitor(investigationId, monitorId);
+    if (seconds && m.status !== 'active') throw new InvestigationError(409, 'monitor_inactive', 'The monitor is not active.');
+    this.stopFast(monitorId);
+    const until = seconds ? new Date(this.now().getTime() + FAST_CHECK_MAX_MS).toISOString() : undefined;
+    const next = (await this.touch(investigationId, monitorId, { fastCheckSeconds: seconds || undefined, fastUntil: until })) ?? m;
+    if (seconds) {
+      this.say(m, 'checking', `Checking ${hostOf(m.url)} every ${seconds} s for the next ${FAST_CHECK_MAX_MS / 60_000} min.`);
+      this.scheduleFast(next, 0);
+    } else {
+      this.say(m, 'no_change', `Fast checking of ${hostOf(m.url)} stopped; back to every ${m.intervalMinutes} min.`);
+    }
+    return toMonitorDto(next);
+  }
+
+  private stopFast(monitorId: string) {
+    const t = this.fast.get(monitorId);
+    if (t) clearTimeout(t);
+    this.fast.delete(monitorId);
+  }
+
+  private scheduleFast(m: Pick<MonitorRecord, 'investigationId' | 'id'>, delayMs: number) {
+    const t = setTimeout(() => void this.fastTick(m.investigationId, m.id), delayMs);
+    t.unref();
+    this.fast.set(m.id, t);
+  }
+
+  private async fastTick(investigationId: string, monitorId: string): Promise<void> {
+    const m = (await this.deps.store.get(investigationId).catch(() => null))?.monitors?.find((x) => x.id === monitorId);
+    if (!m || !m.fastCheckSeconds || m.status !== 'active') {
+      this.fast.delete(monitorId);
+      return;
+    }
+    if (!m.fastUntil || Date.parse(m.fastUntil) <= this.now().getTime()) {
+      this.fast.delete(monitorId);
+      await this.touch(investigationId, monitorId, { fastCheckSeconds: undefined, fastUntil: undefined }).catch(() => {});
+      this.say(m, 'no_change', `Fast checking of ${hostOf(m.url)} ended after ${FAST_CHECK_MAX_MS / 60_000} min; back to every ${m.intervalMinutes} min.`);
+      return;
+    }
+    try {
+      const { runId } = await this.deps.client.runNow(m.id);
+      await this.awaitRun(m, runId, { quiet: true });
+      await this.touch(investigationId, monitorId, { lastCheckedAt: this.iso() });
+    } catch (err) {
+      logger.warn({ err, monitorId }, 'fast check failed');
+    }
+    if (this.fast.has(monitorId)) this.scheduleFast(m, m.fastCheckSeconds * 1000);
+  }
+
+  /** After a restart: resume fast checking that has not expired yet. */
+  private async resumeFast(): Promise<void> {
+    for (const m of await this.deps.store.listAllMonitors()) {
+      if (m.fastCheckSeconds && m.fastUntil && Date.parse(m.fastUntil) > this.now().getTime() && !this.fast.has(m.id)) this.scheduleFast(m, 0);
+    }
+  }
+
   async checkNow(investigationId: string, monitorId: string): Promise<{ runId: string }> {
     const m = await this.monitor(investigationId, monitorId);
     let runId: string;
@@ -206,7 +276,8 @@ export class MonitorService {
     return { runId };
   }
 
-  private async awaitRun(m: MonitorRecord, runId: string): Promise<void> {
+  /** quiet: fast-check loop (no "no change" / "already running" messages every few seconds). */
+  private async awaitRun(m: MonitorRecord, runId: string, opts: { quiet?: boolean } = {}): Promise<void> {
     const deadline = this.now().getTime() + RUN_WAIT_MS;
     try {
       for (;;) {
@@ -214,6 +285,7 @@ export class MonitorService {
         if (run.status === 'failed') throw new Error(run.error?.message || 'The check failed.');
         if (run.status === 'skipped') {
           if (run.skip_reason === 'superseded') {
+            if (opts.quiet) return; // the loop simply tries again
             // Another run (e.g. the baseline) is in progress: its changes reach us via the poller.
             this.say(m, 'checking', `A check of ${hostOf(m.url)} is already running; any change will appear automatically.`);
             setTimeout(() => void this.pollOnce().catch(() => {}), 30_000).unref();
@@ -226,7 +298,7 @@ export class MonitorService {
             await this.apply(m.investigationId, m.id, await this.deps.client.getChange(run.change_id));
           } else {
             await this.touch(m.investigationId, m.id, { lastError: undefined });
-            this.say(m, 'no_change', `No change on ${hostOf(m.url)} since the last check.`);
+            if (!opts.quiet) this.say(m, 'no_change', `No change on ${hostOf(m.url)} since the last check.`);
           }
           return;
         }
@@ -237,7 +309,7 @@ export class MonitorService {
       const message = err instanceof Error ? err.message : String(err);
       logger.warn({ err, monitorId: m.id }, 'monitor check failed');
       await this.touch(m.investigationId, m.id, { lastError: message }).catch(() => {});
-      this.say(m, 'error', message);
+      if (!opts.quiet) this.say(m, 'error', message);
     }
   }
 
@@ -266,6 +338,7 @@ export class MonitorService {
   }
 
   startPolling(intervalMs: number): void {
+    void this.resumeFast().catch((err) => logger.warn({ err }, 'could not resume fast checks'));
     if (intervalMs <= 0 || this.pollTimer) return;
     this.pollTimer = setInterval(() => void this.pollOnce().catch((err) => logger.error({ err }, 'monitor poller failed')), intervalMs);
     this.pollTimer.unref();
@@ -274,6 +347,7 @@ export class MonitorService {
   stopPolling(): void {
     clearInterval(this.pollTimer);
     this.pollTimer = undefined;
+    for (const id of [...this.fast.keys()]) this.stopFast(id);
   }
 
   /**

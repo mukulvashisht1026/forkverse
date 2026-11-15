@@ -122,6 +122,19 @@ export function LiveMonitor({ investigationId, topic, activity, disabled, onMoni
     }
   };
 
+  const setFast = async (id: string, seconds: 0 | 5 | 10 | 30) => {
+    setBusy(`fast:${id}`);
+    setError(null);
+    try {
+      await monitorRepository.setFastCheck(investigationId, id, seconds);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not change the check speed.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const act = async (id: string, what: 'check' | 'remove') => {
     setBusy(`${what}:${id}`);
     setError(null);
@@ -164,8 +177,21 @@ export function LiveMonitor({ investigationId, topic, activity, disabled, onMoni
                 </div>
                 <div className="tw-live-site"><SiteLink url={m.url} /></div>
                 <div className="tw-live-meta">
-                  every {m.intervalMinutes} min · {m.webhook ? 'push' : 'polled'} · checked {ago(m.lastCheckedAt)} · {m.changesApplied} update{m.changesApplied === 1 ? '' : 's'}{m.lastChangeAt ? ` · last change ${ago(m.lastChangeAt)}` : ''}
+                  {m.fastCheckSeconds ? `every ${m.fastCheckSeconds} s (fast)` : `every ${m.intervalMinutes} min`} · {m.webhook ? 'push' : 'polled'} · checked {ago(m.lastCheckedAt)} · {m.changesApplied} update{m.changesApplied === 1 ? '' : 's'}{m.lastChangeAt ? ` · last change ${ago(m.lastChangeAt)}` : ''}
                   {m.lastError && <span className="tw-live-error"> · {m.lastError}</span>}
+                </div>
+                <div className="tw-live-speed" role="group" aria-label={`Check speed for ${m.label}`}>
+                  <span>Check every</span>
+                  {([0, 30, 10, 5] as const).map((s) => {
+                    const on = (m.fastCheckSeconds ?? 0) === s;
+                    return (
+                      <button key={s} type="button" className={on ? 'on' : ''} aria-pressed={on} disabled={busy !== null || m.status !== 'active'} onClick={() => void setFast(m.id, s)}
+                        title={s ? `Check every ${s} seconds for 30 minutes (1 Context.dev credit per check)` : `Context.dev schedule: every ${m.intervalMinutes} min`}>
+                        {busy === `fast:${m.id}` && on ? <LoaderCircle className="gh-spin" size={11} /> : null}{s ? `${s}s` : `${m.intervalMinutes}m`}
+                      </button>
+                    );
+                  })}
+                  {m.fastCheckSeconds && m.fastUntil ? <span className="tw-live-speed-note"><i className="tw-live-dot" aria-hidden="true" />fast until {new Date(m.fastUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span> : null}
                 </div>
                 <div className="tw-live-actions">
                   <button type="button" onClick={() => void act(m.id, 'check')} disabled={busy !== null}>

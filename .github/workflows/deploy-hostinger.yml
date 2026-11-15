@@ -1,0 +1,107 @@
+# Deploy TRACEWIRE to the Hostinger VPS on every push to main (runs alongside deploy-azure.yml).
+#
+# The VPS runs backend + frontend + Caddy (HTTPS) with docker-compose.prod.yml. This workflow:
+#   1. typechecks and tests backend and frontend,
+#   2. copies the repository to the VPS over SSH (rsync; the server's .env is never touched or
+#      uploaded, and the server needs no GitHub access),
+#   3. rebuilds and restarts the containers, then checks https://<host>/api/health.
+#
+# Repo secrets (Settings -> Secrets and variables -> Actions):
+#   HOSTINGER_HOST         e.g. srv2160463.hstgr.cloud
+#   HOSTINGER_USER         e.g. root
+#   HOSTINGER_SSH_KEY      private key of a deploy-only SSH key (its .pub is in the VPS authorized_keys)
+#   HOSTINGER_KNOWN_HOSTS  output of: ssh-keyscan -t ed25519 <host>   (pins the server's host key)
+# Without HOSTINGER_HOST the deploy job is skipped (checks still run).
+
+name: Deploy to Hostinger
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-hostinger
+  cancel-in-progress: false
+
+env:
+  APP_DIR: /opt/tracewire
+  NODE_VERSION: '22'
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - name: Backend typecheck + tests
+        working-directory: backend
+        run: npm ci && npm run typecheck && npm test
+      - name: Frontend typecheck + tests + build
+        working-directory: frontend
+        run: npm ci && npx tsc --noEmit && npm test && npm run build
+
+  deploy:
+    needs: checks
+    runs-on: ubuntu-latest
+    env:
+      HOST: ${{ secrets.HOSTINGER_HOST }}
+      USER_NAME: ${{ secrets.HOSTINGER_USER }}
+    steps:
+      - name: Check deploy target
+        id: target
+        run: |
+          if [ -z "$HOST" ]; then echo "HOSTINGER_HOST secret not set: skipping deploy."; echo "skip=true" >> "$GITHUB_OUTPUT"; fi
+
+      - uses: actions/checkout@v4
+        if: steps.target.outputs.skip != 'true'
+
+      - name: SSH setup
+        if: steps.target.outputs.skip != 'true'
+        env:
+          SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.HOSTINGER_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts && chmod 644 ~/.ssh/known_hosts
+          printf 'Host deploy\n  HostName %s\n  User %s\n  IdentityFile ~/.ssh/deploy_key\n  IdentitiesOnly yes\n  StrictHostKeyChecking yes\n' "$HOST" "${USER_NAME:-root}" > ~/.ssh/config
+
+      - name: Copy code to the VPS
+        if: steps.target.outputs.skip != 'true'
+        run: |
+          ssh deploy "mkdir -p $APP_DIR"
+          rsync -az --delete \
+            --exclude '.git/' --exclude '.github/' --exclude '.env' --exclude '.env.*' \
+            --exclude 'node_modules/' --exclude 'dist/' --exclude 'todo/' \
+            ./ "deploy:$APP_DIR/"
+
+      - name: Rebuild and restart containers
+        if: steps.target.outputs.skip != 'true'
+        run: |
+          ssh deploy "set -e
+            cd $APP_DIR
+            test -f .env || { echo '.env missing on the server ($APP_DIR/.env)'; exit 1; }
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --remove-orphans
+            docker image prune -f >/dev/null
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml ps"
+
+      - name: Health check
+        if: steps.target.outputs.skip != 'true'
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS "https://$HOST/api/health" >/dev/null; then echo "Healthy: https://$HOST"; exit 0; fi
+            sleep 10
+          done
+          echo "Health check failed; backend logs:"
+          ssh deploy "cd $APP_DIR && docker compose -f docker-compose.yml -f docker-compose.prod.yml logs --tail=80 backend"
+          exit 1

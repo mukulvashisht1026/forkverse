@@ -18,7 +18,7 @@ import type {
   ResearchRunStatus,
 } from '../../../contracts/investigations';
 import { resolveApiUrl, resolveWsUrl } from '../utils/timelineReducer';
-import { claimsToSpineNodes, fallbackPeriods, investigationEventsToSpineNodes, periodsToSpineNodes, vettingByEvidence } from './investigationGraphAdapter';
+import { claimsToSpineNodes, fallbackPeriods, liveEvidenceIds, investigationEventsToSpineNodes, periodsToSpineNodes, vettingByEvidence } from './investigationGraphAdapter';
 
 /** View model consumed by Home and Workspace; isolated from wire DTOs. */
 export interface Investigation {
@@ -98,7 +98,7 @@ export function mapInvestigationGraphDto(dto: InvestigationGraphDto): Investigat
       return {
         claimNodes: claimsToSpineNodes(dto.claims, dto.mode, vetting),
         claimLinks: dto.claimLinks ?? [],
-        timelineNodes: periodsToSpineNodes(dto.periods?.length ? dto.periods : fallbackPeriods(dto.claims), dto.claims, vetting),
+        timelineNodes: periodsToSpineNodes(dto.periods?.length ? dto.periods : fallbackPeriods(dto.claims, liveEvidenceIds(dto.events)), dto.claims, vetting),
       };
     })() : {}),
     ...(dto.entity ? { entity: dto.entity } : {}),
@@ -216,6 +216,10 @@ export const monitorRepository = {
   },
   async remove(investigationId: string, monitorId: string): Promise<void> {
     await request<null>(path(investigationId, `/monitors/${encodeURIComponent(monitorId)}`), { method: 'DELETE' });
+  },
+  /** Fast checking (5 / 10 / 30 s; 0 = off). The backend switches it off after 30 min. */
+  async setFastCheck(investigationId: string, monitorId: string, fastCheckSeconds: 0 | 5 | 10 | 30): Promise<Monitor> {
+    return request<MonitorDto>(path(investigationId, `/monitors/${encodeURIComponent(monitorId)}`), { method: 'PATCH', body: JSON.stringify({ fastCheckSeconds }) });
   },
   async checkNow(investigationId: string, monitorId: string): Promise<void> {
     await request<{ runId: string }>(path(investigationId, `/monitors/${encodeURIComponent(monitorId)}/check`), { method: 'POST', body: '{}' });

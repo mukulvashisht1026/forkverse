@@ -23,6 +23,7 @@
  * GET    /investigations/:id/monitors/suggestions            -> { items: LiveSourceDto[] } (pages updating now, best first)
  * DELETE /investigations/:id/monitors/:monitorId            -> 204
  * POST   /investigations/:id/monitors/:monitorId/check      -> 202 { runId } (result arrives on /ws)
+ * PATCH  /investigations/:id/monitors/:monitorId  { fastCheckSeconds: 0|5|10|30 } -> MonitorDto (fast checking, 30 min max)
  * POST   /investigations/:id/vet   {evidenceIds?}           -> 202 {queued,total} (propaganda screening of sources)
  * POST   /vet                      {url}                    -> SourceVettingDto (screen any website now)
  * GET    /investigations/:id/newspaper                      -> NewspaperEditionDto (front page from the claim graph)
@@ -58,6 +59,7 @@ const ResearchBody = z.object({
   eventId: z.string().optional(),
 });
 
+const UpdateMonitorBody = z.object({ fastCheckSeconds: z.union([z.literal(0), z.literal(5), z.literal(10), z.literal(30)]) });
 const MonitorBody = z.object({
   kind: z.enum(['news_feed', 'page', 'sitemap']),
   url: z.string().max(2000).optional(),
@@ -131,6 +133,10 @@ export function investigationsRouter(service: InvestigationService, chat?: Resea
     r.delete('/investigations/:id/monitors/:monitorId', async (req, res) => {
       await monitors.remove(String(req.params.id), String(req.params.monitorId));
       res.status(204).end();
+    });
+    r.patch('/investigations/:id/monitors/:monitorId', async (req, res) => {
+      const { fastCheckSeconds } = parse(UpdateMonitorBody, req.body);
+      res.json(await monitors.setFastCheck(String(req.params.id), String(req.params.monitorId), fastCheckSeconds));
     });
     r.post('/investigations/:id/monitors/:monitorId/check', async (req, res) => {
       res.status(202).json(await monitors.checkNow(String(req.params.id), String(req.params.monitorId)));

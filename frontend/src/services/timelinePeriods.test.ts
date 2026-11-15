@@ -32,3 +32,11 @@ test('periods become spine nodes with the summary as info and claims as branches
   assert.equal(node!.info, 'Sum.');
   assert.deepEqual(node!.branches.map((b) => [b.id, b.claimStatus]), [['a', 'established'], ['b', 'pending']]);
 });
+
+test('fallback: claims first reported by a live update get a "Live · <day>" period at the end; span picks the granularity', () => {
+  const live = { evidenceId: 'mon-chg_x', stance: 'supports' as const, quote: 'q', title: 'Live', publisher: 'live.example', url: 'https://live.example/x', publishedAt: '2026-11-15T02:05:45Z' };
+  const claims = [claim('old', '2016-07', 'established'), claim('now', undefined, 'pending', [live]), claim('mid', '2026-11-02', 'established')];
+  claims[1]!.occurredAt = '2026-11-15T02:05:45Z';
+  const periods = fallbackPeriods(claims);
+  assert.deepEqual(periods.map((p) => [p.label, p.claimIds, p.live ?? false]), [['2016', ['old'], false], ['2026', ['mid'], false], ['Live · 15 Nov 2026', ['now'], true]]);
+});

@@ -313,6 +313,8 @@ export interface TimelinePeriodDto {
   established: number;
   unverified: number;
   writer: 'llm' | 'fallback';
+  /** Claims first reported by a live monitor update on this day ("Live · <day>" spine node). */
+  live?: boolean;
 }
 
 export interface ClaimLinkDto {
@@ -348,6 +350,14 @@ export interface MonitorDto {
   lastError?: string;
   /** Changes that added evidence to the graph. */
   changesApplied: number;
+  /** Fast checking: the backend triggers a check every N seconds (5 | 10 | 30) until fastUntil. */
+  fastCheckSeconds?: number;
+  fastUntil?: IsoDateTime;
+}
+
+/** PATCH /investigations/:id/monitors/:monitorId - 0 switches fast checking off. */
+export interface UpdateMonitorRequestDto {
+  fastCheckSeconds: 0 | 5 | 10 | 30;
 }
 
 export interface CreateMonitorRequestDto {

@@ -18,7 +18,7 @@ import { articleBranchId } from '../research/articles.js';
 import type { VettingService } from '../vetting/service.js';
 import { buildClaims, decideStatus, type BuildResult } from './builder.js';
 import { corroborateClaims, outcomeOf, storeCorroboration, type NewsSearch } from './corroborate.js';
-import { buildPeriods } from './periods.js';
+import { buildPeriods, liveEvidenceIds } from './periods.js';
 
 export interface ClaimPipelineDeps {
   store: InvestigationStore;
@@ -85,7 +85,7 @@ export async function buildClaimGraph(investigationId: string, deps: ClaimPipeli
   await storeCorroboration(store, investigationId, corroborated.added, screenedAdded);
   // 5b. Timeline spine: claims grouped into periods, each with a summary written from its claims.
   token?.('- Writing the timeline (one summary per period)…\n');
-  const periods = await buildPeriods(claims, { topic: record.topic, ...(deps.json && { json: deps.json }) });
+  const periods = await buildPeriods(claims, { topic: record.topic, liveEvidenceIds: liveEvidenceIds(record.events), ...(deps.json && { json: deps.json }) });
   await store.setClaims(investigationId, { claims, links: built.links.filter((l) => claims.some((c) => c.id === l.from) && claims.some((c) => c.id === l.to)), entity: built.entity ?? record.entity, periods });
   if (manipulative.size) token?.(`- ${manipulative.size} corroborating source${manipulative.size === 1 ? '' : 's'} flagged as manipulative and left out of the claims.\n`);
 

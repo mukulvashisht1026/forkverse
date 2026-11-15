@@ -173,6 +173,16 @@ function claimDay(c: ClaimDto): string | undefined {
   return m ? [m[1], m[2], m[3]].filter(Boolean).join('-') : undefined;
 }
 
+const LIVE_SUFFIX = '~live';
+
+/** Same rule as backend claims/periods.ts liveDay: a monitor change is the claim's first report. */
+function liveDay(c: ClaimDto, liveIds: ReadonlySet<string>): string | undefined {
+  const first = c.evidence.filter((e) => (e.evidenceId.startsWith('mon-') || liveIds.has(e.evidenceId)) && e.publishedAt).map((e) => e.publishedAt!.slice(0, 10)).sort()[0];
+  if (!first) return undefined;
+  const day = claimDay(c);
+  return !day || day >= first.slice(0, day.length) ? first : undefined;
+}
+
 function labelOf(key: string): string {
   const [y, m, d] = key.split('-');
   if (!y || key === 'undated') return 'Undated';
@@ -194,26 +204,36 @@ function sourcesOf(claims: ClaimDto[]): ClaimSourceRef[] {
  * Periods for graphs built before the backend wrote them: same bucketing as backend
  * claims/periods.ts (year / month / day by span), summary composed from the claim statements.
  */
-export function fallbackPeriods(claims: ClaimDto[]): TimelinePeriodDto[] {
-  const days = claims.map(claimDay).filter((d): d is string => Boolean(d));
-  const years = new Set(days.map((d) => d.slice(0, 4)));
-  const months = new Set(days.filter((d) => d.length >= 7).map((d) => d.slice(0, 7)));
-  const len = years.size > 2 || months.size > 16 ? 4 : months.size > 1 || years.size > 1 ? 7 : 10;
+/** Evidence stored under live-update events (`evt-mon-…`), same as backend liveEvidenceIds. */
+export function liveEvidenceIds(events: readonly InvestigationEventDto[]): Set<string> {
+  return new Set(events.filter((e) => e.id.startsWith('evt-mon-')).flatMap((e) => e.evidence.map((x) => x.id)));
+}
+
+export function fallbackPeriods(claims: ClaimDto[], liveIds: ReadonlySet<string> = new Set()): TimelinePeriodDto[] {
+  const days = claims.filter((c) => !liveDay(c, liveIds)).map(claimDay).filter((d): d is string => Boolean(d)).sort();
+  const month = (d: string) => Number(d.slice(0, 4)) * 12 + Number(d.slice(5, 7) || 1) - 1;
+  const yearSpan = days.length ? Number(days.at(-1)!.slice(0, 4)) - Number(days[0]!.slice(0, 4)) : 0;
+  const monthSpan = days.length ? month(days.at(-1)!) - month(days[0]!) : 0;
+  const len = yearSpan >= 2 || monthSpan >= 16 ? 4 : monthSpan >= 1 ? 7 : 10;
   const groups = new Map<string, ClaimDto[]>();
   for (const c of claims) {
     const d = claimDay(c);
-    const key = d ? d.slice(0, Math.min(len, d.length)) : 'undated';
+    const live = liveDay(c, liveIds);
+    const key = live ? `${live}${LIVE_SUFFIX}` : d ? d.slice(0, Math.min(len, d.length)) : 'undated';
     (groups.get(key) ?? groups.set(key, []).get(key)!).push(c);
   }
   return [...groups.entries()]
     .sort(([a], [b]) => (a === 'undated' ? 1 : b === 'undated' ? -1 : a.localeCompare(b)))
-    .map(([key, list]) => {
+    .map(([rawKey, list]) => {
+      const live = rawKey.endsWith(LIVE_SUFFIX);
+      const key = rawKey.replace(LIVE_SUFFIX, '');
       const lead = [...list].sort((a, b) => Number(b.status === 'established') - Number(a.status === 'established') || b.evidence.length - a.evidence.length)[0]!;
       const est = list.filter((c) => c.status === 'established');
       const pend = list.filter((c) => c.status !== 'established');
       return {
-        id: `period-${key}`,
-        label: labelOf(key),
+        id: `period-${key}${live ? '-live' : ''}`,
+        label: live ? `Live · ${labelOf(key)}` : labelOf(key),
+        ...(live && { live: true }),
         granularity: key === 'undated' ? 'undated' : key.length === 4 ? 'year' : key.length === 7 ? 'month' : 'day',
         ...(key !== 'undated' && { start: key.length === 4 ? `${key}-01-01` : key.length === 7 ? `${key}-01` : key }),
         headline: lead.statement.replace(/\.$/, ''),
@@ -270,7 +290,7 @@ export function periodsToSpineNodes(periods: TimelinePeriodDto[], claims: ClaimD
       stockImpact: { summary: '', tickers: [] },
       publicAppeal: { sentimentLabel: '', positivePct: 0, neutralPct: 0, negativePct: 0, narrative: '' },
       scrapeEngine: 'manual' as const,
-      period: { label: p.label, headline: p.headline, sources: p.sources, established: p.established, unverified: p.unverified },
+      period: { label: p.label, headline: p.headline, sources: p.sources, established: p.established, unverified: p.unverified, ...(p.live && { live: true }) },
       branches: list.map((c) => claimToBranch(c, vetting)),
     };
   });

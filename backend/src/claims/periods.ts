@@ -38,18 +38,21 @@ function keyAt(day: string, g: Granularity): string {
 
 /** Finest granularity that keeps the timeline readable: year for multi-year stories, then month, then day. */
 export function chooseGranularity(claims: readonly Pick<ClaimDto, 'happenedAt' | 'occurredAt'>[]): Exclude<Granularity, 'undated'> {
-  const days = claims.map(claimDay).filter((d): d is string => Boolean(d));
+  const days = claims.map(claimDay).filter((d): d is string => Boolean(d)).sort();
   if (!days.length) return 'year';
-  const years = new Set(days.map((d) => d.slice(0, 4)));
-  if (years.size > 2) return 'year';
-  const months = new Set(days.filter((d) => d.length >= 7).map((d) => d.slice(0, 7)));
-  if (months.size > MAX_PERIODS) return 'year';
+  // Span (first to last), not the number of distinct values: 2016 and 2026 are ten years apart.
+  const yearSpan = Number(days.at(-1)!.slice(0, 4)) - Number(days[0]!.slice(0, 4));
+  if (yearSpan >= 2) return 'year';
+  const monthIndex = (d: string) => Number(d.slice(0, 4)) * 12 + Number(d.slice(5, 7) || 1) - 1;
+  const monthSpan = monthIndex(days.at(-1)!) - monthIndex(days[0]!);
+  if (monthSpan >= MAX_PERIODS) return 'year';
   const dayKeys = new Set(days.filter((d) => d.length >= 10));
-  if (months.size <= 2 && dayKeys.size > 1 && dayKeys.size <= MAX_PERIODS) return 'day';
-  return months.size > 1 || years.size > 1 ? 'month' : 'day';
+  if (monthSpan <= 1 && dayKeys.size > 1 && dayKeys.size <= MAX_PERIODS) return 'day';
+  return monthSpan >= 1 || yearSpan >= 1 ? 'month' : 'day';
 }
 
 export function periodLabel(key: string): string {
+  if (isLiveKey(key)) return `Live · ${periodLabel(baseKey(key))}`;
   const [y, m, d] = key.split('-');
   if (!y) return 'Undated';
   if (!m) return y;
@@ -57,7 +60,8 @@ export function periodLabel(key: string): string {
   return d ? `${Number(d)} ${MONTHS[mi]} ${y}` : `${MONTHS_LONG[mi]} ${y}`;
 }
 
-function granularityOf(key: string): Granularity {
+function granularityOf(rawKey: string): Granularity {
+  const key = baseKey(rawKey);
   return key === 'undated' ? 'undated' : key.length === 4 ? 'year' : key.length === 7 ? 'month' : 'day';
 }
 
@@ -71,18 +75,48 @@ export interface PeriodGroup {
  * coarser than the chosen granularity (only "2010" in a monthly timeline) gets its own coarser
  * period, placed before that year's months.
  */
-export function groupClaims(claims: readonly ClaimDto[]): PeriodGroup[] {
-  const g = chooseGranularity(claims);
+export function groupClaims(claims: readonly ClaimDto[], liveIds: ReadonlySet<string> = new Set()): PeriodGroup[] {
+  const g = chooseGranularity(claims.filter((c) => !liveDay(c, liveIds)));
   const map = new Map<string, ClaimDto[]>();
   for (const c of claims) {
     const day = claimDay(c);
-    const key = day ? keyAt(day, day.length < keyLength(g) ? (day.length === 4 ? 'year' : 'month') : g) : 'undated';
+    const live = liveDay(c, liveIds);
+    const key = live ? `${live}${LIVE_SUFFIX}` : day ? keyAt(day, day.length < keyLength(g) ? (day.length === 4 ? 'year' : 'month') : g) : 'undated';
     (map.get(key) ?? map.set(key, []).get(key)!).push(c);
   }
   return [...map.entries()]
     .sort(([a], [b]) => (a === 'undated' ? 1 : b === 'undated' ? -1 : a.localeCompare(b)))
     .map(([key, list]) => ({ key, claims: list }));
 }
+
+/**
+ * Evidence added by live tracking: in-place page changes have `mon-` ids (monitors/ingest.ts);
+ * new articles from feeds/sitemaps keep article ids, so callers pass the ids stored under
+ * live-update events (`evt-mon-…`, see liveEvidenceIds).
+ */
+const isLiveEvidence = (evidenceId: string, liveIds: ReadonlySet<string>) => evidenceId.startsWith('mon-') || liveIds.has(evidenceId);
+
+/** Ids of evidence stored under live-update events (created by MonitorService.ingest). */
+export function liveEvidenceIds(events: readonly { id: string; evidence: readonly { id: string }[] }[]): Set<string> {
+  return new Set(events.filter((e) => e.id.startsWith('evt-mon-')).flatMap((e) => e.evidence.map((x) => x.id)));
+}
+const LIVE_SUFFIX = '~live';
+
+/**
+ * Day of the live update a claim came from, or undefined. A claim is "live" when a monitor change
+ * is its first report (no stated or reported date before the change), so live updates get their
+ * own "Live · <day>" spine node; a live source that only re-confirms an older fact does not.
+ */
+export function liveDay(c: Pick<ClaimDto, 'evidence' | 'happenedAt' | 'occurredAt'>, liveIds: ReadonlySet<string> = new Set()): string | undefined {
+  const liveDays = c.evidence.filter((e) => isLiveEvidence(e.evidenceId, liveIds) && e.publishedAt).map((e) => e.publishedAt!.slice(0, 10)).sort();
+  const first = liveDays[0];
+  if (!first) return undefined;
+  const day = claimDay(c);
+  return !day || day >= first.slice(0, day.length) ? first : undefined;
+}
+
+const baseKey = (key: string) => key.replace(LIVE_SUFFIX, '');
+export const isLiveKey = (key: string) => key.endsWith(LIVE_SUFFIX);
 
 function keyLength(g: Granularity): number {
   return g === 'year' ? 4 : g === 'month' ? 7 : 10;
@@ -162,10 +196,10 @@ function listing(groups: readonly PeriodGroup[]): { text: string; labels: Map<st
 /** Build the timeline periods for a set of claims (one LLM call; deterministic fallback). */
 export async function buildPeriods(
   claims: readonly ClaimDto[],
-  deps: { topic: string; json?: JsonLlm },
+  deps: { topic: string; json?: JsonLlm; /** Evidence ids added by live tracking (liveEvidenceIds). */ liveEvidenceIds?: ReadonlySet<string> },
 ): Promise<TimelinePeriodDto[]> {
   if (!claims.length) return [];
-  const groups = groupClaims(claims);
+  const groups = groupClaims(claims, deps.liveEvidenceIds);
   const { text, labels } = listing(groups);
   const json = deps.json ?? defaultJsonLlm;
   let written: z.infer<typeof PeriodsOutput>['periods'] = [];
@@ -187,9 +221,11 @@ export async function buildPeriods(
       .slice(0, MAX_SENTENCES);
     const fb = fallbackText(g.claims);
     const llm = Boolean(out?.headline.trim() && sentences.length);
-    const day = g.key === 'undated' ? undefined : g.key.length === 4 ? `${g.key}-01-01` : g.key.length === 7 ? `${g.key}-01` : g.key;
+    const k = baseKey(g.key);
+    const day = k === 'undated' ? undefined : k.length === 4 ? `${k}-01-01` : k.length === 7 ? `${k}-01` : k;
     return {
-      id: `period-${g.key}`,
+      id: `period-${baseKey(g.key)}${isLiveKey(g.key) ? '-live' : ''}`,
+      ...(isLiveKey(g.key) && { live: true }),
       label: periodLabel(g.key === 'undated' ? '' : g.key),
       granularity: granularityOf(g.key),
       ...(day && { start: day }),
