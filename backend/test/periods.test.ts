@@ -159,3 +159,12 @@ describe('snapshot investigations', () => {
     expect((await planTopic('Taylor Swift controversies', down)).scope).toBe('timeline');
   });
 });
+
+describe('planner key terms', () => {
+  it('drops generic words that would let unrelated news through; keeps distinctive phrases', async () => {
+    const { distinctiveTerms } = await import('../src/research/planner.js');
+    expect(distinctiveTerms(['million', 'dollars', 'earn', 'make', 'Millionaire', 'success', 'first million'])).toEqual(['millionaire', 'first million']);
+    expect(distinctiveTerms(['weight loss', 'fast', 'strategies'])).toEqual(['weight loss']);
+    expect(distinctiveTerms(['Taylor Swift'])).toEqual(['taylor swift']);
+  });
+});

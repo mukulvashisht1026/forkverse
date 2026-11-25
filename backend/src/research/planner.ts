@@ -38,17 +38,39 @@ Return JSON only:
 
 mode = "politician" when the request is about a politician or political leader (their promises, statements, record); otherwise "news".
 For mode "politician", make the queries cover BOTH what they promised/announced (e.g. "<name> promises", "<name> pledged") AND whether it was delivered (e.g. "<name> promise fulfilled", "<name> government record <topic>").
-keyTerms: names/proper nouns or the core subject only (no generic words like "news", "new", "rules", "analysis").
+keyTerms: names/proper nouns or the core subject only, DISTINCTIVE enough that an unrelated article would not contain them.
+Never use generic words such as "news", "new", "rules", "analysis", "make", "earn", "get", "how", "best", "ways", "tips",
+"money", "people", "million", "billion", "dollars", "price". For how-to / advice requests use specific phrases instead,
+e.g. "millionaire", "first million", "$1 million", "passive income" - and make the queries target guides, explainers,
+expert advice and real success stories rather than general news.
 scope = "snapshot" when the request asks for information at ONE point in time, usually now: today's weather, the current price
 or rate, the latest score or result, what is happening right now, a status as of today. Then make the queries target current
 information (e.g. include "today" / "latest").
 scope = "timeline" when it asks how something developed or changed over a period: history, evolution, "since 2010", "over the
 years", controversies, a record, tracking a story, a person's statements over time. If unsure, use "timeline".`;
 
+/**
+ * Words that appear in almost any article: as a relevance key term they let unrelated news through
+ * (e.g. "make" / "million" for "how to make 1 million dollars").
+ */
+const GENERIC_TERMS = new Set([
+  'make', 'makes', 'making', 'made', 'earn', 'earns', 'earning', 'get', 'gets', 'getting', 'how', 'what', 'why', 'when', 'who',
+  'way', 'ways', 'best', 'top', 'tips', 'guide', 'new', 'news', 'latest', 'today', 'live', 'update', 'updates', 'money', 'people',
+  'thing', 'things', 'million', 'millions', 'billion', 'billions', 'thousand', 'dollar', 'dollars', 'price', 'prices', 'rules',
+  'analysis', 'report', 'reports', 'world', 'time', 'year', 'years', 'good', 'big', 'work', 'life',
+  'success', 'successful', 'wealth', 'rich', 'income', 'revenue', 'profit', 'fast', 'quick', 'easy', 'strategy', 'strategies',
+  'method', 'methods', 'steps', 'effective', 'plan', 'plans', 'growth', 'market', 'business', 'company', 'government',
+]);
+
+/** Distinctive key terms only (single generic words dropped; phrases like "first million" kept). */
+export function distinctiveTerms(terms: readonly string[]): string[] {
+  return [...new Set(terms.map((t) => t.trim().toLowerCase()).filter((t) => t.length >= 2 && !(GENERIC_TERMS.has(t))))];
+}
+
 /** Fallback when the LLM is unavailable: keep the user's words. */
 function fallbackPlan(raw: string): TopicPlanT {
   const title = raw.trim().replace(/\s+/g, ' ').slice(0, 80);
-  const words = title.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 4);
+  const words = title.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 4 && !GENERIC_TERMS.has(w));
   const snapshot = /\b(today|tonight|right now|currently|current|latest|live)\b/i.test(raw) && !/\b(history|over the years|since|timeline|evolution|controvers)/i.test(raw);
   return { title, mode: 'news', entity: null, queries: [title], keyTerms: words.slice(-2), scope: snapshot ? 'snapshot' : 'timeline' };
 }
@@ -60,7 +82,7 @@ export async function planTopic(raw: string, json: JsonLlm): Promise<TopicPlanT>
       { role: 'user', content: raw.slice(0, 500) },
     ]);
     const title = plan.title.trim().slice(0, 80) || fallbackPlan(raw).title;
-    const keyTerms = [...new Set(plan.keyTerms.map((t) => t.trim().toLowerCase()).filter((t) => t.length >= 2))].slice(0, 4);
+    const keyTerms = distinctiveTerms(plan.keyTerms).slice(0, 4);
     const queries = [...new Set(plan.queries.map((q) => q.trim()).filter(Boolean))].slice(0, 4);
     return {
       title,
